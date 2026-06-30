@@ -1,0 +1,172 @@
+import { NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/server'
+import { resolveAuthContext, apiSuccess, apiError } from '@/lib/utils/api'
+import { sendMessage } from '@/lib/whatsapp/client'
+import { buildDischargeSummaryMessage } from '@/lib/whatsapp/templates'
+import type { LanguageCode } from '@/types/enums'
+
+export const dynamic = 'force-dynamic'
+
+export async function POST(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const auth = await resolveAuthContext()
+  if (!auth.ok) return auth.response
+
+  const { profile } = auth
+  if (!['super_admin', 'hospital_admin', 'discharge_coordinator', 'nurse'].includes(profile.role)) {
+    return NextResponse.json(apiError('Forbidden'), { status: 403 })
+  }
+
+  const { id: episodeId } = await params
+  const supabase = await createClient()
+  const serviceClient = createServiceClient()
+
+  // Load episode + patient + hospital
+  const { data: episode } = await supabase
+    .from('care_episodes')
+    .select('id, hospital_id, patient_id, status')
+    .eq('id', episodeId)
+    .single()
+
+  if (!episode) return NextResponse.json(apiError('Episode not found'), { status: 404 })
+
+  if (!['pending_review', 'active'].includes(episode.status)) {
+    return NextResponse.json(
+      apiError('Episode must be pending_review or active to send discharge summary'),
+      { status: 409 },
+    )
+  }
+
+  const { data: summary } = await supabase
+    .from('discharge_summaries')
+    .select('*')
+    .eq('episode_id', episodeId)
+    .single()
+
+  if (!summary) return NextResponse.json(apiError('Discharge summary not found'), { status: 404 })
+  if (summary.status === 'sent') {
+    return NextResponse.json(apiError('Summary has already been sent to the patient'), { status: 409 })
+  }
+  if (summary.status !== 'approved') {
+    return NextResponse.json(
+      apiError('Summary must be approved before sending'),
+      { status: 409 },
+    )
+  }
+
+  // Load patient
+  const { data: patient } = await serviceClient
+    .from('patients')
+    .select('id, full_name, phone_e164, preferred_language')
+    .eq('id', episode.patient_id)
+    .single()
+
+  if (!patient) return NextResponse.json(apiError('Patient not found'), { status: 404 })
+  if (!patient.phone_e164) {
+    return NextResponse.json(apiError('Patient has no WhatsApp phone number'), { status: 422 })
+  }
+
+  // Load hospital for WhatsApp phone_number_id
+  const { data: hospital } = await serviceClient
+    .from('hospitals')
+    .select('id, name, whatsapp_phone_number_id')
+    .eq('id', episode.hospital_id)
+    .single()
+
+  if (!hospital?.whatsapp_phone_number_id) {
+    return NextResponse.json(
+      apiError('Hospital WhatsApp phone number is not configured'),
+      { status: 422 },
+    )
+  }
+
+  // Load medications
+  const { data: medications } = await supabase
+    .from('medications')
+    .select('*')
+    .eq('summary_id', summary.id)
+    .order('sort_order')
+
+  // Build and send the WhatsApp message
+  const msgPayload = buildDischargeSummaryMessage({
+    to: patient.phone_e164,
+    patientName: patient.full_name,
+    hospitalName: hospital.name,
+    language: (patient.preferred_language as LanguageCode) ?? 'en',
+    summary: summary as Parameters<typeof buildDischargeSummaryMessage>[0]['summary'],
+    medications: (medications ?? []) as Parameters<typeof buildDischargeSummaryMessage>[0]['medications'],
+  })
+
+  const result = await sendMessage(hospital.whatsapp_phone_number_id, msgPayload)
+
+  if (result.status === 'failed') {
+    return NextResponse.json(
+      apiError('WhatsApp send failed', result.error),
+      { status: 502 },
+    )
+  }
+
+  // Update summary status + episode
+  await supabase
+    .from('discharge_summaries')
+    .update({ status: 'sent' })
+    .eq('id', summary.id)
+
+  await supabase
+    .from('care_episodes')
+    .update({ status: 'active', started_at: new Date().toISOString() })
+    .eq('id', episodeId)
+
+  // Log outbound message
+  await serviceClient.from('whatsapp_messages').insert({
+    episode_id: episodeId,
+    hospital_id: episode.hospital_id,
+    wa_message_id: result.messageId,
+    direction: 'outbound',
+    message_type: 'text',
+    content: 'Discharge instructions sent',
+    status: 'sent',
+  })
+
+  // Timeline event
+  await supabase.from('patient_timeline_events').insert({
+    episode_id: episodeId,
+    hospital_id: episode.hospital_id,
+    event_type: 'summary_sent',
+    payload: {
+      summary_id: summary.id,
+      wa_message_id: result.messageId,
+      sent_by: profile.id,
+    },
+    created_by: profile.id,
+  })
+
+  // Auto-generate reminder schedules from medications if not already present
+  const { count } = await supabase
+    .from('reminder_schedules')
+    .select('id', { count: 'exact', head: true })
+    .eq('episode_id', episodeId)
+
+  if (!count || count === 0) {
+    const reminderRows = (medications ?? []).flatMap((med) =>
+      (med.reminder_times ?? []).map((time: string) => ({
+        episode_id: episodeId,
+        hospital_id: episode.hospital_id,
+        type: 'medication' as const,
+        scheduled_time: time,
+        medication_id: med.id,
+        message_template_key: 'medication_reminder_v1',
+        is_active: true,
+      })),
+    )
+
+    if (reminderRows.length > 0) {
+      await supabase.from('reminder_schedules').insert(reminderRows)
+    }
+  }
+
+  return NextResponse.json(apiSuccess({ waMessageId: result.messageId }))
+}
