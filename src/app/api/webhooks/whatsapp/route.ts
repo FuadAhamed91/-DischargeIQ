@@ -1,8 +1,5 @@
 import { NextResponse } from 'next/server'
-import {
-  verifyWebhookChallenge,
-  verifyWebhookSignature,
-} from '@/lib/whatsapp/client'
+import { verifyTwilioSignature } from '@/lib/whatsapp/client'
 import {
   parseWebhookPayload,
   extractPhoneNumberId,
@@ -12,63 +9,55 @@ import {
 export const dynamic = 'force-dynamic'
 
 // ------------------------------------
-// GET — Meta webhook verification
+// GET — Twilio does not send a challenge; just return 200
 // ------------------------------------
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url)
-
-  const challenge = verifyWebhookChallenge(
-    searchParams.get('hub.mode'),
-    searchParams.get('hub.verify_token'),
-    searchParams.get('hub.challenge'),
-  )
-
-  if (challenge === null) {
-    return new NextResponse('Forbidden', { status: 403 })
-  }
-
-  return new NextResponse(challenge, { status: 200 })
+export async function GET() {
+  return new NextResponse('OK', { status: 200 })
 }
 
 // ------------------------------------
-// POST — Inbound messages + status updates
+// POST — Inbound messages from Twilio
 // ------------------------------------
 export async function POST(request: Request) {
-  // Always respond 200 immediately so Meta doesn't retry
+  // Twilio sends application/x-www-form-urlencoded
   const rawBody = await request.text()
-  const signature = request.headers.get('x-hub-signature-256')
 
-  // Verify HMAC signature
-  const isValid = await verifyWebhookSignature(rawBody, signature)
+  // Parse form params into a plain object
+  const formParams = Object.fromEntries(new URLSearchParams(rawBody).entries())
+
+  // Verify Twilio signature (HMAC-SHA1)
+  const webhookUrl =
+    (process.env.NEXT_PUBLIC_APP_URL ?? '') + '/api/webhooks/whatsapp'
+  const signature = request.headers.get('x-twilio-signature')
+
+  const isValid = await verifyTwilioSignature(webhookUrl, formParams, signature)
   if (!isValid) {
-    console.warn('[WhatsApp webhook] Invalid signature — rejected')
-    return new NextResponse('Forbidden', { status: 403 })
+    // Log and continue in dev (signature fails on localhost tunnels)
+    // In production the header must be present and valid
+    const isDev = process.env.NODE_ENV === 'development'
+    if (!isDev) {
+      console.warn('[Twilio webhook] Invalid signature — rejected')
+      return new NextResponse('Forbidden', { status: 403 })
+    }
+    console.warn('[Twilio webhook] Invalid signature — allowed in dev mode')
   }
 
-  let body: Record<string, unknown>
-  try {
-    body = JSON.parse(rawBody) as Record<string, unknown>
-  } catch {
-    return new NextResponse('Bad Request', { status: 400 })
-  }
-
-  // Extract the phone number ID that received the message
-  const phoneNumberId = extractPhoneNumberId(body)
+  // Extract the Twilio sandbox number ("To" field → identifies the hospital)
+  const phoneNumberId = extractPhoneNumberId(formParams)
   if (!phoneNumberId) {
-    // Status update or unknown shape — acknowledge and ignore
     return NextResponse.json({ ok: true })
   }
 
-  // Parse messages from the payload
-  const messages = parseWebhookPayload(body)
+  // Parse the Twilio payload into our normalised format
+  const messages = parseWebhookPayload(formParams)
 
-  // Process each message asynchronously (non-blocking)
-  // In production use Vercel waitUntil or a job queue for longer tasks
+  // Process each message asynchronously (fire-and-forget)
   for (const msg of messages) {
     handleInboundMessage(phoneNumberId, msg).catch((err) => {
-      console.error('[WhatsApp webhook] handler error:', err)
+      console.error('[Twilio webhook] handler error:', err)
     })
   }
 
+  // Twilio expects a 200 response (optionally with TwiML, but empty JSON is fine)
   return NextResponse.json({ ok: true })
 }

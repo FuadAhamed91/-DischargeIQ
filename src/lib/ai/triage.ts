@@ -2,7 +2,7 @@
  * Voice triage engine.
  *
  * Pipeline:
- *  1. Download audio from Meta media API → Buffer
+ *  1. Download audio from Twilio media URL → Buffer
  *  2. Transcribe with OpenAI Whisper
  *  3. Classify risk with Gemini 2.5 Flash against patient's known emergency symptoms
  *  4. Return structured triage result
@@ -25,24 +25,20 @@ export interface TriageResult {
 }
 
 /**
- * Downloads a WhatsApp media file and returns it as a Buffer.
+ * Downloads a Twilio WhatsApp media file using Basic Auth (Account SID + Auth Token).
  */
-export async function downloadWhatsAppMedia(mediaId: string): Promise<Buffer> {
-  const token = process.env.WHATSAPP_TOKEN
-  if (!token) throw new Error('WHATSAPP_TOKEN not set')
+export async function downloadTwilioMedia(mediaUrl: string): Promise<Buffer> {
+  const sid = process.env.TWILIO_ACCOUNT_SID
+  const token = process.env.TWILIO_AUTH_TOKEN
+  if (!sid || !token) throw new Error('TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN not set')
 
-  // Step 1: Get the media URL
-  const urlRes = await fetch(`https://graph.facebook.com/v19.0/${mediaId}`, {
-    headers: { Authorization: `Bearer ${token}` },
+  const auth = Buffer.from(`${sid}:${token}`).toString('base64')
+  const res = await fetch(mediaUrl, {
+    headers: { Authorization: `Basic ${auth}` },
   })
-  const urlJson = await urlRes.json() as { url?: string; error?: { message: string } }
-  if (!urlJson.url) throw new Error(`Media URL fetch failed: ${urlJson.error?.message}`)
 
-  // Step 2: Download the actual file
-  const fileRes = await fetch(urlJson.url, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  const arrayBuffer = await fileRes.arrayBuffer()
+  if (!res.ok) throw new Error(`Failed to download Twilio media: ${res.status}`)
+  const arrayBuffer = await res.arrayBuffer()
   return Buffer.from(arrayBuffer)
 }
 
@@ -127,12 +123,13 @@ Be conservative — when in doubt, escalate to YELLOW or RED.`
  * Full triage pipeline: download → transcribe → classify.
  */
 export async function triageVoiceNote(params: {
-  mediaId: string
+  audioUrl: string
+  audioMimeType?: string
   emergencySymptoms: string[]
   patientName: string
 }): Promise<TriageResult> {
-  const audioBuffer = await downloadWhatsAppMedia(params.mediaId)
-  const transcript = await transcribeAudio(audioBuffer)
+  const audioBuffer = await downloadTwilioMedia(params.audioUrl)
+  const transcript = await transcribeAudio(audioBuffer, params.audioMimeType ?? 'audio/ogg')
   return classifyRisk({
     transcript,
     emergencySymptoms: params.emergencySymptoms,

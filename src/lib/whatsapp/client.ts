@@ -1,20 +1,14 @@
 /**
- * Thin wrapper around the Meta WhatsApp Cloud API.
- * All outbound messages go through this client.
+ * Twilio WhatsApp client — replaces the Meta Cloud API integration.
  *
- * Docs: https://developers.facebook.com/docs/whatsapp/cloud-api
+ * Twilio sandbox: anyone who texts "join <keyword>" to the sandbox number
+ * can receive/send messages without Meta Business Verification.
+ *
+ * Docs: https://www.twilio.com/docs/whatsapp/sandbox
  */
 
-const GRAPH_BASE = 'https://graph.facebook.com/v19.0'
-
-function getToken(): string {
-  const token = process.env.WHATSAPP_TOKEN
-  if (!token) throw new Error('WHATSAPP_TOKEN env var is not set')
-  return token
-}
-
 // ------------------------------------
-// Core message types
+// Core message types (same interface as before)
 // ------------------------------------
 
 export type TextMessage = {
@@ -73,169 +67,139 @@ export interface SendResult {
 }
 
 // ------------------------------------
-// Send helpers
+// Credentials
 // ------------------------------------
 
+function getCredentials() {
+  const sid = process.env.TWILIO_ACCOUNT_SID
+  const token = process.env.TWILIO_AUTH_TOKEN
+  const from = process.env.TWILIO_WHATSAPP_NUMBER // e.g. whatsapp:+14155238886
+  if (!sid || !token || !from) {
+    throw new Error('TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_WHATSAPP_NUMBER must be set')
+  }
+  return { sid, token, from }
+}
+
+// ------------------------------------
+// Send helper
+// ------------------------------------
+
+/**
+ * Sends a WhatsApp message via Twilio.
+ * The first param (_phoneNumberId) is kept for API compatibility but is not used —
+ * the sandbox number comes from TWILIO_WHATSAPP_NUMBER env var.
+ *
+ * Interactive button/list messages are automatically converted to plain text
+ * because Twilio sandbox does not support WhatsApp interactive messages.
+ */
 export async function sendMessage(
-  phoneNumberId: string,
+  _phoneNumberId: string,
   message: OutboundMessage,
 ): Promise<SendResult> {
-  const url = `${GRAPH_BASE}/${phoneNumberId}/messages`
-  const token = getToken()
+  const { sid, token, from } = getCredentials()
+  const to = message.to.startsWith('whatsapp:') ? message.to : `whatsapp:${message.to}`
 
-  let payload: Record<string, unknown>
+  // Build the plain-text body (Twilio sandbox supports text only)
+  let body: string
 
   switch (message.type) {
     case 'text':
-      payload = {
-        messaging_product: 'whatsapp',
-        to: message.to,
-        type: 'text',
-        text: { body: message.body, preview_url: message.previewUrl ?? false },
-      }
+      body = message.body
       break
 
     case 'template':
-      payload = {
-        messaging_product: 'whatsapp',
-        to: message.to,
-        type: 'template',
-        template: {
-          name: message.templateName,
-          language: { code: message.languageCode },
-          components: message.components ?? [],
-        },
-      }
+      // Templates aren't supported in Twilio sandbox; send a generic fallback
+      body = 'Message from your care team. Please reply with any questions.'
       break
 
-    case 'interactive_buttons':
-      payload = {
-        messaging_product: 'whatsapp',
-        to: message.to,
-        type: 'interactive',
-        interactive: {
-          type: 'button',
-          body: { text: message.body },
-          ...(message.footer ? { footer: { text: message.footer } } : {}),
-          action: {
-            buttons: message.buttons.map((b) => ({
-              type: 'reply',
-              reply: { id: b.id, title: b.title },
-            })),
-          },
-        },
-      }
+    case 'interactive_buttons': {
+      const options = message.buttons.map((b, i) => `${i + 1}. ${b.title}`).join('\n')
+      body = `${message.body}${message.footer ? `\n_${message.footer}_` : ''}\n\n${options}\n\nReply with the number of your choice.`
       break
+    }
 
-    case 'interactive_list':
-      payload = {
-        messaging_product: 'whatsapp',
-        to: message.to,
-        type: 'interactive',
-        interactive: {
-          type: 'list',
-          ...(message.header ? { header: { type: 'text', text: message.header } } : {}),
-          body: { text: message.body },
-          ...(message.footer ? { footer: { text: message.footer } } : {}),
-          action: {
-            button: message.buttonText,
-            sections: message.sections,
-          },
-        },
-      }
+    case 'interactive_list': {
+      const rows = message.sections.flatMap((s) => s.rows)
+      const options = rows.map((r, i) => `${i + 1}. ${r.title}`).join('\n')
+      body = `${message.body}\n\n${options}\n\nReply with the number of your choice.`
       break
+    }
   }
 
+  const auth = Buffer.from(`${sid}:${token}`).toString('base64')
+  const params = new URLSearchParams({ From: from, To: to, Body: body })
+
   try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
+    const res = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${auth}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params.toString(),
       },
-      body: JSON.stringify(payload),
-    })
+    )
 
-    const json = await res.json() as {
-      messages?: Array<{ id: string }>
-      error?: { message: string }
+    const json = await res.json() as { sid?: string; message?: string; code?: number }
+
+    if (!res.ok) {
+      return {
+        messageId: '',
+        status: 'failed',
+        error: json.message ?? `HTTP ${res.status}`,
+      }
     }
 
-    if (!res.ok || json.error) {
-      return { messageId: '', status: 'failed', error: json.error?.message ?? `HTTP ${res.status}` }
-    }
-
-    return { messageId: json.messages?.[0]?.id ?? '', status: 'success' }
+    return { messageId: json.sid ?? '', status: 'success' }
   } catch (err) {
     return { messageId: '', status: 'failed', error: String(err) }
   }
 }
 
 /**
- * Mark an inbound message as read (shows double blue ticks).
+ * Mark as read — not supported in Twilio WhatsApp; this is a no-op.
  */
 export async function markAsRead(
-  phoneNumberId: string,
-  messageId: string,
+  _phoneNumberId: string,
+  _messageId: string,
 ): Promise<void> {
-  const url = `${GRAPH_BASE}/${phoneNumberId}/messages`
-  const token = getToken()
-
-  await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      messaging_product: 'whatsapp',
-      status: 'read',
-      message_id: messageId,
-    }),
-  })
+  // Twilio does not expose read-receipt control via API
 }
 
 /**
- * Verify a Meta webhook challenge (GET request).
+ * Verifies the X-Twilio-Signature header using HMAC-SHA1.
+ *
+ * Algorithm:
+ *  1. Concatenate the full webhook URL with all POST params sorted alphabetically (key+value).
+ *  2. HMAC-SHA1 of that string using the Auth Token.
+ *  3. Base64 encode and compare to the header.
  */
-export function verifyWebhookChallenge(
-  mode: string | null,
-  token: string | null,
-  challenge: string | null,
-): string | null {
-  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN
-  if (mode === 'subscribe' && token === verifyToken) return challenge
-  return null
-}
-
-/**
- * Verify the HMAC-SHA256 signature of an inbound webhook payload.
- * Returns true if valid.
- */
-export async function verifyWebhookSignature(
-  rawBody: string,
+export async function verifyTwilioSignature(
+  webhookUrl: string,
+  params: Record<string, string>,
   signatureHeader: string | null,
 ): Promise<boolean> {
-  const secret = process.env.WHATSAPP_APP_SECRET
-  if (!secret) return false
-  if (!signatureHeader) return false
+  const authToken = process.env.TWILIO_AUTH_TOKEN
+  if (!authToken || !signatureHeader) return false
 
-  const sig = signatureHeader.startsWith('sha256=')
-    ? signatureHeader.slice(7)
-    : signatureHeader
+  const sortedKeys = Object.keys(params).sort()
+  let data = webhookUrl
+  for (const key of sortedKeys) {
+    data += key + (params[key] ?? '')
+  }
 
   const encoder = new TextEncoder()
   const key = await crypto.subtle.importKey(
     'raw',
-    encoder.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
+    encoder.encode(authToken),
+    { name: 'HMAC', hash: 'SHA-1' },
     false,
     ['sign'],
   )
-  const sigBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(rawBody))
-  const computed = Array.from(new Uint8Array(sigBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
+  const sigBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(data))
+  const computed = Buffer.from(sigBuffer).toString('base64')
 
-  return computed === sig
+  return computed === signatureHeader
 }

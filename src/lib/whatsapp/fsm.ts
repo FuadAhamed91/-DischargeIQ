@@ -24,9 +24,11 @@ export interface ParsedInbound {
   from: string               // E.164 phone number
   type: InboundMessageType
   text?: string
-  interactiveId?: string     // button/list reply ID
+  interactiveId?: string     // button/list reply ID (Meta only)
   interactiveTitle?: string
-  audioId?: string           // media object ID for voice notes
+  audioId?: string           // Meta media object ID (Meta only)
+  audioUrl?: string          // Twilio direct media URL
+  audioMimeType?: string     // e.g. audio/ogg, audio/mpeg
   timestamp: number
 }
 
@@ -60,6 +62,7 @@ export function transition(
   switch (state) {
     case 'awaiting_appointment_confirm': {
       const id = message.interactiveId ?? ''
+      // Meta interactive button replies
       if (id.startsWith('confirm_appt_')) {
         const appointmentId = id.replace('confirm_appt_', '')
         return { nextState: 'idle', action: 'confirm_appointment', appointmentId }
@@ -68,7 +71,14 @@ export function transition(
         const appointmentId = id.replace('reschedule_appt_', '')
         return { nextState: 'awaiting_slot_selection', action: 'start_reschedule', appointmentId }
       }
-      // Unexpected reply — treat as general text
+      // Twilio text replies ("1", "YES", "CONFIRM" = confirm; "2", "NO" = reschedule)
+      const textBody = (message.text ?? '').toUpperCase().trim()
+      if (textBody === '1' || textBody === 'YES' || textBody === 'CONFIRM') {
+        return { nextState: 'idle', action: 'confirm_appointment' }
+      }
+      if (textBody === '2' || textBody === 'NO' || textBody === 'RESCHEDULE') {
+        return { nextState: 'awaiting_slot_selection', action: 'start_reschedule' }
+      }
       return { nextState: 'idle', action: 'route_to_ai' }
     }
 
@@ -89,14 +99,13 @@ export function transition(
       if (interactiveId === 'symptom_concern') {
         return { nextState: 'idle', action: 'route_to_triage' }
       }
-      // Plain text reply to a reminder
+      // Plain text reply (Twilio) or text fallback
       const body = (message.text ?? '').toUpperCase().trim()
-      if (body === 'TAKEN' || body === 'DONE' || body === 'YES') {
-        return {
-          nextState: 'idle',
-          action: 'log_reminder_response',
-          reminderResponse: body,
-        }
+      if (body === 'TAKEN' || body === 'DONE' || body === 'YES' || body === '1') {
+        return { nextState: 'idle', action: 'log_reminder_response', reminderResponse: body }
+      }
+      if (body === '2' || body === 'CONCERN' || body === 'NO') {
+        return { nextState: 'idle', action: 'route_to_triage' }
       }
       return { nextState: 'idle', action: 'route_to_ai' }
     }

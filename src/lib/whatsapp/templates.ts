@@ -105,7 +105,7 @@ export function buildAppointmentConfirmationRequest(params: {
   patientName: string
   language: LanguageCode
   appointment: Appointment
-}): InteractiveButtonMessage {
+}): OutboundMessage {
   const { to, patientName, appointment } = params
 
   const date = new Date(appointment.scheduled_at)
@@ -117,15 +117,11 @@ export function buildAppointmentConfirmationRequest(params: {
   })
   const timeStr = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 
+  // Plain text for Twilio — patient replies "1" to confirm or "2" to reschedule
   return {
-    type: 'interactive_buttons',
+    type: 'text',
     to,
-    body: `Hi ${patientName},\n\nYour *${appointment.specialty}* follow-up appointment is scheduled for:\n📅 *${dateStr}* at *${timeStr}*\n📍 ${appointment.location ?? 'Hospital main clinic'}\n\nCan you confirm you will attend?`,
-    footer: 'Reply YES to confirm or NO to reschedule',
-    buttons: [
-      { id: `confirm_appt_${appointment.id}`, title: '✅ Yes, I confirm' },
-      { id: `reschedule_appt_${appointment.id}`, title: '🔄 Need to reschedule' },
-    ],
+    body: `Hi ${patientName},\n\nYour *${appointment.specialty}* follow-up appointment is scheduled for:\n📅 *${dateStr}* at *${timeStr}*\n📍 ${appointment.location ?? 'Hospital main clinic'}\n\nReply *1* to confirm ✅\nReply *2* to reschedule 🔄`,
   }
 }
 
@@ -206,18 +202,14 @@ export function buildSymptomCheckReminder(params: {
   to: string
   patientName: string
   language: LanguageCode
-}): InteractiveButtonMessage {
+}): OutboundMessage {
   const { to, patientName } = params
 
+  // Plain text for Twilio — patient replies "1" for OK or "2" for concern
   return {
-    type: 'interactive_buttons',
+    type: 'text',
     to,
-    body: `Hi ${patientName} 👋\n\nHow are you feeling today?\n\nIf you have any concerns, you can send us a *voice note* or *text message* and our care team will review it.`,
-    footer: '💙 DischargeIQ Care',
-    buttons: [
-      { id: 'symptom_good', title: '😊 Feeling good' },
-      { id: 'symptom_concern', title: '😟 I have a concern' },
-    ],
+    body: `Hi ${patientName} 👋\n\nHow are you feeling today?\n\nReply *1* if you are feeling good 😊\nReply *2* if you have a concern 😟\n\nOr send us a *voice note* and our care team will review it. 💙`,
   }
 }
 

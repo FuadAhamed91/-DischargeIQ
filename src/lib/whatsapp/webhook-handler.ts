@@ -1,14 +1,13 @@
 /**
- * Processes inbound WhatsApp webhook payloads.
+ * Processes inbound WhatsApp webhook payloads from Twilio.
  *
  * Responsibilities:
- *  1. Parse the Meta payload into a normalised ParsedInbound struct.
- *  2. Resolve the patient + episode by phone number and WhatsApp phone_number_id.
+ *  1. Parse the Twilio form-encoded payload into a normalised ParsedInbound struct.
+ *  2. Resolve the patient + episode by phone number and Twilio sandbox number.
  *  3. Persist the raw message in whatsapp_messages.
  *  4. Run the FSM to decide next action.
  *  5. Dispatch the action (confirm appt, log reminder, route to AI/triage).
  *  6. Persist the timeline event.
- *  7. Acknowledge read receipt.
  */
 
 import { createServiceClient } from '@/lib/supabase/server'
@@ -25,73 +24,55 @@ import { answerPatientQuestion } from '@/lib/ai/chat'
 import type { DischargeSummary, Medication } from '@/types/database'
 
 // ------------------------------------
-// Payload parsing
+// Payload parsing (Twilio form data)
 // ------------------------------------
 
-export function parseWebhookPayload(body: Record<string, unknown>): ParsedInbound[] {
-  const results: ParsedInbound[] = []
+/**
+ * Parses a Twilio WhatsApp webhook (application/x-www-form-urlencoded).
+ *
+ * Key Twilio fields:
+ *   From          = whatsapp:+971501234567
+ *   To            = whatsapp:+14155238886
+ *   Body          = message text
+ *   MessageSid    = SMxxxxxx
+ *   NumMedia      = number of attached media files
+ *   MediaUrl0     = URL to media (requires Twilio Basic Auth to download)
+ *   MediaContentType0 = e.g. audio/ogg, image/jpeg
+ */
+export function parseWebhookPayload(params: Record<string, string>): ParsedInbound[] {
+  const from = (params.From ?? '').replace('whatsapp:', '')
+  const sid = params.MessageSid ?? `twilio-${Date.now()}`
+  const body = params.Body ?? ''
+  const numMedia = parseInt(params.NumMedia ?? '0', 10)
+  const mediaUrl = params.MediaUrl0 ?? ''
+  const mediaContentType = params.MediaContentType0 ?? ''
 
-  const entry = (body.entry as Array<Record<string, unknown>>)?.[0]
-  if (!entry) return results
-
-  const changes = entry.changes as Array<Record<string, unknown>>
-  if (!changes) return results
-
-  for (const change of changes) {
-    const value = change.value as Record<string, unknown>
-    if (!value || (value.object as string) === 'whatsapp_business_account') {
-      // status update, not a message — skip
-    }
-
-    const messages = value.messages as Array<Record<string, unknown>>
-    if (!messages) continue
-
-    for (const msg of messages) {
-      const type = msg.type as string
-      const parsed: ParsedInbound = {
-        waMessageId: msg.id as string,
-        from: msg.from as string,
-        type: 'unknown',
-        timestamp: Number(msg.timestamp),
-      }
-
-      if (type === 'text') {
-        parsed.type = 'text'
-        parsed.text = (msg.text as Record<string, string>)?.body
-      } else if (type === 'interactive') {
-        parsed.type = 'interactive_reply'
-        const interactive = msg.interactive as Record<string, unknown>
-        const interType = interactive?.type as string
-        if (interType === 'button_reply') {
-          const reply = interactive.button_reply as Record<string, string>
-          parsed.interactiveId = reply.id
-          parsed.interactiveTitle = reply.title
-        } else if (interType === 'list_reply') {
-          const reply = interactive.list_reply as Record<string, string>
-          parsed.interactiveId = reply.id
-          parsed.interactiveTitle = reply.title
-        }
-      } else if (type === 'audio') {
-        parsed.type = 'audio'
-        parsed.audioId = (msg.audio as Record<string, string>)?.id
-      } else if (type === 'image') {
-        parsed.type = 'image'
-      } else if (type === 'document') {
-        parsed.type = 'document'
-      }
-
-      results.push(parsed)
-    }
+  const parsed: ParsedInbound = {
+    waMessageId: sid,
+    from,
+    type: 'unknown',
+    timestamp: Math.floor(Date.now() / 1000),
   }
 
-  return results
+  if (numMedia > 0 && mediaContentType.startsWith('audio/')) {
+    parsed.type = 'audio'
+    parsed.audioUrl = mediaUrl
+    parsed.audioMimeType = mediaContentType
+  } else if (body.trim() !== '') {
+    parsed.type = 'text'
+    parsed.text = body
+  }
+
+  return [parsed]
 }
 
-export function extractPhoneNumberId(body: Record<string, unknown>): string | null {
-  const entry = (body.entry as Array<Record<string, unknown>>)?.[0]
-  const change = (entry?.changes as Array<Record<string, unknown>>)?.[0]
-  const value = change?.value as Record<string, unknown>
-  return (value?.metadata as Record<string, string>)?.phone_number_id ?? null
+/**
+ * Extracts the Twilio sandbox number (the "To" field) to identify the hospital.
+ * Returns the number in E.164 format (without "whatsapp:" prefix).
+ */
+export function extractPhoneNumberId(params: Record<string, string>): string | null {
+  const to = params.To ?? ''
+  return to.replace('whatsapp:', '') || null
 }
 
 // ------------------------------------
@@ -182,11 +163,25 @@ export async function handleInboundMessage(
 
   switch (result.action) {
     case 'confirm_appointment': {
-      if (result.appointmentId) {
+      // appointmentId may be missing when patient typed "YES" (Twilio text reply)
+      let appointmentId = result.appointmentId
+      if (!appointmentId) {
+        const { data: pendingAppt } = await supabase
+          .from('appointments')
+          .select('id')
+          .eq('episode_id', episode.id)
+          .eq('status', 'pending_confirmation')
+          .order('scheduled_at', { ascending: true })
+          .limit(1)
+          .single()
+        appointmentId = pendingAppt?.id
+      }
+
+      if (appointmentId) {
         await supabase
           .from('appointments')
           .update({ status: 'confirmed', confirmed_at: new Date().toISOString() })
-          .eq('id', result.appointmentId)
+          .eq('id', appointmentId)
 
         await sendMessage(phoneNumberId, {
           type: 'text',
@@ -198,31 +193,41 @@ export async function handleInboundMessage(
           episode_id: episode.id,
           hospital_id: hospital.id,
           event_type: 'appointment_confirmed',
-          payload: { appointment_id: result.appointmentId, wa_message_id: message.waMessageId },
+          payload: { appointment_id: appointmentId, wa_message_id: message.waMessageId },
         })
       }
       break
     }
 
     case 'start_reschedule': {
-      if (result.appointmentId) {
-        const { data: appt } = await supabase
+      let appointmentId = result.appointmentId
+      if (!appointmentId) {
+        const { data: pendingAppt } = await supabase
           .from('appointments')
-          .select('specialty')
-          .eq('id', result.appointmentId)
+          .select('id')
+          .eq('episode_id', episode.id)
+          .eq('status', 'pending_confirmation')
+          .order('scheduled_at', { ascending: true })
+          .limit(1)
           .single()
+        appointmentId = pendingAppt?.id
+      }
 
-        // For now send a manual reschedule instruction (Phase 3 adds real slot fetching)
-        await sendMessage(phoneNumberId, {
-          type: 'text',
-          to: message.from,
-          body: `We understand, ${patient.full_name}. 🙏\n\nPlease contact the hospital to reschedule your *${appt?.specialty ?? 'follow-up'}* appointment, or reply with your preferred date and a nurse will assist you.`,
-        })
+      const specialty = appointmentId
+        ? (await supabase.from('appointments').select('specialty').eq('id', appointmentId).single()).data?.specialty
+        : 'follow-up'
 
+      await sendMessage(phoneNumberId, {
+        type: 'text',
+        to: message.from,
+        body: `We understand, ${patient.full_name}. 🙏\n\nPlease contact the hospital to reschedule your *${specialty ?? 'follow-up'}* appointment, or reply with your preferred date and a nurse will assist you.`,
+      })
+
+      if (appointmentId) {
         await supabase
           .from('appointments')
           .update({ status: 'reschedule_pending' })
-          .eq('id', result.appointmentId)
+          .eq('id', appointmentId)
       }
       break
     }
@@ -255,7 +260,7 @@ export async function handleInboundMessage(
         patientName: patient.full_name,
       }))
 
-      if (message.audioId) {
+      if (message.audioUrl) {
         try {
           // Load emergency symptoms from approved summary
           const { data: summary } = await supabase
@@ -265,7 +270,8 @@ export async function handleInboundMessage(
             .single()
 
           const triageResult = await triageVoiceNote({
-            mediaId: message.audioId,
+            audioUrl: message.audioUrl,
+            audioMimeType: message.audioMimeType,
             emergencySymptoms: (summary?.emergency_symptoms as string[]) ?? [],
             patientName: patient.full_name,
           })
