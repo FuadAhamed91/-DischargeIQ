@@ -29,12 +29,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Episodes', href: '/episodes', icon: FileText },
   { label: 'Appointments', href: '/appointments', icon: Calendar },
   { label: 'Alerts', href: '/alerts', icon: Bell },
-  {
-    label: 'Analytics',
-    href: '/analytics',
-    icon: BarChart3,
-    roles: ['super_admin', 'hospital_admin', 'discharge_coordinator', 'case_manager', 'read_only'],
-  },
+  { label: 'Analytics', href: '/analytics', icon: BarChart3 },
   { label: 'Settings', href: '/settings', icon: Settings },
 ]
 

@@ -1,0 +1,35 @@
+'use client'
+
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from 'recharts'
+
+interface DataPoint {
+  date: string
+  adherence: number
+  responseRate: number
+}
+
+export function ComplianceChart({ data }: { data: DataPoint[] }) {
+  if (data.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-48 text-sm text-muted-foreground">
+        Compliance data will appear here as patients are monitored.
+      </div>
+    )
+  }
+
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <LineChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+        <XAxis dataKey="date" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+        <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
+        <Tooltip formatter={(value) => [`${value}%`]} contentStyle={{ borderRadius: '8px', fontSize: 12 }} />
+        <Legend wrapperStyle={{ fontSize: 12 }} />
+        <Line type="monotone" dataKey="adherence" name="Medication adherence" stroke="#1C0770" strokeWidth={2} dot={false} />
+        <Line type="monotone" dataKey="responseRate" name="Reminder response" stroke="#30D5C8" strokeWidth={2} dot={false} />
+      </LineChart>
+    </ResponsiveContainer>
+  )
+}
