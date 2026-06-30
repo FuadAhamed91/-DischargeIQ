@@ -11,7 +11,7 @@ export async function GET(request: Request) {
   const { profile } = auth
   const { searchParams } = new URL(request.url)
   const status = searchParams.get('status') ?? 'open'
-  const riskLevel = searchParams.get('risk_level')
+  const severity = searchParams.get('severity')
   const limit = Math.min(parseInt(searchParams.get('limit') ?? '50'), 100)
 
   const supabase = await createClient()
@@ -19,9 +19,10 @@ export async function GET(request: Request) {
   let query = supabase
     .from('alerts')
     .select(`
-      id, type, message, risk_level, status, created_at, acknowledged_at,
+      id, type, severity, status, created_at, acknowledged_at,
       episode_id,
       care_episodes(
+        id, current_risk_level,
         patients(full_name, mrn)
       )
     `)
@@ -29,12 +30,8 @@ export async function GET(request: Request) {
     .order('created_at', { ascending: false })
     .limit(limit)
 
-  if (status !== 'all') {
-    query = query.eq('status', status)
-  }
-  if (riskLevel) {
-    query = query.eq('risk_level', riskLevel)
-  }
+  if (status !== 'all') query = query.eq('status', status)
+  if (severity) query = query.eq('severity', severity)
 
   const { data, error } = await query
   if (error) return NextResponse.json(apiError('Failed to load alerts', error.message), { status: 500 })

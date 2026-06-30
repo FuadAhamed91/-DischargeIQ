@@ -17,10 +17,11 @@ export default async function AlertsPage() {
   const { data: alerts } = await supabase
     .from('alerts')
     .select(`
-      id, type, message, risk_level, status, created_at,
+      id, type, severity, status, created_at,
       episode_id,
       care_episodes(
         id,
+        current_risk_level,
         patients(full_name, mrn)
       )
     `)

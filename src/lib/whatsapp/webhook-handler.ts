@@ -270,28 +270,32 @@ export async function handleInboundMessage(
             patientName: patient.full_name,
           })
 
-          // Persist voice artifact + triage
-          const { data: voiceArtifact } = await supabase
-            .from('voice_artifacts')
-            .insert({
-              episode_id: episode.id,
-              hospital_id: hospital.id,
-              message_id: savedMsg?.id ?? null,
-              audio_storage_path: `voice/${episode.id}/${message.audioId}`,
-              transcript: triageResult.transcript,
-            })
-            .select('id')
-            .single()
+          // Persist voice artifact (only if we have a saved message row)
+          let voiceArtifactId: string | null = null
+          if (savedMsg?.id) {
+            const { data: voiceArtifact } = await supabase
+              .from('voice_artifacts')
+              .insert({
+                episode_id: episode.id,
+                hospital_id: hospital.id,
+                message_id: savedMsg.id,
+                audio_storage_path: `voice/${episode.id}/${message.audioId}`,
+                transcript: triageResult.transcript,
+              })
+              .select('id')
+              .single()
+            voiceArtifactId = voiceArtifact?.id ?? null
+          }
 
           await supabase.from('triage_assessments').insert({
             episode_id: episode.id,
             hospital_id: hospital.id,
-            voice_artifact_id: voiceArtifact?.id ?? null,
-            transcript: triageResult.transcript,
+            voice_artifact_id: voiceArtifactId,
+            inbound_text: triageResult.transcript,
             risk_level: triageResult.riskLevel,
-            key_symptoms: triageResult.keySymptoms,
+            matched_symptoms: triageResult.keySymptoms,
             reasoning: triageResult.reasoning,
-            requires_immediate_attention: triageResult.requiresImmediateAttention,
+            model_version: 'gemini-2.5-flash',
           })
 
           // Update episode risk level
@@ -305,10 +309,8 @@ export async function handleInboundMessage(
             await supabase.from('alerts').insert({
               episode_id: episode.id,
               hospital_id: hospital.id,
-              type: 'symptom_reported',
-              message: `[${triageResult.riskLevel.toUpperCase()}] ${patient.full_name}: "${triageResult.transcript.slice(0, 200)}" — ${triageResult.reasoning}`,
-              risk_level: triageResult.riskLevel,
-              status: 'open',
+              type: triageResult.riskLevel === 'red' ? 'risk_red' : 'risk_yellow',
+              severity: triageResult.riskLevel === 'red' ? 'critical' : 'medium',
             })
           }
 
@@ -379,22 +381,20 @@ export async function handleInboundMessage(
           await supabase.from('alerts').insert({
             episode_id: episode.id,
             hospital_id: hospital.id,
-            type: 'patient_question',
-            message: `Patient asked: "${text.slice(0, 300)}" — AI escalated: ${chatResult.escalationReason ?? 'low confidence'}`,
-            risk_level: 'green',
-            status: 'open',
+            type: 'escalation',
+            severity: 'low',
           })
         }
 
         await supabase.from('ai_interactions').insert({
           episode_id: episode.id,
           hospital_id: hospital.id,
-          direction: 'inbound',
+          input_type: 'text',
           model: 'gemini-2.5-flash',
           input_text: text,
           output_text: chatResult.answer,
-          confidence_score: chatResult.confidence === 'high' ? 0.9 : chatResult.confidence === 'medium' ? 0.6 : 0.3,
-          was_escalated: chatResult.shouldEscalate,
+          confidence: chatResult.confidence === 'high' ? 0.9 : chatResult.confidence === 'medium' ? 0.6 : 0.3,
+          escalated: chatResult.shouldEscalate,
         })
       } catch (err) {
         console.error('[AI chat] failed:', err)
@@ -406,10 +406,8 @@ export async function handleInboundMessage(
         await supabase.from('alerts').insert({
           episode_id: episode.id,
           hospital_id: hospital.id,
-          type: 'patient_question',
-          message: text.slice(0, 500),
-          risk_level: 'green',
-          status: 'open',
+          type: 'escalation',
+          severity: 'low',
         })
       }
 
@@ -437,7 +435,8 @@ export async function handleInboundMessage(
     await supabase.from('whatsapp_conversations').insert({
       episode_id: episode.id,
       hospital_id: hospital.id,
-      patient_phone: message.from,
+      patient_id: patient.id,
+      wa_phone: message.from,
       conversation_state: result.nextState,
     })
   }
