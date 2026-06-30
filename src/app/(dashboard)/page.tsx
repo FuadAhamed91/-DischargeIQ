@@ -1,10 +1,12 @@
 export const dynamic = 'force-dynamic'
 
+import Link from 'next/link'
 import { requireSession } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Users, Bell, CalendarCheck, TrendingUp } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { RealtimeAlertsBanner } from '@/components/alerts/realtime-alerts-banner'
+import { RecentAlerts } from '@/components/alerts/recent-alerts'
 
 export const metadata = { title: 'Overview' }
 
@@ -12,34 +14,24 @@ export default async function OverviewPage() {
   const { profile } = await requireSession()
   const supabase = await createClient()
 
-  // Active patients count
-  const { count: activePatients } = await supabase
-    .from('care_episodes')
-    .select('*', { count: 'exact', head: true })
-    .eq('hospital_id', profile.hospital_id)
-    .eq('status', 'active')
+  const [
+    { count: activePatients },
+    { count: openAlerts },
+    { count: redAlerts },
+    { count: pendingAppointments },
+  ] = await Promise.all([
+    supabase.from('care_episodes').select('*', { count: 'exact', head: true }).eq('hospital_id', profile.hospital_id).eq('status', 'active'),
+    supabase.from('alerts').select('*', { count: 'exact', head: true }).eq('hospital_id', profile.hospital_id).eq('status', 'open'),
+    supabase.from('alerts').select('*', { count: 'exact', head: true }).eq('hospital_id', profile.hospital_id).eq('status', 'open').eq('risk_level', 'red'),
+    supabase.from('appointments').select('*', { count: 'exact', head: true }).eq('hospital_id', profile.hospital_id).eq('status', 'confirmation_pending'),
+  ])
 
-  // Open alerts count
-  const { count: openAlerts } = await supabase
+  const { data: recentAlerts } = await supabase
     .from('alerts')
-    .select('*', { count: 'exact', head: true })
+    .select(`id, type, message, risk_level, status, created_at, episode_id, care_episodes(id, patients(full_name, mrn))`)
     .eq('hospital_id', profile.hospital_id)
-    .eq('status', 'open')
-
-  // Critical alerts count
-  const { count: criticalAlerts } = await supabase
-    .from('alerts')
-    .select('*', { count: 'exact', head: true })
-    .eq('hospital_id', profile.hospital_id)
-    .eq('status', 'open')
-    .eq('severity', 'critical')
-
-  // Appointments needing confirmation
-  const { count: pendingAppointments } = await supabase
-    .from('appointments')
-    .select('*', { count: 'exact', head: true })
-    .eq('hospital_id', profile.hospital_id)
-    .eq('status', 'confirmation_pending')
+    .order('created_at', { ascending: false })
+    .limit(5)
 
   const stats = [
     {
@@ -48,14 +40,16 @@ export default async function OverviewPage() {
       icon: Users,
       color: 'text-[#1C0770]',
       bg: 'bg-[#F0EDFF]',
+      href: '/patients',
     },
     {
       label: 'Open Alerts',
       value: openAlerts ?? 0,
       icon: Bell,
-      color: criticalAlerts ? 'text-red-600' : 'text-amber-600',
-      bg: criticalAlerts ? 'bg-red-50' : 'bg-amber-50',
-      badge: criticalAlerts ? `${criticalAlerts} critical` : undefined,
+      color: (redAlerts ?? 0) > 0 ? 'text-red-600' : 'text-amber-600',
+      bg: (redAlerts ?? 0) > 0 ? 'bg-red-50' : 'bg-amber-50',
+      href: '/alerts',
+      urgent: (redAlerts ?? 0) > 0,
     },
     {
       label: 'Pending Confirmations',
@@ -63,6 +57,7 @@ export default async function OverviewPage() {
       icon: CalendarCheck,
       color: 'text-[#1C0770]',
       bg: 'bg-[#F0EDFF]',
+      href: '/appointments',
     },
     {
       label: 'Compliance Score',
@@ -76,6 +71,9 @@ export default async function OverviewPage() {
 
   return (
     <div className="space-y-6">
+      {/* Realtime RED alert banner */}
+      <RealtimeAlertsBanner hospitalId={profile.hospital_id} initialRedCount={redAlerts ?? 0} />
+
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Overview</h1>
         <p className="text-muted-foreground text-sm mt-1">
@@ -87,42 +85,34 @@ export default async function OverviewPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((stat) => {
           const Icon = stat.icon
-          return (
-            <Card key={stat.label} className="border shadow-sm">
+          const card = (
+            <Card key={stat.label} className={`border shadow-sm transition-shadow hover:shadow-md ${stat.urgent ? 'ring-2 ring-red-400' : ''}`}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  {stat.label}
-                </CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">{stat.label}</CardTitle>
                 <div className={`p-2 rounded-lg ${stat.bg}`}>
                   <Icon className={`w-4 h-4 ${stat.color}`} />
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">{stat.value}</div>
-                {stat.badge && (
-                  <Badge variant="destructive" className="mt-1 text-xs">
-                    {stat.badge}
-                  </Badge>
-                )}
-                {stat.subtitle && (
-                  <p className="text-xs text-muted-foreground mt-1">{stat.subtitle}</p>
-                )}
+                <div className={`text-3xl font-bold ${stat.urgent ? 'text-red-600' : ''}`}>{stat.value}</div>
+                {stat.subtitle && <p className="text-xs text-muted-foreground mt-1">{stat.subtitle}</p>}
               </CardContent>
             </Card>
           )
+          return stat.href ? <Link key={stat.label} href={stat.href}>{card}</Link> : card
         })}
       </div>
 
-      {/* Placeholder for charts — built in Phase 5 */}
+      {/* Recent alerts + placeholder */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card className="border shadow-sm">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between pb-3">
             <CardTitle className="text-base">Recent Alerts</CardTitle>
+            <Link href="/alerts" className="text-xs text-[#1C0770] hover:underline">View all</Link>
           </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Alert feed will appear here. Coming in Phase 4.
-            </p>
+          <CardContent className="p-0">
+            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+            <RecentAlerts alerts={(recentAlerts ?? []) as any} hospitalId={profile.hospital_id} />
           </CardContent>
         </Card>
         <Card className="border shadow-sm">
@@ -130,9 +120,7 @@ export default async function OverviewPage() {
             <CardTitle className="text-base">Compliance Trends</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Analytics charts will appear here. Coming in Phase 5.
-            </p>
+            <p className="text-sm text-muted-foreground">Analytics charts coming in Phase 5.</p>
           </CardContent>
         </Card>
       </div>

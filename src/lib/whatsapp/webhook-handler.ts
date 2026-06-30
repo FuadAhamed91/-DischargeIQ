@@ -14,14 +14,15 @@
 import { createServiceClient } from '@/lib/supabase/server'
 import { sendMessage, markAsRead } from './client'
 import {
-  buildAppointmentConfirmationRequest,
-  buildSlotSelectionMessage,
   buildNotRegisteredMessage,
   buildEscalationAcknowledgement,
 } from './templates'
 import { transition } from './fsm'
 import type { ParsedInbound, ConversationState } from './fsm'
 import type { LanguageCode } from '@/types/enums'
+import { triageVoiceNote } from '@/lib/ai/triage'
+import { answerPatientQuestion } from '@/lib/ai/chat'
+import type { DischargeSummary, Medication } from '@/types/database'
 
 // ------------------------------------
 // Payload parsing
@@ -248,55 +249,175 @@ export async function handleInboundMessage(
     }
 
     case 'route_to_triage': {
+      // Always acknowledge immediately so patient isn't left waiting
+      await sendMessage(phoneNumberId, buildEscalationAcknowledgement({
+        to: message.from,
+        patientName: patient.full_name,
+      }))
+
       if (message.audioId) {
-        // Persist audio reference and queue async triage (Phase 4 adds real Whisper + Gemini)
-        await supabase.from('patient_timeline_events').insert({
-          episode_id: episode.id,
-          hospital_id: hospital.id,
-          event_type: 'whatsapp_inbound',
-          payload: {
-            type: 'audio',
-            audio_id: message.audioId,
-            wa_message_id: message.waMessageId,
-          },
-        })
-        await sendMessage(phoneNumberId, buildEscalationAcknowledgement({
-          to: message.from,
-          patientName: patient.full_name,
-        }))
-      } else {
-        await sendMessage(phoneNumberId, buildEscalationAcknowledgement({
-          to: message.from,
-          patientName: patient.full_name,
-        }))
+        try {
+          // Load emergency symptoms from approved summary
+          const { data: summary } = await supabase
+            .from('discharge_summaries')
+            .select('emergency_symptoms')
+            .eq('episode_id', episode.id)
+            .single()
+
+          const triageResult = await triageVoiceNote({
+            mediaId: message.audioId,
+            emergencySymptoms: (summary?.emergency_symptoms as string[]) ?? [],
+            patientName: patient.full_name,
+          })
+
+          // Persist voice artifact + triage
+          const { data: voiceArtifact } = await supabase
+            .from('voice_artifacts')
+            .insert({
+              episode_id: episode.id,
+              hospital_id: hospital.id,
+              message_id: savedMsg?.id ?? null,
+              audio_storage_path: `voice/${episode.id}/${message.audioId}`,
+              transcript: triageResult.transcript,
+            })
+            .select('id')
+            .single()
+
+          await supabase.from('triage_assessments').insert({
+            episode_id: episode.id,
+            hospital_id: hospital.id,
+            voice_artifact_id: voiceArtifact?.id ?? null,
+            transcript: triageResult.transcript,
+            risk_level: triageResult.riskLevel,
+            key_symptoms: triageResult.keySymptoms,
+            reasoning: triageResult.reasoning,
+            requires_immediate_attention: triageResult.requiresImmediateAttention,
+          })
+
+          // Update episode risk level
+          await supabase
+            .from('care_episodes')
+            .update({ current_risk_level: triageResult.riskLevel })
+            .eq('id', episode.id)
+
+          // Create alert for YELLOW and RED
+          if (triageResult.riskLevel !== 'green') {
+            await supabase.from('alerts').insert({
+              episode_id: episode.id,
+              hospital_id: hospital.id,
+              type: 'symptom_reported',
+              message: `[${triageResult.riskLevel.toUpperCase()}] ${patient.full_name}: "${triageResult.transcript.slice(0, 200)}" — ${triageResult.reasoning}`,
+              risk_level: triageResult.riskLevel,
+              status: 'open',
+            })
+          }
+
+          // RED: send urgent WhatsApp response
+          if (triageResult.riskLevel === 'red') {
+            await sendMessage(phoneNumberId, {
+              type: 'text',
+              to: message.from,
+              body: `🚨 *Important, ${patient.full_name}*\n\nBased on what you described, please seek emergency medical attention immediately or call emergency services.\n\nYour care team has been notified and will follow up urgently. 💙`,
+            })
+          }
+
+          await supabase.from('patient_timeline_events').insert({
+            episode_id: episode.id,
+            hospital_id: hospital.id,
+            event_type: 'triage_completed',
+            payload: {
+              risk_level: triageResult.riskLevel,
+              transcript: triageResult.transcript,
+              wa_message_id: message.waMessageId,
+            },
+          })
+        } catch (err) {
+          console.error('[Triage] failed:', err)
+          // Already sent acknowledgement above — no further action needed
+        }
       }
       break
     }
 
     case 'route_to_ai': {
-      // Phase 4 adds real Gemini Q&A; for now send a care-team escalation message
       const text = message.text ?? ''
+      try {
+        // Load discharge context
+        const { data: summary } = await supabase
+          .from('discharge_summaries')
+          .select('*, medications(*)')
+          .eq('episode_id', episode.id)
+          .single()
+
+        const { data: guidance } = await supabase
+          .from('hospital_approved_guidance')
+          .select('category, answer')
+          .eq('hospital_id', hospital.id)
+          .eq('is_active', true)
+
+        const chatResult = await answerPatientQuestion({
+          question: text,
+          patientName: patient.full_name,
+          language: (lang as string) ?? 'en',
+          summary: summary as unknown as DischargeSummary,
+          medications: (summary as unknown as { medications: Medication[] })?.medications ?? [],
+          approvedGuidance: (guidance ?? []).map((g) => ({
+            category: g.category as string,
+            answer: g.answer as Record<string, string>,
+          })),
+        })
+
+        // Send AI answer to patient
+        await sendMessage(phoneNumberId, {
+          type: 'text',
+          to: message.from,
+          body: chatResult.answer,
+        })
+
+        // Escalate to nurse if low confidence
+        if (chatResult.shouldEscalate) {
+          await supabase.from('alerts').insert({
+            episode_id: episode.id,
+            hospital_id: hospital.id,
+            type: 'patient_question',
+            message: `Patient asked: "${text.slice(0, 300)}" — AI escalated: ${chatResult.escalationReason ?? 'low confidence'}`,
+            risk_level: 'green',
+            status: 'open',
+          })
+        }
+
+        await supabase.from('ai_interactions').insert({
+          episode_id: episode.id,
+          hospital_id: hospital.id,
+          direction: 'inbound',
+          model: 'gemini-2.5-flash',
+          input_text: text,
+          output_text: chatResult.answer,
+          confidence_score: chatResult.confidence === 'high' ? 0.9 : chatResult.confidence === 'medium' ? 0.6 : 0.3,
+          was_escalated: chatResult.shouldEscalate,
+        })
+      } catch (err) {
+        console.error('[AI chat] failed:', err)
+        await sendMessage(phoneNumberId, {
+          type: 'text',
+          to: message.from,
+          body: `Thank you for your message, ${patient.full_name}. 💙\n\nA member of your care team will follow up with you shortly.\n\n_If this is urgent, please call emergency services._`,
+        })
+        await supabase.from('alerts').insert({
+          episode_id: episode.id,
+          hospital_id: hospital.id,
+          type: 'patient_question',
+          message: text.slice(0, 500),
+          risk_level: 'green',
+          status: 'open',
+        })
+      }
+
       await supabase.from('patient_timeline_events').insert({
         episode_id: episode.id,
         hospital_id: hospital.id,
-        event_type: 'whatsapp_inbound',
-        payload: { text, wa_message_id: message.waMessageId },
-      })
-
-      await sendMessage(phoneNumberId, {
-        type: 'text',
-        to: message.from,
-        body: `Thank you for your message, ${patient.full_name}. 💙\n\nYour question has been received and a member of your care team will follow up with you shortly.\n\n_If this is urgent, please call emergency services._`,
-      })
-
-      // Create a nurse alert for inbound text questions
-      await supabase.from('alerts').insert({
-        episode_id: episode.id,
-        hospital_id: hospital.id,
-        type: 'patient_question',
-        message: text.slice(0, 500),
-        risk_level: 'green',
-        status: 'open',
+        event_type: 'ai_response',
+        payload: { question: text, wa_message_id: message.waMessageId },
       })
       break
     }
