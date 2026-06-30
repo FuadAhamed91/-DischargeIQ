@@ -14,7 +14,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Badge } from '@/components/ui/badge'
+import { MobileNav } from '@/components/layout/mobile-nav'
 import type { Profile } from '@/types/database'
+import type { UserRole } from '@/types/enums'
 
 const ROLE_LABELS: Record<string, string> = {
   super_admin: 'Super Admin',
@@ -47,8 +49,8 @@ export function Header({ profile }: HeaderProps) {
     .toUpperCase()
 
   return (
-    <header className="h-16 border-b flex items-center justify-between px-6 shrink-0 bg-background">
-      <div />
+    <header className="h-16 border-b flex items-center justify-between px-4 md:px-6 shrink-0 bg-background">
+      <MobileNav role={profile.role as UserRole} />
 
       <div className="flex items-center gap-3">
         {/* Alert bell — will be wired to realtime in Phase 4 */}

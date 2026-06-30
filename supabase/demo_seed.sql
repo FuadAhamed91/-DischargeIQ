@@ -1,0 +1,342 @@
+-- ============================================================
+-- DischargeIQ — Demo Seed Data
+-- Run this in Supabase SQL Editor to populate the demo.
+-- Assumes hospital ID 00000000-0000-0000-0000-000000000001 exists.
+-- ============================================================
+
+-- ── PATIENTS ──────────────────────────────────────────────────────────
+
+INSERT INTO patients (id, hospital_id, mrn, full_name, phone_e164, preferred_language, date_of_birth)
+VALUES
+  ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'DGH-2024-001', 'Mohammed Al Rashidi',   '+971501234001', 'ar', '1968-03-14'),
+  ('10000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'DGH-2024-002', 'Priya Krishnamurthy',  '+971502234002', 'hi', '1975-07-22'),
+  ('10000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'DGH-2024-003', 'David Thompson',       '+971503234003', 'en', '1952-11-05'),
+  ('10000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', 'DGH-2024-004', 'Maria Santos',         '+971504234004', 'tl', '1983-01-30'),
+  ('10000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000001', 'DGH-2024-005', 'Fatima Al Mansoori',   '+971505234005', 'ar', '1991-09-18')
+ON CONFLICT (id) DO NOTHING;
+
+-- ── CARE EPISODES ─────────────────────────────────────────────────────
+
+INSERT INTO care_episodes (id, hospital_id, patient_id, status, discharge_date, current_risk_level, compliance_score, started_at)
+VALUES
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'active',    '2026-06-22', 'yellow', 72.0,  now() - interval '8 days'),
+  ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000002', 'active',    '2026-06-25', 'green',  88.5,  now() - interval '5 days'),
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003', 'active',    '2026-06-20', 'red',    51.0,  now() - interval '10 days'),
+  ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000004', 'active',    '2026-06-27', 'green',  94.0,  now() - interval '3 days'),
+  ('20000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000005', 'completed', '2026-06-10', 'green',  91.0,  now() - interval '20 days')
+ON CONFLICT (id) DO NOTHING;
+
+-- ── DISCHARGE SUMMARIES ───────────────────────────────────────────────
+
+INSERT INTO discharge_summaries (id, episode_id, hospital_id, status, source_language, approved_at,
+  emergency_symptoms, lifestyle_instructions, restrictions, activities)
+VALUES
+  -- Mohammed — Cardiac (YELLOW risk)
+  ('30000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001',
+   'sent', 'en', now() - interval '7 days',
+   '["Chest pain or tightness", "Shortness of breath at rest", "Swelling in legs or feet", "Irregular heartbeat", "Dizziness or fainting"]',
+   '["Rest for the first 48 hours", "Take all medications as prescribed", "Weigh yourself daily — alert us if you gain 2kg in 2 days", "Follow low-sodium diet", "No heavy lifting for 6 weeks"]',
+   '["No strenuous exercise for 6 weeks", "No driving for 4 weeks", "Limit salt intake to less than 2g per day", "No alcohol"]',
+   '["Short walks of 5-10 minutes, 3 times a day", "Gradually increase walking distance each week"]'),
+
+  -- Priya — Diabetes management (GREEN risk)
+  ('30000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001',
+   'sent', 'en', now() - interval '4 days',
+   '["Blood sugar below 4.0 mmol/L (hypoglycaemia)", "Blood sugar above 15 mmol/L", "Severe headache", "Confusion or disorientation", "Blurred vision that does not clear"]',
+   '["Check blood sugar before each meal and at bedtime", "Take insulin as instructed", "Eat at regular meal times", "Carry glucose tablets at all times", "Keep feet clean and dry — check daily for cuts or sores"]',
+   '["No skipping meals", "Avoid sugary drinks", "No barefoot walking"]',
+   '["30 minutes of light walking daily", "Gentle yoga or stretching"]'),
+
+  -- David — Hip replacement (RED risk)
+  ('30000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
+   'sent', 'en', now() - interval '9 days',
+   '["Severe pain not controlled by medication", "Redness, warmth, or swelling at surgical site", "Wound discharge or opening", "Fever above 38.5°C", "Sudden chest pain or difficulty breathing (sign of blood clot)"]',
+   '["Keep the wound dry for 2 weeks", "Use crutches as instructed", "Take blood thinner as prescribed — do not skip", "Attend physiotherapy appointments", "Sleep with pillow between knees"]',
+   '["No crossing legs", "Do not bend hip beyond 90 degrees", "No driving for 6 weeks", "No baths until wound heals"]',
+   '["Physiotherapy exercises as directed", "Gentle knee lifts and ankle circles in bed"]'),
+
+  -- Maria — C-section recovery (GREEN risk)
+  ('30000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001',
+   'sent', 'en', now() - interval '2 days',
+   '["Heavy bleeding (soaking more than one pad per hour)", "Signs of wound infection: redness, swelling, pus", "Fever above 38°C", "Severe abdominal pain", "Difficulty breathing"]',
+   '["Rest as much as possible — let others help", "Breastfeed every 2-3 hours", "Keep wound clean and dry", "Take iron supplements and vitamins as prescribed", "Stay well hydrated"]',
+   '["No heavy lifting for 6 weeks", "No driving for 6 weeks", "No strenuous exercise"]',
+   '["Short walks around the house", "Pelvic floor exercises when comfortable"]')
+ON CONFLICT (id) DO NOTHING;
+
+-- ── MEDICATIONS ──────────────────────────────────────────────────────
+
+INSERT INTO medications (id, summary_id, hospital_id, name, dosage, frequency, instructions, reminder_times, sort_order)
+VALUES
+  -- Mohammed (cardiac)
+  ('40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001',
+   'Bisoprolol', '5mg', 'Once daily', 'Take in the morning with water', '{08:00}', 1),
+  ('40000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001',
+   'Furosemide', '40mg', 'Once daily', 'Take in the morning — may cause frequent urination', '{08:00}', 2),
+  ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001',
+   'Aspirin', '100mg', 'Once daily', 'Take with food', '{13:00}', 3),
+  ('40000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001',
+   'Atorvastatin', '40mg', 'Once at night', 'Take at bedtime', '{22:00}', 4),
+
+  -- Priya (diabetes)
+  ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001',
+   'Metformin', '500mg', 'Twice daily', 'Take with meals to reduce stomach upset', '{08:00, 20:00}', 1),
+  ('40000000-0000-0000-0000-000000000006', '30000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001',
+   'Insulin Glargine', '20 units', 'Once at bedtime', 'Inject subcutaneously — rotate injection sites', '{22:00}', 2),
+
+  -- David (hip replacement)
+  ('40000000-0000-0000-0000-000000000007', '30000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
+   'Rivaroxaban', '10mg', 'Once daily', 'Take with evening meal — blood thinner, do not skip', '{20:00}', 1),
+  ('40000000-0000-0000-0000-000000000008', '30000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
+   'Paracetamol', '1g', 'Four times daily', 'Take regularly for pain control — do not exceed 4g per day', '{08:00, 12:00, 18:00, 22:00}', 2),
+  ('40000000-0000-0000-0000-000000000009', '30000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
+   'Omeprazole', '20mg', 'Once daily', 'Take 30 minutes before breakfast — protects stomach', '{07:30}', 3),
+
+  -- Maria (C-section)
+  ('40000000-0000-0000-0000-000000000010', '30000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001',
+   'Ibuprofen', '400mg', 'Three times daily', 'Take with food — for pain relief', '{08:00, 14:00, 20:00}', 1),
+  ('40000000-0000-0000-0000-000000000011', '30000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001',
+   'Ferrous Sulphate', '200mg', 'Once daily', 'Take on an empty stomach — iron supplement', '{10:00}', 2)
+ON CONFLICT (id) DO NOTHING;
+
+-- ── FOLLOW-UP REQUIREMENTS ────────────────────────────────────────────
+
+INSERT INTO follow_up_requirements (id, summary_id, hospital_id, specialty, deadline, instructions)
+VALUES
+  ('50000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001',
+   'Cardiology', '2026-07-20', 'ECG and echo review — bring all current medications'),
+  ('50000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001',
+   'Endocrinology', '2026-07-30', 'HbA1c blood test and insulin dosage review'),
+  ('50000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
+   'Orthopaedics', '2026-07-10', 'Wound check and X-ray — bring walking aid'),
+  ('50000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
+   'Physiotherapy', '2026-07-05', 'First physiotherapy session — wear comfortable clothing'),
+  ('50000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001',
+   'Obstetrics', '2026-07-15', '6-week postpartum check — bring baby for newborn review')
+ON CONFLICT (id) DO NOTHING;
+
+-- ── APPOINTMENTS ──────────────────────────────────────────────────────
+
+INSERT INTO appointments (id, episode_id, hospital_id, specialty, scheduled_at, location, status, confirmed_at)
+VALUES
+  ('60000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001',
+   'Cardiology', '2026-07-20 10:00:00+04', 'Cardiology Clinic, Floor 3', 'confirmed', now() - interval '5 days'),
+  ('60000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001',
+   'Endocrinology', '2026-07-30 09:00:00+04', 'Diabetes Centre, Ground Floor', 'confirmation_pending', null),
+  ('60000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
+   'Orthopaedics', '2026-07-10 11:30:00+04', 'Orthopaedic Clinic, Floor 2', 'confirmation_pending', null),
+  ('60000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
+   'Physiotherapy', '2026-07-05 08:00:00+04', 'Physiotherapy Department, Floor 1', 'missed', null),
+  ('60000000-0000-0000-0000-000000000005', '20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001',
+   'Obstetrics', '2026-07-15 10:00:00+04', 'Women''s Health Clinic, Floor 4', 'confirmed', now() - interval '1 day')
+ON CONFLICT (id) DO NOTHING;
+
+-- ── ALERTS ────────────────────────────────────────────────────────────
+
+INSERT INTO alerts (id, episode_id, hospital_id, type, severity, status, created_at)
+VALUES
+  -- David RED triage alert (critical)
+  ('70000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
+   'risk_red', 'critical', 'open', now() - interval '2 hours'),
+  -- Mohammed YELLOW (medium)
+  ('70000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001',
+   'risk_yellow', 'medium', 'open', now() - interval '1 day'),
+  -- David missed appointment
+  ('70000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
+   'missed_appointment', 'high', 'acknowledged', now() - interval '3 days'),
+  -- Priya escalation (already resolved)
+  ('70000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001',
+   'escalation', 'low', 'resolved', now() - interval '4 days')
+ON CONFLICT (id) DO NOTHING;
+
+-- ── TRIAGE ASSESSMENTS ───────────────────────────────────────────────
+
+INSERT INTO triage_assessments (id, episode_id, hospital_id, inbound_text, risk_level, matched_symptoms, reasoning, model_version, created_at)
+VALUES
+  -- David RED
+  ('80000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
+   'I have been having severe pain in my chest and I am finding it very hard to breathe. My leg is very swollen.',
+   'red',
+   '["Sudden chest pain", "Difficulty breathing", "Swelling in leg"]',
+   'Patient reports severe chest pain, difficulty breathing, and leg swelling — all matching emergency warning signs for post-surgical blood clot (DVT/PE). Immediate medical attention required.',
+   'gemini-2.5-flash', now() - interval '2 hours'),
+
+  -- Mohammed YELLOW
+  ('80000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001',
+   'I feel a little bit of palpitations and my feet are slightly more swollen than yesterday.',
+   'yellow',
+   '["Irregular heartbeat", "Swelling in feet"]',
+   'Patient reports mild palpitations and increased foot swelling — concerning but not immediately critical. Monitoring required.',
+   'gemini-2.5-flash', now() - interval '1 day'),
+
+  -- Mohammed GREEN (earlier)
+  ('80000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001',
+   'I feel okay today, just a little tired after the walk.',
+   'green',
+   '[]',
+   'Patient reports mild fatigue after exercise — expected post-cardiac recovery. No emergency symptoms identified.',
+   'gemini-2.5-flash', now() - interval '5 days'),
+
+  -- Priya GREEN
+  ('80000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001',
+   'My blood sugar was 6.2 before dinner, feeling fine.',
+   'green',
+   '[]',
+   'Patient reports normal blood sugar level and no symptoms. Stable condition.',
+   'gemini-2.5-flash', now() - interval '2 days')
+ON CONFLICT (id) DO NOTHING;
+
+-- ── AI INTERACTIONS ───────────────────────────────────────────────────
+
+INSERT INTO ai_interactions (id, episode_id, hospital_id, input_type, input_text, output_text, confidence, escalated, model, created_at)
+VALUES
+  ('90000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001',
+   'text',
+   'Can I take my Metformin after dinner instead of with dinner?',
+   'It is best to take Metformin with your meals as prescribed to reduce the chance of stomach upset. If you prefer to take it slightly after starting your meal rather than at the very beginning, that is generally fine. However, please try to keep it close to meal times. 😊',
+   0.9, false, 'gemini-2.5-flash', now() - interval '3 days'),
+
+  ('90000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001',
+   'text',
+   'I forgot to take my Aspirin this morning, what should I do?',
+   'According to your discharge instructions: if you missed a dose, take it as soon as you remember. However, if it is almost time for your next dose, skip the missed one — do not take a double dose. If you are unsure, please contact your care team. 💙',
+   0.85, false, 'gemini-2.5-flash', now() - interval '6 days'),
+
+  ('90000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001',
+   'text',
+   'Can I start driving again? I need to go to the pharmacy.',
+   'Based on your discharge summary, driving is not permitted for 4 weeks after your procedure. Your care team will need to clear you before you can drive again. Please ask a family member or friend to help, or consider a taxi or delivery service for now. 🙏',
+   0.92, false, 'gemini-2.5-flash', now() - interval '4 days'),
+
+  ('90000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
+   'text',
+   'The wound is looking a bit red around the edges, is that normal?',
+   'I''m sorry to hear that. Redness around the surgical wound is listed as one of your emergency warning signs. This could be a sign of infection. Please contact your care team immediately or go to the nearest emergency department. Do not wait. 🚨',
+   0.88, true, 'gemini-2.5-flash', now() - interval '1 day')
+ON CONFLICT (id) DO NOTHING;
+
+-- ── REMINDER SCHEDULES ─────────────────────────────────────────────────
+
+INSERT INTO reminder_schedules (id, episode_id, hospital_id, type, scheduled_time, medication_id, message_template_key, is_active)
+VALUES
+  ('A0000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'medication',      '08:00', '40000000-0000-0000-0000-000000000001', 'medication_reminder', true),
+  ('A0000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'medication',      '22:00', '40000000-0000-0000-0000-000000000004', 'medication_reminder', true),
+  ('A0000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'symptom_check',   '20:00', null, 'symptom_check', true),
+  ('A0000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'medication',      '08:00', '40000000-0000-0000-0000-000000000005', 'medication_reminder', true),
+  ('A0000000-0000-0000-0000-000000000005', '20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'medication',      '22:00', '40000000-0000-0000-0000-000000000006', 'medication_reminder', true),
+  ('A0000000-0000-0000-0000-000000000006', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'medication',      '20:00', '40000000-0000-0000-0000-000000000007', 'medication_reminder', true),
+  ('A0000000-0000-0000-0000-000000000007', '20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', 'medication',      '08:00', '40000000-0000-0000-0000-000000000010', 'medication_reminder', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- ── REMINDER JOBS (last 7 days — mix of sent and pending) ─────────────
+
+INSERT INTO reminder_jobs (id, schedule_id, episode_id, hospital_id, fire_at, status)
+VALUES
+  -- Mohammed reminders (mostly sent/responded)
+  ('B0000000-0000-0000-0000-000000000001', 'A0000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', now() - interval '7 days 16 hours', 'sent'),
+  ('B0000000-0000-0000-0000-000000000002', 'A0000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', now() - interval '6 days 16 hours', 'sent'),
+  ('B0000000-0000-0000-0000-000000000003', 'A0000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', now() - interval '5 days 16 hours', 'sent'),
+  ('B0000000-0000-0000-0000-000000000004', 'A0000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', now() - interval '4 days 16 hours', 'sent'),
+  ('B0000000-0000-0000-0000-000000000005', 'A0000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', now() - interval '3 days 16 hours', 'sent'),
+  ('B0000000-0000-0000-0000-000000000006', 'A0000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', now() - interval '2 days 16 hours', 'sent'),
+  ('B0000000-0000-0000-0000-000000000007', 'A0000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', now() - interval '1 day 16 hours', 'sent'),
+  -- Priya reminders (high adherence)
+  ('B0000000-0000-0000-0000-000000000008', 'A0000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', now() - interval '5 days 16 hours', 'sent'),
+  ('B0000000-0000-0000-0000-000000000009', 'A0000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', now() - interval '4 days 16 hours', 'sent'),
+  ('B0000000-0000-0000-0000-000000000010', 'A0000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', now() - interval '3 days 16 hours', 'sent'),
+  ('B0000000-0000-0000-0000-000000000011', 'A0000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', now() - interval '2 days 16 hours', 'sent'),
+  ('B0000000-0000-0000-0000-000000000012', 'A0000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', now() - interval '1 day 16 hours', 'sent'),
+  -- David reminders (some failed — lower compliance)
+  ('B0000000-0000-0000-0000-000000000013', 'A0000000-0000-0000-0000-000000000006', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', now() - interval '10 days 4 hours', 'sent'),
+  ('B0000000-0000-0000-0000-000000000014', 'A0000000-0000-0000-0000-000000000006', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', now() - interval '9 days 4 hours', 'failed'),
+  ('B0000000-0000-0000-0000-000000000015', 'A0000000-0000-0000-0000-000000000006', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', now() - interval '8 days 4 hours', 'sent'),
+  ('B0000000-0000-0000-0000-000000000016', 'A0000000-0000-0000-0000-000000000006', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', now() - interval '7 days 4 hours', 'failed')
+ON CONFLICT (id) DO NOTHING;
+
+-- ── PATIENT TIMELINE EVENTS ────────────────────────────────────────────
+
+INSERT INTO patient_timeline_events (episode_id, hospital_id, event_type, payload, risk_level, created_at)
+VALUES
+  -- Mohammed
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'discharge_uploaded', '{"filename": "discharge_summary_cardiac.pdf"}', null, now() - interval '8 days'),
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'extraction_completed', '{"medications_found": 4, "symptoms_found": 5}', null, now() - interval '8 days' + interval '5 minutes'),
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'summary_approved', '{}', null, now() - interval '7 days'),
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'summary_sent', '{}', null, now() - interval '7 days' + interval '10 minutes'),
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'reminder_response', '{"response": "yes", "medication": "Bisoprolol"}', null, now() - interval '6 days'),
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'reminder_response', '{"response": "yes", "medication": "Bisoprolol"}', null, now() - interval '5 days'),
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'triage_completed', '{"risk_level": "green", "transcript": "I feel okay today, just a little tired after the walk."}', 'green', now() - interval '5 days'),
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'ai_response', '{"question": "I forgot to take my Aspirin this morning, what should I do?"}', null, now() - interval '4 days'),
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'reminder_response', '{"response": "yes", "medication": "Bisoprolol"}', null, now() - interval '4 days'),
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'reminder_response', '{"response": "yes", "medication": "Bisoprolol"}', null, now() - interval '3 days'),
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'triage_completed', '{"risk_level": "yellow", "transcript": "I feel a little bit of palpitations and my feet are slightly more swollen than yesterday."}', 'yellow', now() - interval '1 day'),
+
+  -- Priya
+  ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'discharge_uploaded', '{"filename": "diabetes_discharge.pdf"}', null, now() - interval '5 days'),
+  ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'extraction_completed', '{"medications_found": 2, "symptoms_found": 5}', null, now() - interval '5 days' + interval '3 minutes'),
+  ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'summary_approved', '{}', null, now() - interval '4 days'),
+  ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'summary_sent', '{}', null, now() - interval '4 days' + interval '8 minutes'),
+  ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'reminder_response', '{"response": "yes", "medication": "Metformin"}', null, now() - interval '4 days'),
+  ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'ai_response', '{"question": "Can I take my Metformin after dinner instead of with dinner?"}', null, now() - interval '3 days'),
+  ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'reminder_response', '{"response": "yes", "medication": "Metformin"}', null, now() - interval '3 days'),
+  ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'reminder_response', '{"response": "yes", "medication": "Metformin"}', null, now() - interval '2 days'),
+  ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'triage_completed', '{"risk_level": "green", "transcript": "My blood sugar was 6.2 before dinner, feeling fine."}', 'green', now() - interval '2 days'),
+  ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'reminder_response', '{"response": "yes", "medication": "Metformin"}', null, now() - interval '1 day'),
+
+  -- David
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'discharge_uploaded', '{"filename": "hip_replacement_discharge.pdf"}', null, now() - interval '10 days'),
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'extraction_completed', '{"medications_found": 3, "symptoms_found": 5}', null, now() - interval '10 days' + interval '4 minutes'),
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'summary_approved', '{}', null, now() - interval '9 days'),
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'summary_sent', '{}', null, now() - interval '9 days' + interval '6 minutes'),
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'reminder_response', '{"response": "yes", "medication": "Rivaroxaban"}', null, now() - interval '8 days'),
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'ai_response', '{"question": "The wound is looking a bit red around the edges, is that normal?"}', null, now() - interval '1 day'),
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'triage_completed', '{"risk_level": "red", "transcript": "I have been having severe pain in my chest and I am finding it very hard to breathe. My leg is very swollen."}', 'red', now() - interval '2 hours'),
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'escalation_created', '{"reason": "RED triage — blood clot symptoms"}', 'red', now() - interval '2 hours'),
+
+  -- Maria
+  ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', 'discharge_uploaded', '{"filename": "csection_discharge.pdf"}', null, now() - interval '3 days'),
+  ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', 'extraction_completed', '{"medications_found": 2, "symptoms_found": 5}', null, now() - interval '3 days' + interval '2 minutes'),
+  ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', 'summary_approved', '{}', null, now() - interval '2 days'),
+  ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', 'summary_sent', '{}', null, now() - interval '2 days' + interval '5 minutes'),
+  ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', 'appointment_confirmed', '{"specialty": "Obstetrics", "scheduled_at": "2026-07-15T10:00:00+04"}', null, now() - interval '1 day'),
+  ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', 'reminder_response', '{"response": "yes", "medication": "Ibuprofen"}', null, now() - interval '1 day');
+
+-- ── COMPLIANCE SNAPSHOTS (14 days of trending data) ────────────────────
+
+INSERT INTO compliance_snapshots (episode_id, hospital_id, snapshot_date, medication_adherence, reminder_response_rate, symptom_checks_completed)
+VALUES
+  -- Mohammed (declining slightly then stable)
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', current_date - 13, 85, 80, 1),
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', current_date - 12, 80, 75, 1),
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', current_date - 11, 78, 72, 2),
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', current_date - 10, 75, 70, 1),
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', current_date - 9,  72, 68, 2),
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', current_date - 8,  74, 70, 1),
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', current_date - 7,  72, 72, 2),
+
+  -- Priya (high and improving)
+  ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', current_date - 4,  88, 85, 1),
+  ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', current_date - 3,  90, 88, 2),
+  ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', current_date - 2,  92, 90, 1),
+  ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', current_date - 1,  94, 92, 2),
+
+  -- David (low compliance)
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', current_date - 9,  62, 58, 1),
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', current_date - 8,  55, 50, 0),
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', current_date - 7,  50, 48, 1),
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', current_date - 6,  52, 50, 0),
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', current_date - 5,  48, 45, 2),
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', current_date - 4,  50, 48, 1),
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', current_date - 3,  51, 50, 1),
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', current_date - 2,  49, 46, 0),
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', current_date - 1,  51, 50, 2)
+ON CONFLICT (episode_id, snapshot_date) DO NOTHING;
+
+-- ── WHATSAPP CONVERSATIONS ─────────────────────────────────────────────
+
+INSERT INTO whatsapp_conversations (episode_id, hospital_id, patient_id, wa_phone, last_message_at, conversation_state)
+VALUES
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '+971501234001', now() - interval '1 day', '{"state": "idle"}'),
+  ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000002', '+971502234002', now() - interval '1 day', '{"state": "idle"}'),
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003', '+971503234003', now() - interval '2 hours',  '{"state": "idle"}'),
+  ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000004', '+971504234004', now() - interval '1 day', '{"state": "idle"}')
+ON CONFLICT (episode_id) DO NOTHING;
