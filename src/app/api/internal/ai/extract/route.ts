@@ -49,8 +49,39 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(await fileData.arrayBuffer())
     const pdfText = await extractTextFromPdf(buffer)
 
+    // Reject blank or near-empty PDFs before wasting an AI call
+    const wordCount = pdfText.trim().split(/\s+/).filter(Boolean).length
+    if (wordCount < 30) {
+      await supabase
+        .from('discharge_documents')
+        .update({ extraction_status: 'failed' })
+        .eq('id', document_id)
+      return NextResponse.json(
+        apiError('The uploaded PDF appears to be blank or contains too little text to extract discharge data. Please upload the actual discharge summary document.'),
+        { status: 422 },
+      )
+    }
+
     // AI extraction
     const extracted = await extractDischargeData(pdfText)
+
+    // Reject if AI found nothing meaningful
+    const hasMeaningfulContent =
+      extracted.medications.length > 0 ||
+      extracted.emergency_symptoms.length > 0 ||
+      extracted.lifestyle_instructions.length > 0 ||
+      extracted.restrictions.length > 0
+
+    if (!hasMeaningfulContent) {
+      await supabase
+        .from('discharge_documents')
+        .update({ extraction_status: 'failed' })
+        .eq('id', document_id)
+      return NextResponse.json(
+        apiError('No discharge information could be extracted from this document. Please check that you uploaded the correct file — it should contain medications, instructions, or emergency warning signs.'),
+        { status: 422 },
+      )
+    }
 
     // Store raw extraction on document
     await supabase

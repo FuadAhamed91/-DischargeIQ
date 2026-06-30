@@ -62,16 +62,28 @@ export function SummaryReviewForm({ episodeId, summary }: SummaryReviewFormProps
   }
 
   async function handleApprove() {
+    // Client-side guard — must have at least something meaningful
+    const hasMedications = medications.some((m) => m.name.trim() !== '')
+    const hasSymptoms = emergencySymptoms.some((s) => s.trim() !== '')
+    const hasInstructions = lifestyleInstructions.some((i) => i.trim() !== '')
+    const hasRestrictions = restrictions.some((r) => r.trim() !== '')
+
+    if (!hasMedications && !hasSymptoms && !hasInstructions && !hasRestrictions) {
+      toast.error('Cannot approve an empty summary. Please add at least one medication, emergency symptom, or instruction before approving.')
+      return
+    }
+
     setApproving(true)
     try {
       await handleSave()
       const res = await fetch(`/api/v1/episodes/${episodeId}/summary/approve`, { method: 'POST' })
-      if (!res.ok) throw new Error('Approval failed')
+      const json = await res.json() as { error?: string }
+      if (!res.ok) throw new Error(json.error ?? 'Approval failed')
       toast.success('Summary approved — ready to send to patient')
       setSummaryStatus('approved')
       router.refresh()
-    } catch {
-      toast.error('Failed to approve summary')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to approve summary')
     } finally {
       setApproving(false)
     }

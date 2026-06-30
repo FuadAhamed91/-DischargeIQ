@@ -21,7 +21,7 @@ export async function POST(
 
   const { data: summary } = await supabase
     .from('discharge_summaries')
-    .select('id, status, hospital_id')
+    .select('id, status, hospital_id, emergency_symptoms, lifestyle_instructions, restrictions, activities')
     .eq('episode_id', episodeId)
     .single()
 
@@ -31,6 +31,31 @@ export async function POST(
 
   if (summary.status === 'sent') {
     return NextResponse.json(apiError('Summary has already been sent to the patient'), { status: 409 })
+  }
+
+  // Verify the summary has meaningful content before approving
+  const { count: medicationCount } = await supabase
+    .from('medications')
+    .select('*', { count: 'exact', head: true })
+    .eq('summary_id', summary.id)
+
+  const symptoms = (summary.emergency_symptoms ?? []) as string[]
+  const instructions = (summary.lifestyle_instructions ?? []) as string[]
+  const restrictions = (summary.restrictions ?? []) as string[]
+  const activities = (summary.activities ?? []) as string[]
+
+  const hasContent =
+    (medicationCount ?? 0) > 0 ||
+    symptoms.length > 0 ||
+    instructions.length > 0 ||
+    restrictions.length > 0 ||
+    activities.length > 0
+
+  if (!hasContent) {
+    return NextResponse.json(
+      apiError('This summary has no content. Please add at least one medication, emergency symptom, or instruction before approving.'),
+      { status: 422 },
+    )
   }
 
   const { data: approved, error } = await supabase
