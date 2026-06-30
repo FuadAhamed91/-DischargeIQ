@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/reminders/dispatch",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 6 * * *"
     },
     {
       "path": "/api/cron/reminders/generate",
@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/cron/appointments/escalate",
-      "schedule": "0 */6 * * *"
+      "schedule": "0 8 * * *"
     }
   ]
 }
