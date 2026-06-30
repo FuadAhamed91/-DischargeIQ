@@ -101,7 +101,7 @@ export async function handleInboundMessage(
   phoneNumberId: string,
   message: ParsedInbound,
 ): Promise<void> {
-  const supabase = createServiceClient()
+  const supabase = await createServiceClient()
 
   // 1. Resolve hospital from phone_number_id
   const { data: hospital } = await supabase

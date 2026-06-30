@@ -22,7 +22,7 @@ export async function POST(
 
   const { id: episodeId } = await params
   const supabase = await createClient()
-  const serviceClient = createServiceClient()
+  const serviceClient = await createServiceClient()
 
   // Load episode + patient + hospital
   const { data: episode } = await supabase

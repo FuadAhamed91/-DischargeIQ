@@ -21,7 +21,7 @@ interface DispatchResult {
 }
 
 export async function dispatchDueReminders(): Promise<DispatchResult> {
-  const supabase = createServiceClient()
+  const supabase = await createServiceClient()
   const result: DispatchResult = { sent: 0, failed: 0, errors: [] }
 
   // Fetch all pending jobs that are due

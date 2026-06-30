@@ -18,7 +18,7 @@ interface GenerateResult {
  * For each active hospital, materialise reminder_jobs for the next 24 hours.
  */
 export async function generateNextDayJobs(): Promise<GenerateResult> {
-  const supabase = createServiceClient()
+  const supabase = await createServiceClient()
   const result: GenerateResult = { generated: 0, skipped: 0, errors: [] }
 
   // Load all active hospitals
@@ -95,16 +95,16 @@ export async function generateNextDayJobs(): Promise<GenerateResult> {
     if (jobs.length === 0) continue
 
     // Batch insert — ON CONFLICT on (schedule_id, fire_at) ensures idempotency
-    const { error: iErr, count } = await supabase
+    const { error: iErr, data: inserted } = await supabase
       .from('reminder_jobs')
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .upsert(jobs as any[], { onConflict: 'schedule_id,fire_at', ignoreDuplicates: true })
-      .select('id', { count: 'exact', head: true })
+      .select('id')
 
     if (iErr) {
       result.errors.push(`Hospital ${hospital.id} insert: ${iErr.message}`)
     } else {
-      result.generated += count ?? 0
+      result.generated += inserted?.length ?? 0
     }
   }
 
