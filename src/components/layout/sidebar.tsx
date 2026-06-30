@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   Users,
   FileText,
+  Calendar,
   Bell,
   BarChart3,
   Settings,
@@ -26,6 +27,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Overview', href: '/', icon: LayoutDashboard },
   { label: 'Patients', href: '/patients', icon: Users },
   { label: 'Episodes', href: '/episodes', icon: FileText },
+  { label: 'Appointments', href: '/appointments', icon: Calendar },
   { label: 'Alerts', href: '/alerts', icon: Bell },
   {
     label: 'Analytics',
