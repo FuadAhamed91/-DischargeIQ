@@ -1,6 +1,7 @@
-import OpenAI from 'openai'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
+const gemini = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
 export interface ExtractedMedication {
   name: string
@@ -75,29 +76,24 @@ export async function extractTextFromPdf(buffer: Buffer): Promise<string> {
 }
 
 /**
- * Sends extracted PDF text to GPT-4o for structured clinical data extraction.
+ * Sends extracted PDF text to Gemini 2.5 Flash for structured clinical data extraction.
  */
 export async function extractDischargeData(pdfText: string): Promise<ExtractionResult> {
   if (!pdfText || pdfText.length < 50) {
     throw new Error('PDF text is too short or empty. The document may be scanned/image-only.')
   }
 
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
-    temperature: 0,
-    response_format: { type: 'json_object' },
-    messages: [
-      { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
-      {
-        role: 'user',
-        content: `Extract structured discharge information from this document:\n\n${pdfText.slice(0, 12000)}`,
-      },
-    ],
-  })
+  const prompt = `${EXTRACTION_SYSTEM_PROMPT}\n\nExtract structured discharge information from this document:\n\n${pdfText.slice(0, 15000)}`
 
-  const content = response.choices[0]?.message?.content
+  const response = await gemini.generateContent(prompt)
+  const content = response.response.text().trim()
+
   if (!content) throw new Error('No response from extraction model')
 
-  const result = JSON.parse(content) as ExtractionResult
+  // Strip markdown code fences if present
+  const jsonMatch = content.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error('Extraction model returned invalid JSON')
+
+  const result = JSON.parse(jsonMatch[0]) as ExtractionResult
   return result
 }
