@@ -65,15 +65,13 @@ Rules:
 `.trim()
 
 /**
- * Extracts text from a PDF buffer using pdf-parse.
- * Falls back gracefully if the PDF is scanned/image-only.
+ * Extracts text from a PDF buffer using unpdf (serverless-compatible, no browser APIs needed).
  */
 export async function extractTextFromPdf(buffer: Buffer): Promise<string> {
-  // Dynamic import to avoid issues with Next.js edge runtime
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>
-  const data = await pdfParse(buffer)
-  return data.text.trim()
+  const { getDocumentProxy, extractText } = await import('unpdf')
+  const pdf = await getDocumentProxy(new Uint8Array(buffer))
+  const { text } = await extractText(pdf, { mergePages: true })
+  return text.trim()
 }
 
 /**
