@@ -65,13 +65,25 @@ export default function NewEpisodePage() {
         }),
       })
 
-      const patientData = await patientRes.json()
+      const patientData = await patientRes.json() as { data?: { id: string }; error?: string }
 
-      if (!patientRes.ok && patientRes.status !== 409) {
+      let pId: string | undefined = patientData.data?.id
+
+      if (patientRes.status === 409) {
+        // MRN already exists — look up the existing patient to get their ID
+        const lookupRes = await fetch(`/api/v1/patients?search=${encodeURIComponent(mrn)}&limit=1`)
+        const lookupData = await lookupRes.json() as { data?: Array<{ id: string; mrn: string }> }
+        const existing = lookupData.data?.find((p) => p.mrn === mrn)
+        if (!existing) {
+          throw new Error('A patient with this MRN already exists but could not be found. Please check the MRN.')
+        }
+        pId = existing.id
+        toast.info('Patient already registered — creating a new episode for them.')
+      } else if (!patientRes.ok) {
         throw new Error(patientData.error ?? 'Failed to create patient')
       }
 
-      const pId: string = patientData.data?.id
+      if (!pId) throw new Error('Could not determine patient ID. Please try again.')
       setPatientId(pId)
 
       // 2. Create care episode
