@@ -90,12 +90,7 @@ export default async function ReviewPage({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <DischargeUpload
-              episodeId={id}
-              onUploadComplete={() => {
-                // Handled client-side — page will refresh
-              }}
-            />
+            <DischargeUpload episodeId={id} />
           </CardContent>
         </Card>
       )}

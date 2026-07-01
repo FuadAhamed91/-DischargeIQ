@@ -8,7 +8,7 @@ import { toast } from 'sonner'
 
 interface DischargeUploadProps {
   episodeId: string
-  onUploadComplete: (documentId: string) => void
+  onUploadComplete?: (documentId: string) => void
 }
 
 type UploadState = 'idle' | 'uploading' | 'extracting' | 'done' | 'error'
@@ -71,7 +71,12 @@ export function DischargeUpload({ episodeId, onUploadComplete }: DischargeUpload
 
       setState('done')
       toast.success('Discharge summary extracted successfully')
-      onUploadComplete(documentId)
+      if (onUploadComplete) {
+        onUploadComplete(documentId)
+      } else {
+        // Default: reload the page so the review form appears
+        window.location.reload()
+      }
     } catch (err) {
       setState('error')
       toast.error(err instanceof Error ? err.message : 'Something went wrong')
