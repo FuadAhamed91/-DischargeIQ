@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Episodes' }
 
 import Link from 'next/link'
+import { NavLink } from '@/components/layout/nav-link'
 import { createClient } from '@/lib/supabase/server'
 import { requireSession } from '@/lib/auth/session'
 import { fmt } from '@/lib/format'
@@ -125,9 +126,9 @@ export default async function EpisodesPage({
                   return (
                     <TableRow key={ep.id} className="group relative hover:bg-muted/50 transition-colors">
                       <TableCell>
-                        <Link href={`/episodes/${ep.id}`} className="font-medium hover:underline focus-visible:underline after:absolute after:inset-0" aria-label={`Open episode for ${patient?.full_name ?? 'patient'}`}>
+                        <NavLink href={`/episodes/${ep.id}`} className="font-medium hover:underline focus-visible:underline after:absolute after:inset-0" aria-label={`Open episode for ${patient?.full_name ?? 'patient'}`}>
                           {patient?.full_name ?? 'Unknown patient'}
-                        </Link>
+                        </NavLink>
                         <div className="mt-0.5 flex items-center gap-2">
                           <Badge variant="outline" className="font-mono text-[11px]">{patient?.mrn ?? '—'}</Badge>
                           {patient && <LanguageBadge language={patient.preferred_language as LanguageCode} />}

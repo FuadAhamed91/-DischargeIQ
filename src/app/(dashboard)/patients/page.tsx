@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Patients' }
 
 import Link from 'next/link'
+import { NavLink } from '@/components/layout/nav-link'
 import { createClient } from '@/lib/supabase/server'
 import { requireSession } from '@/lib/auth/session'
 import { buttonVariants } from '@/components/ui/button'
@@ -121,9 +122,9 @@ export default async function PatientsPage({
                   <TableRow key={patient.id} className="group relative hover:bg-muted/50 transition-colors">
                     <TableCell>
                       {/* Whole row is the link (stretched pseudo-element); the name stays a real anchor for keyboard + screen readers */}
-                      <Link href={`/patients/${patient.id}`} className="font-medium hover:underline focus-visible:underline after:absolute after:inset-0" aria-label={`Open ${patient.full_name}`}>
+                      <NavLink href={`/patients/${patient.id}`} className="font-medium hover:underline focus-visible:underline after:absolute after:inset-0" aria-label={`Open ${patient.full_name}`}>
                         {patient.full_name}
-                      </Link>
+                      </NavLink>
                       <p className="text-xs text-muted-foreground tnum">{patient.phone_e164}</p>
                     </TableCell>
                     <TableCell>

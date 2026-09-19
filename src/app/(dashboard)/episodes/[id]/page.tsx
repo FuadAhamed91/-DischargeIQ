@@ -35,7 +35,20 @@ export default async function EpisodeDetailPage({
   const { id } = await params
   const supabase = await createClient()
 
-  const { data: episode } = await supabase
+  // Everything keys off the route id, so the episode row and its satellite
+  // queries go out together: one round trip instead of three.
+  const [
+    { data: episode },
+    { data: timelineEvents },
+    { data: triageAssessments },
+    { data: aiInteractions },
+    { data: reminderJobs },
+    { count: positiveResponses },
+    { data: appointments },
+    { data: conversation },
+    { data: transcriptRows },
+  ] = await Promise.all([
+    supabase
     .from('care_episodes')
     .select(`
       *,
@@ -51,20 +64,7 @@ export default async function EpisodeDetailPage({
       alerts(id, type, severity, status, created_at)
     `)
     .eq('id', id)
-    .single()
-
-  if (!episode) notFound()
-
-  // Timeline, triage assessments, AI interactions
-  const [
-    { data: timelineEvents },
-    { data: triageAssessments },
-    { data: aiInteractions },
-    { data: reminderJobs },
-    { count: positiveResponses },
-    { data: appointments },
-    { data: conversation },
-  ] = await Promise.all([
+    .single(),
     supabase.from('patient_timeline_events').select('id, event_type, payload, risk_level, created_at').eq('episode_id', id).order('created_at', { ascending: false }).limit(50),
     supabase.from('triage_assessments').select('id, risk_level, inbound_text, matched_symptoms, reasoning, created_at').eq('episode_id', id).order('created_at', { ascending: false }).limit(20),
     supabase.from('ai_interactions').select('id, input_text, output_text, confidence, escalated, model, created_at').eq('episode_id', id).order('created_at', { ascending: false }).limit(20),
@@ -72,17 +72,23 @@ export default async function EpisodeDetailPage({
     supabase.from('patient_timeline_events').select('*', { count: 'exact', head: true }).eq('episode_id', id).eq('event_type', 'reminder_response'),
     supabase.from('appointments').select('id, specialty, scheduled_at, status').eq('episode_id', id).order('scheduled_at', { ascending: true }),
     supabase.from('whatsapp_conversations').select('id, conversation_state, last_message_at').eq('episode_id', id).maybeSingle(),
+    // Transcript (oldest first, capped; the component streams new ones in) —
+    // joined through the conversation so it needs no second trip.
+    supabase
+      .from('whatsapp_messages')
+      .select('id, direction, message_type, content, status, metadata, created_at, whatsapp_conversations!inner(episode_id)')
+      .eq('whatsapp_conversations.episode_id', id)
+      .order('created_at', { ascending: true })
+      .limit(200),
   ])
 
-  // Conversation transcript (oldest first, capped; the component streams new ones in)
-  const { data: transcript } = conversation
-    ? await supabase
-        .from('whatsapp_messages')
-        .select('id, direction, message_type, content, status, metadata, created_at')
-        .eq('conversation_id', conversation.id)
-        .order('created_at', { ascending: true })
-        .limit(200)
-    : { data: [] as TranscriptMessage[] }
+  if (!episode) notFound()
+
+  const transcript: TranscriptMessage[] = (transcriptRows ?? []).map((row) => {
+    const { whatsapp_conversations, ...m } = row
+    void whatsapp_conversations
+    return m as TranscriptMessage
+  })
   const rawState = conversation?.conversation_state as unknown
   const conversationState =
     typeof rawState === 'string' ? rawState

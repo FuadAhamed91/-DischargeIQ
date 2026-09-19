@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
+import { NavLink } from '@/components/layout/nav-link'
 import { createClient } from '@/lib/supabase/client'
 import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -64,7 +64,7 @@ export function RecentAlerts({ alerts: initialAlerts, hospitalId, tz }: RecentAl
 
         return (
           <li key={alert.id}>
-            <Link
+            <NavLink
               href={`/episodes/${episodeId}`}
               className={cn(
                 'group flex items-center gap-3 px-5 py-3 transition-colors duration-200 hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none',
@@ -85,7 +85,7 @@ export function RecentAlerts({ alerts: initialAlerts, hospitalId, tz }: RecentAl
               </span>
               <SeverityBadge severity={sev} className="hidden sm:inline-flex" />
               <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
-            </Link>
+            </NavLink>
           </li>
         )
       })}

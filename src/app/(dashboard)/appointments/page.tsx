@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic'
 
-import Link from 'next/link'
+import { NavLink } from '@/components/layout/nav-link'
 import { createClient } from '@/lib/supabase/server'
 import { requireSession } from '@/lib/auth/session'
 import { Calendar, AlertCircle, ChevronRight } from 'lucide-react'
@@ -99,7 +99,7 @@ export default async function AppointmentsPage() {
                 )
                 const rowClass = 'group flex items-start gap-3 sm:items-center p-4 transition-colors duration-200 hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none'
                 return href ? (
-                  <Link key={appt.id} href={href} className={rowClass} aria-label={`${appt.specialty} appointment for ${patient?.full_name ?? 'patient'}`}>{inner}</Link>
+                  <NavLink key={appt.id} href={href} className={rowClass} aria-label={`${appt.specialty} appointment for ${patient?.full_name ?? 'patient'}`}>{inner}</NavLink>
                 ) : (
                   <div key={appt.id} className={rowClass}>{inner}</div>
                 )

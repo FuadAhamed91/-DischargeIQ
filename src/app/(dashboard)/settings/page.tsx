@@ -26,23 +26,21 @@ export default async function SettingsPage() {
   const { profile } = await requireSession()
   const supabase = await createClient()
 
-  const { data: hospital } = await supabase
-    .from('hospitals')
-    .select('name, slug, timezone, whatsapp_phone_number_id, settings, is_active, created_at')
-    .eq('id', profile.hospital_id)
-    .single()
-
-  const { data: department } = await supabase
-    .from('departments')
-    .select('name')
-    .eq('id', profile.department_id ?? '')
-    .single()
-
-  const { count: staffCount } = await supabase
-    .from('profiles')
-    .select('*', { count: 'exact', head: true })
-    .eq('hospital_id', profile.hospital_id)
-    .eq('is_active', true)
+  const [{ data: hospital }, { data: department }, { count: staffCount }] = await Promise.all([
+    supabase
+      .from('hospitals')
+      .select('name, slug, timezone, whatsapp_phone_number_id, settings, is_active, created_at')
+      .eq('id', profile.hospital_id)
+      .single(),
+    profile.department_id
+      ? supabase.from('departments').select('name').eq('id', profile.department_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+    supabase
+      .from('profiles')
+      .select('*', { count: 'exact', head: true })
+      .eq('hospital_id', profile.hospital_id)
+      .eq('is_active', true),
+  ])
 
   const hospitalSettings = (hospital?.settings ?? {}) as {
     languages?: string[]
