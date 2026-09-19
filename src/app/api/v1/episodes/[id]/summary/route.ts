@@ -109,11 +109,17 @@ export async function PATCH(
       .eq('id', summary.id)
   }
 
+  // Medications and follow-ups are replaced wholesale. The service client does
+  // it: the caller has already been authorised against the summary above, and
+  // follow_up_requirements has no DELETE policy for users, so a nurse-level
+  // delete silently removed nothing and every save duplicated the rows.
+  const serviceClient = await createServiceClient()
+
   // Update medications if provided
   if (medications) {
-    await supabase.from('medications').delete().eq('summary_id', summary.id)
+    await serviceClient.from('medications').delete().eq('summary_id', summary.id)
     if (medications.length > 0) {
-      await supabase.from('medications').insert(
+      await serviceClient.from('medications').insert(
         medications.map((m, i) => ({
           summary_id: summary.id,
           hospital_id: summary.hospital_id,
@@ -132,9 +138,9 @@ export async function PATCH(
   // appointments derived from them in step (nurse may have fixed a date or
   // removed a follow-up in review).
   if (follow_up_requirements) {
-    await supabase.from('follow_up_requirements').delete().eq('summary_id', summary.id)
+    await serviceClient.from('follow_up_requirements').delete().eq('summary_id', summary.id)
     if (follow_up_requirements.length > 0) {
-      await supabase.from('follow_up_requirements').insert(
+      await serviceClient.from('follow_up_requirements').insert(
         follow_up_requirements.map((f) => ({
           summary_id: summary.id,
           hospital_id: summary.hospital_id,
@@ -144,7 +150,6 @@ export async function PATCH(
         })),
       )
     }
-    const serviceClient = await createServiceClient()
     const { data: hospitalRow } = await serviceClient.from('hospitals').select('timezone').eq('id', summary.hospital_id).single()
     try {
       await syncFollowUpAppointments({
