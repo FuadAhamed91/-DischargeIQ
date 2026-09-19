@@ -118,7 +118,7 @@ export function ConversationTranscript({
                       outbound
                         ? 'bg-brand-soft text-brand rounded-br-md'
                         : 'bg-muted text-foreground rounded-bl-md',
-                      failed ? 'ring-1 ring-red-300' : '',
+                      failed ? 'ring-1 ring-danger/40' : '',
                     ].join(' ')}
                   >
                     {m.message_type === 'audio' ? (
@@ -133,7 +133,7 @@ export function ConversationTranscript({
                       <span>·</span>
                       <span>{format(date, 'HH:mm')}</span>
                       {failed && (
-                        <span className="inline-flex items-center gap-1 text-red-600" title={error ?? 'Delivery failed'}>
+                        <span className="inline-flex items-center gap-1 text-danger" title={error ?? 'Delivery failed'}>
                           <AlertCircle className="w-3 h-3" /> Not delivered
                         </span>
                       )}

@@ -15,9 +15,9 @@ export function AppointmentFunnel({ total, confirmed, missed, pending }: FunnelP
 
   const steps = [
     { label: 'Total scheduled', value: total, icon: Calendar, color: 'text-brand', bg: 'bg-brand-soft' },
-    { label: 'Confirmed', value: confirmed, icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50' },
-    { label: 'Pending confirmation', value: pending, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
-    { label: 'Missed', value: missed, icon: XCircle, color: 'text-red-600', bg: 'bg-red-50' },
+    { label: 'Confirmed', value: confirmed, icon: CheckCircle, color: 'text-success', bg: 'bg-success-soft' },
+    { label: 'Pending confirmation', value: pending, icon: Clock, color: 'text-warning', bg: 'bg-warning-soft' },
+    { label: 'Missed', value: missed, icon: XCircle, color: 'text-danger', bg: 'bg-danger-soft' },
   ]
 
   return (
@@ -48,14 +48,14 @@ export function AppointmentFunnel({ total, confirmed, missed, pending }: FunnelP
 
       <div className="pt-2 flex items-center justify-between text-xs text-muted-foreground border-t mt-3">
         <span>Completion rate</span>
-        <span className={`font-bold text-sm ${completionRate >= 70 ? 'text-green-600' : completionRate >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
+        <span className={`font-bold text-sm ${completionRate >= 70 ? 'text-success' : completionRate >= 50 ? 'text-warning' : 'text-danger'}`}>
           {completionRate}%
         </span>
       </div>
       {missedRate > 0 && (
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>Missed rate</span>
-          <span className="font-bold text-sm text-red-600">{missedRate}%</span>
+          <span className="font-bold text-sm text-danger">{missedRate}%</span>
         </div>
       )}
     </div>

@@ -135,7 +135,7 @@ export default async function SettingsPage() {
             <div>
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">WhatsApp Integration</p>
               <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${hospital.whatsapp_phone_number_id ? 'bg-green-500' : 'bg-muted-foreground'}`} />
+                <div className={`w-2 h-2 rounded-full ${hospital.whatsapp_phone_number_id ? 'bg-success' : 'bg-muted-foreground'}`} />
                 <span className="text-sm">
                   {hospital.whatsapp_phone_number_id ? 'Connected' : 'Not configured'}
                 </span>

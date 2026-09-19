@@ -17,26 +17,26 @@ interface TimelineEvent {
 }
 
 const EVENT_CONFIG: Record<string, { icon: typeof FileText; color: string; bg: string; label: string }> = {
-  discharge_uploaded:    { icon: Upload,        color: 'text-blue-600',   bg: 'bg-blue-100',   label: 'Discharge PDF uploaded' },
-  extraction_completed:  { icon: FileText,      color: 'text-blue-600',   bg: 'bg-blue-100',   label: 'AI extraction completed' },
+  discharge_uploaded:    { icon: Upload,        color: 'text-info',   bg: 'bg-info-soft',   label: 'Discharge PDF uploaded' },
+  extraction_completed:  { icon: FileText,      color: 'text-info',   bg: 'bg-info-soft',   label: 'AI extraction completed' },
   summary_approved:      { icon: ClipboardCheck,color: 'text-brand',  bg: 'bg-brand-soft',  label: 'Summary approved' },
-  summary_sent:          { icon: Send,          color: 'text-teal',  bg: 'bg-teal-50',    label: 'Summary sent to patient' },
-  whatsapp_inbound:      { icon: MessageCircle, color: 'text-gray-600',   bg: 'bg-gray-100',   label: 'Patient message received' },
-  whatsapp_outbound:     { icon: Send,          color: 'text-gray-600',   bg: 'bg-gray-100',   label: 'Message sent to patient' },
-  reminder_sent:         { icon: Bell,          color: 'text-amber-600',  bg: 'bg-amber-50',   label: 'Reminder sent' },
-  reminder_response:     { icon: CheckCircle,   color: 'text-green-600',  bg: 'bg-green-50',   label: 'Patient responded to reminder' },
-  appointment_confirmed: { icon: Calendar,      color: 'text-green-600',  bg: 'bg-green-50',   label: 'Appointment confirmed' },
-  appointment_rescheduled:{ icon: Calendar,     color: 'text-amber-600',  bg: 'bg-amber-50',   label: 'Appointment rescheduled' },
-  triage_completed:      { icon: Mic,           color: 'text-purple-600', bg: 'bg-purple-50',  label: 'Voice triage completed' },
+  summary_sent:          { icon: Send,          color: 'text-teal',  bg: 'bg-teal-soft',    label: 'Summary sent to patient' },
+  whatsapp_inbound:      { icon: MessageCircle, color: 'text-muted-foreground',   bg: 'bg-muted',   label: 'Patient message received' },
+  whatsapp_outbound:     { icon: Send,          color: 'text-muted-foreground',   bg: 'bg-muted',   label: 'Message sent to patient' },
+  reminder_sent:         { icon: Bell,          color: 'text-warning',  bg: 'bg-warning-soft',   label: 'Reminder sent' },
+  reminder_response:     { icon: CheckCircle,   color: 'text-success',  bg: 'bg-success-soft',   label: 'Patient responded to reminder' },
+  appointment_confirmed: { icon: Calendar,      color: 'text-success',  bg: 'bg-success-soft',   label: 'Appointment confirmed' },
+  appointment_rescheduled:{ icon: Calendar,     color: 'text-warning',  bg: 'bg-warning-soft',   label: 'Appointment rescheduled' },
+  triage_completed:      { icon: Mic,           color: 'text-brand', bg: 'bg-brand-soft',  label: 'Voice triage completed' },
   ai_response:           { icon: Bot,           color: 'text-brand',  bg: 'bg-brand-soft',  label: 'AI answered patient question' },
-  escalation_created:    { icon: AlertTriangle, color: 'text-red-600',    bg: 'bg-red-50',     label: 'Escalation created' },
-  alert_acknowledged:    { icon: CheckCircle,   color: 'text-green-600',  bg: 'bg-green-50',   label: 'Alert acknowledged' },
+  escalation_created:    { icon: AlertTriangle, color: 'text-danger',    bg: 'bg-danger-soft',     label: 'Escalation created' },
+  alert_acknowledged:    { icon: CheckCircle,   color: 'text-success',  bg: 'bg-success-soft',   label: 'Alert acknowledged' },
 }
 
 const RISK_COLORS: Record<string, string> = {
-  red: 'bg-red-500',
-  yellow: 'bg-yellow-400',
-  green: 'bg-green-500',
+  red: 'bg-danger',
+  yellow: 'bg-warning',
+  green: 'bg-success',
 }
 
 function getPayloadSummary(event: TimelineEvent): string | null {
@@ -89,7 +89,7 @@ export function EpisodeTimeline({ initialEvents, episodeId }: EpisodeTimelinePro
       <div className="absolute left-5 top-3 bottom-3 w-px bg-border" />
 
       {events.map((event, idx) => {
-        const config = EVENT_CONFIG[event.event_type] ?? { icon: FileText, color: 'text-gray-400', bg: 'bg-gray-100', label: event.event_type }
+        const config = EVENT_CONFIG[event.event_type] ?? { icon: FileText, color: 'text-muted-foreground', bg: 'bg-muted', label: event.event_type }
         const Icon = config.icon
         const summary = getPayloadSummary(event)
 
@@ -105,7 +105,7 @@ export function EpisodeTimeline({ initialEvents, episodeId }: EpisodeTimelinePro
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-medium">{config.label}</span>
                 {event.risk_level && (
-                  <span className={`inline-block w-2 h-2 rounded-full ${RISK_COLORS[event.risk_level] ?? 'bg-gray-400'}`} />
+                  <span className={`inline-block w-2 h-2 rounded-full ${RISK_COLORS[event.risk_level] ?? 'bg-muted-foreground/40'}`} />
                 )}
                 {event.risk_level && (
                   <Badge variant="outline" className="text-xs capitalize">{event.risk_level}</Badge>

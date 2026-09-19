@@ -27,8 +27,8 @@ export function MedicationAdherence({ medications, reminderJobs, positiveRespons
 
   const rateColor =
     rate === null ? 'text-muted-foreground' :
-    rate >= 80 ? 'text-green-600' :
-    rate >= 50 ? 'text-amber-600' : 'text-red-600'
+    rate >= 80 ? 'text-success' :
+    rate >= 50 ? 'text-warning' : 'text-danger'
 
   return (
     <div className="space-y-4">

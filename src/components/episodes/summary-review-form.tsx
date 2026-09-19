@@ -150,13 +150,13 @@ export function SummaryReviewForm({ episodeId, summary }: SummaryReviewFormProps
   return (
     <div className="space-y-6">
       {isSent && (
-        <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+        <div className="flex items-center gap-2 p-3 bg-info-soft border border-info/30 rounded-lg text-sm text-info">
           <Send className="w-4 h-4" />
           Discharge instructions have been sent to the patient via WhatsApp.
         </div>
       )}
       {isApproved && !isSent && (
-        <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+        <div className="flex items-center gap-2 p-3 bg-success-soft border border-success/30 rounded-lg text-sm text-success">
           <CheckCircle className="w-4 h-4" />
           Summary approved — click &quot;Send to Patient&quot; to deliver instructions via WhatsApp.
         </div>
@@ -332,7 +332,7 @@ export function SummaryReviewForm({ episodeId, summary }: SummaryReviewFormProps
           <Button
             onClick={handleSendToPatient}
             disabled={sending}
-            className="bg-green-600 hover:bg-green-700 text-white"
+            className="bg-success hover:bg-success/90 text-white"
           >
             {sending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
             Send to Patient via WhatsApp

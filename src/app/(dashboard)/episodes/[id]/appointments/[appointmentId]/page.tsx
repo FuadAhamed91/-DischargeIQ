@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { requireSession } from '@/lib/auth/session'
+import { fmt } from '@/lib/format'
 import { ArrowLeft, Calendar, MapPin, Clock, User } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -15,13 +16,13 @@ export async function generateMetadata() {
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  scheduled: 'bg-blue-100 text-blue-800',
-  confirmation_pending: 'bg-yellow-100 text-yellow-800',
-  confirmed: 'bg-green-100 text-green-800',
-  reschedule_pending: 'bg-orange-100 text-orange-800',
-  rescheduled: 'bg-purple-100 text-purple-800',
-  cancelled: 'bg-red-100 text-red-800',
-  missed: 'bg-gray-100 text-gray-800',
+  scheduled: 'bg-info-soft text-info',
+  confirmation_pending: 'bg-warning-soft text-warning',
+  confirmed: 'bg-success-soft text-success',
+  reschedule_pending: 'bg-warning-soft text-warning',
+  rescheduled: 'bg-brand-soft text-brand',
+  cancelled: 'bg-danger-soft text-danger',
+  missed: 'bg-muted text-foreground',
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -39,7 +40,8 @@ export default async function AppointmentDetailPage({
 }: {
   params: Promise<{ id: string; appointmentId: string }>
 }) {
-  await requireSession()
+  const { hospital } = await requireSession()
+  const tz = hospital.timezone
   const { id: episodeId, appointmentId } = await params
   const supabase = await createClient()
 
@@ -59,7 +61,6 @@ export default async function AppointmentDetailPage({
 
   const patient = (episode?.patients as unknown as { full_name: string; mrn: string } | null)
   const appt = appointment as unknown as Appointment
-  const date = new Date(appt.scheduled_at)
 
   return (
     <div className="max-w-2xl space-y-5">
@@ -86,11 +87,11 @@ export default async function AppointmentDetailPage({
         <CardContent className="space-y-3">
           <div className="flex items-center gap-2 text-sm">
             <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
-            <span>{date.toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+            <span>{fmt(appt.scheduled_at, 'EEEE, d MMMM yyyy', tz)}</span>
           </div>
           <div className="flex items-center gap-2 text-sm">
             <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
-            <span>{date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+            <span>{fmt(appt.scheduled_at, 'HH:mm', tz)}</span>
           </div>
           {appt.location && (
             <div className="flex items-center gap-2 text-sm">
@@ -99,9 +100,9 @@ export default async function AppointmentDetailPage({
             </div>
           )}
           {appt.confirmed_at && (
-            <div className="flex items-center gap-2 text-sm text-green-700">
+            <div className="flex items-center gap-2 text-sm text-success">
               <User className="w-4 h-4 shrink-0" />
-              <span>Confirmed by patient on {new Date(appt.confirmed_at).toLocaleDateString('en-GB')}</span>
+              <span>Confirmed by patient on {fmt(appt.confirmed_at, 'd MMM yyyy, HH:mm', tz)}</span>
             </div>
           )}
         </CardContent>

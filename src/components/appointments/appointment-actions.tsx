@@ -137,7 +137,7 @@ export function AppointmentActions({ episodeId, appointment }: AppointmentAction
             <Button
               onClick={handleSendConfirmation}
               disabled={sending}
-              className="bg-green-600 hover:bg-green-700 text-white"
+              className="bg-success hover:bg-success/90 text-white"
             >
               {sending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
               Send WhatsApp Confirmation
@@ -157,7 +157,7 @@ export function AppointmentActions({ episodeId, appointment }: AppointmentAction
       )}
 
       {isConfirmed && (
-        <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+        <div className="flex items-center gap-2 p-3 bg-success-soft border border-success/30 rounded-lg text-sm text-success">
           <Check className="w-4 h-4" />
           Patient has confirmed this appointment.
         </div>

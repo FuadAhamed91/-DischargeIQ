@@ -125,8 +125,8 @@ export function DischargeUpload({ episodeId, onUploadComplete }: DischargeUpload
 
         {state === 'done' ? (
           <div className="flex flex-col items-center gap-2">
-            <CheckCircle className="w-10 h-10 text-green-500" />
-            <p className="font-medium text-green-700">Extraction complete</p>
+            <CheckCircle className="w-10 h-10 text-success" />
+            <p className="font-medium text-success">Extraction complete</p>
             <p className="text-sm text-muted-foreground">Review the extracted summary below</p>
           </div>
         ) : (state === 'uploading' || state === 'extracting') ? (

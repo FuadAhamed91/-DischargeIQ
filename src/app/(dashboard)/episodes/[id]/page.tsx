@@ -147,11 +147,11 @@ export default async function EpisodeDetailPage({
 
       {/* Open alerts banner */}
       {openAlerts.length > 0 && (
-        <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-200 rounded-xl">
-          <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
+        <div className="flex items-center gap-3 p-4 bg-danger-soft border border-danger/30 rounded-xl">
+          <AlertTriangle className="w-5 h-5 text-danger shrink-0" />
           <div className="flex-1">
-            <p className="text-sm font-medium text-red-700">{openAlerts.length} open alert{openAlerts.length > 1 ? 's' : ''}</p>
-            <p className="text-xs text-red-600">Review alerts immediately</p>
+            <p className="text-sm font-medium text-danger">{openAlerts.length} open alert{openAlerts.length > 1 ? 's' : ''}</p>
+            <p className="text-xs text-danger">Review alerts immediately</p>
           </div>
           <Link href="/alerts"><Button size="sm" variant="destructive">View alerts</Button></Link>
         </div>
@@ -162,7 +162,7 @@ export default async function EpisodeDetailPage({
         <Card className="border shadow-sm">
           <CardContent className="pt-4 pb-3">
             <p className="text-xs text-muted-foreground">Compliance</p>
-            <p className={`text-2xl font-bold mt-0.5 ${complianceScore === null ? 'text-muted-foreground' : complianceScore >= 80 ? 'text-green-600' : complianceScore >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
+            <p className={`text-2xl font-bold mt-0.5 ${complianceScore === null ? 'text-muted-foreground' : complianceScore >= 80 ? 'text-success' : complianceScore >= 50 ? 'text-warning' : 'text-danger'}`}>
               {complianceScore !== null ? `${complianceScore}%` : '—'}
             </p>
             {complianceScore !== null && <Progress value={complianceScore} className="h-1 mt-1.5" />}
@@ -178,7 +178,7 @@ export default async function EpisodeDetailPage({
         <Card className="border shadow-sm">
           <CardContent className="pt-4 pb-3">
             <p className="text-xs text-muted-foreground">Reminders</p>
-            <p className={`text-2xl font-bold mt-0.5 ${reminderRate === null ? 'text-muted-foreground' : reminderRate >= 70 ? 'text-green-600' : 'text-amber-600'}`}>
+            <p className={`text-2xl font-bold mt-0.5 ${reminderRate === null ? 'text-muted-foreground' : reminderRate >= 70 ? 'text-success' : 'text-warning'}`}>
               {reminderRate !== null ? `${reminderRate}%` : '—'}
             </p>
             <p className="text-xs text-muted-foreground mt-1">{posRes}/{totalJobs} responded</p>
@@ -204,7 +204,7 @@ export default async function EpisodeDetailPage({
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
           <TabsTrigger value="triage">
             Triage
-            {redTriages > 0 && <span className="ml-1.5 w-4 h-4 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">{redTriages}</span>}
+            {redTriages > 0 && <span className="ml-1.5 w-4 h-4 rounded-full bg-danger text-white text-xs flex items-center justify-center">{redTriages}</span>}
           </TabsTrigger>
           <TabsTrigger value="chat">AI Chat</TabsTrigger>
         </TabsList>
@@ -316,15 +316,15 @@ export default async function EpisodeDetailPage({
                   </Card>
 
                   {summary.emergency_symptoms.length > 0 && (
-                    <Card className="border-red-200 bg-red-50">
+                    <Card className="border-danger/30 bg-danger-soft">
                       <CardHeader className="pb-3">
-                        <CardTitle className="text-base text-red-700 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> Emergency Warning Signs</CardTitle>
+                        <CardTitle className="text-base text-danger flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> Emergency Warning Signs</CardTitle>
                       </CardHeader>
                       <CardContent>
                         <ul className="space-y-1.5">
                           {summary.emergency_symptoms.map((s, i) => (
-                            <li key={i} className="flex items-start gap-2 text-sm text-red-800">
-                              <span className="w-1.5 h-1.5 rounded-full bg-red-500 mt-1.5 shrink-0" />{s}
+                            <li key={i} className="flex items-start gap-2 text-sm text-danger">
+                              <span className="w-1.5 h-1.5 rounded-full bg-danger mt-1.5 shrink-0" />{s}
                             </li>
                           ))}
                         </ul>
@@ -383,9 +383,9 @@ export default async function EpisodeDetailPage({
               ) : (
                 <div className="space-y-4">
                   {triageAssessments.map((t) => (
-                    <div key={t.id} className={`p-4 rounded-xl border-l-4 ${t.risk_level === 'red' ? 'border-l-red-500 bg-red-50' : t.risk_level === 'yellow' ? 'border-l-yellow-400 bg-yellow-50' : 'border-l-green-400 bg-green-50'}`}>
+                    <div key={t.id} className={`p-4 rounded-xl border-l-4 ${t.risk_level === 'red' ? 'border-l-danger bg-danger-soft' : t.risk_level === 'yellow' ? 'border-l-warning bg-warning-soft' : 'border-l-success bg-success-soft'}`}>
                       <div className="flex items-center justify-between mb-2">
-                        <Badge className={`text-xs uppercase ${t.risk_level === 'red' ? 'bg-red-500' : t.risk_level === 'yellow' ? 'bg-yellow-500 text-black' : 'bg-green-500'}`}>
+                        <Badge className={`text-xs uppercase ${t.risk_level === 'red' ? 'bg-danger' : t.risk_level === 'yellow' ? 'bg-warning text-black' : 'bg-success'}`}>
                           {t.risk_level}
                         </Badge>
                         <span className="text-xs text-muted-foreground">{fmt(t.created_at, 'dd MMM yyyy HH:mm', tz)}</span>
