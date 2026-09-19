@@ -1,7 +1,14 @@
+import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import type { Profile } from '@/types/database'
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
+export interface SessionHospital {
+  id: string
+  name: string
+  timezone: string
+  settings: Record<string, unknown>
+}
 
 /**
  * Returns the authenticated user's profile.
@@ -9,30 +16,37 @@ import type { Profile } from '@/types/database'
  * Call this at the top of any server component or route handler
  * that requires an authenticated user.
  */
-export async function requireSession(): Promise<{ userId: string; profile: Profile }> {
+export const requireSession = cache(async (): Promise<{ userId: string; profile: Profile; hospital: SessionHospital }> => {
+  // cache(): the dashboard layout and the page both call this during one render;
+  // React memoises it per request so the JWT check and profile query run once.
   const supabase = await createClient()
 
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
+  const { data: claimsData, error: authError } = await supabase.auth.getClaims()
+  const userId = claimsData?.claims?.sub
 
-  if (authError || !user) {
+  if (authError || !userId) {
     redirect('/login')
   }
 
-  const { data: profile, error: profileError } = await supabase
+  // Profile + hospital in one query; pages need the hospital's timezone to
+  // render timestamps correctly (see lib/format.ts).
+  const { data, error: profileError } = await supabase
     .from('profiles')
-    .select('*')
-    .eq('id', user.id)
+    .select('*, hospitals(id, name, timezone, settings)')
+    .eq('id', userId)
     .single()
 
-  if (profileError || !profile) {
+  if (profileError || !data) {
     redirect('/login')
   }
 
-  return { userId: user.id, profile }
-}
+  const { hospitals, ...profile } = data as Profile & { hospitals: SessionHospital | null }
+  const hospital: SessionHospital = hospitals ?? {
+    id: profile.hospital_id, name: 'Hospital', timezone: 'Asia/Dubai', settings: {},
+  }
+
+  return { userId, profile: profile as Profile, hospital }
+})
 
 /**
  * Returns the current user's profile or null (no redirect).
@@ -41,21 +55,19 @@ export async function requireSession(): Promise<{ userId: string; profile: Profi
 export async function getSession(): Promise<{ userId: string; profile: Profile } | null> {
   try {
     const supabase = await createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) return null
+    const { data: claimsData } = await supabase.auth.getClaims()
+    const userId = claimsData?.claims?.sub
+    if (!userId) return null
 
     const { data: profile } = await supabase
       .from('profiles')
       .select('*')
-      .eq('id', user.id)
+      .eq('id', userId)
       .single()
 
     if (!profile) return null
 
-    return { userId: user.id, profile }
+    return { userId, profile }
   } catch {
     return null
   }

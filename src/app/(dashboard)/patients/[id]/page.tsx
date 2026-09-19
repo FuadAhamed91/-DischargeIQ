@@ -12,7 +12,7 @@ import { RiskBadge } from '@/components/shared/risk-badge'
 import { StatusBadge } from '@/components/shared/status-badge'
 import { LanguageBadge } from '@/components/shared/language-badge'
 import { ArrowLeft, Plus, Phone, Calendar, FileText } from 'lucide-react'
-import { format } from 'date-fns'
+import { fmt } from '@/lib/format'
 import type { RiskLevel, EpisodeStatus, LanguageCode } from '@/types/enums'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
@@ -24,7 +24,8 @@ export default async function PatientDetailPage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  await requireSession()
+  const { hospital } = await requireSession()
+  const tz = hospital.timezone
   const { id } = await params
   const supabase = await createClient()
 
@@ -92,7 +93,7 @@ export default async function PatientDetailPage({
             {patient.date_of_birth && (
               <div>
                 <span className="text-muted-foreground">Date of birth</span>
-                <p className="font-medium">{format(new Date(patient.date_of_birth), 'dd MMM yyyy')}</p>
+                <p className="font-medium">{fmt(patient.date_of_birth, 'dd MMM yyyy', tz)}</p>
               </div>
             )}
             <div>
@@ -101,7 +102,7 @@ export default async function PatientDetailPage({
             </div>
             <div>
               <span className="text-muted-foreground">Registered</span>
-              <p className="font-medium">{format(new Date(patient.created_at), 'dd MMM yyyy')}</p>
+              <p className="font-medium">{fmt(patient.created_at, 'dd MMM yyyy', tz)}</p>
             </div>
             <div>
               <span className="text-muted-foreground">Total episodes</span>
@@ -136,7 +137,7 @@ export default async function PatientDetailPage({
                         </div>
                         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                           <Calendar className="w-3 h-3" />
-                          Discharged {format(new Date(ep.discharge_date), 'dd MMM yyyy')}
+                          Discharged {fmt(ep.discharge_date, 'dd MMM yyyy', tz)}
                         </div>
                       </div>
                       <div className="text-right">

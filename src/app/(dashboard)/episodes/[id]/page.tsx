@@ -17,7 +17,7 @@ import { EpisodeTimeline } from '@/components/patients/episode-timeline'
 import { MedicationAdherence } from '@/components/patients/medication-adherence'
 import { ConversationTranscript, type TranscriptMessage } from '@/components/patients/conversation-transcript'
 import { ArrowLeft, Pencil, User, Calendar, Pill, AlertTriangle, ChevronRight, Mic, Bot, Activity, MessageCircle } from 'lucide-react'
-import { format } from 'date-fns'
+import { fmt } from '@/lib/format'
 import type { RiskLevel, EpisodeStatus, SummaryStatus, LanguageCode } from '@/types/enums'
 import type { Medication, FollowUpRequirement } from '@/types/database'
 
@@ -30,7 +30,8 @@ export default async function EpisodeDetailPage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  await requireSession()
+  const { hospital } = await requireSession()
+  const tz = hospital.timezone
   const { id } = await params
   const supabase = await createClient()
 
@@ -218,7 +219,7 @@ export default async function EpisodeDetailPage({
                     <Calendar className="w-4 h-4 text-muted-foreground" />
                     <div>
                       <p className="text-muted-foreground text-xs">Discharge date</p>
-                      <p className="font-medium">{format(new Date(episode.discharge_date), 'dd MMM yyyy')}</p>
+                      <p className="font-medium">{fmt(episode.discharge_date, 'dd MMM yyyy', tz)}</p>
                     </div>
                   </div>
                   <Separator />
@@ -280,7 +281,7 @@ export default async function EpisodeDetailPage({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <StatusBadge status={summary.status} />
-                      {summary.approved_at && <span className="text-xs text-muted-foreground">Approved {format(new Date(summary.approved_at), 'dd MMM yyyy')}</span>}
+                      {summary.approved_at && <span className="text-xs text-muted-foreground">Approved {fmt(summary.approved_at, 'dd MMM yyyy', tz)}</span>}
                     </div>
                     <Link href={`/episodes/${id}/review`}><Button variant="outline" size="sm"><Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit</Button></Link>
                   </div>
@@ -338,7 +339,7 @@ export default async function EpisodeDetailPage({
                               <p className="font-medium text-sm">{fu.specialty}</p>
                               {fu.instructions && <p className="text-xs text-muted-foreground">{fu.instructions}</p>}
                             </div>
-                            {fu.deadline && <Badge variant="outline" className="text-xs shrink-0">By {format(new Date(fu.deadline), 'dd MMM yyyy')}</Badge>}
+                            {fu.deadline && <Badge variant="outline" className="text-xs shrink-0">By {fmt(fu.deadline, 'dd MMM yyyy', tz)}</Badge>}
                           </div>
                         ))}
                       </CardContent>
@@ -384,7 +385,7 @@ export default async function EpisodeDetailPage({
                         <Badge className={`text-xs uppercase ${t.risk_level === 'red' ? 'bg-red-500' : t.risk_level === 'yellow' ? 'bg-yellow-500 text-black' : 'bg-green-500'}`}>
                           {t.risk_level}
                         </Badge>
-                        <span className="text-xs text-muted-foreground">{format(new Date(t.created_at), 'dd MMM yyyy HH:mm')}</span>
+                        <span className="text-xs text-muted-foreground">{fmt(t.created_at, 'dd MMM yyyy HH:mm', tz)}</span>
                       </div>
                       {t.inbound_text && <p className="text-sm italic mb-2">"{t.inbound_text.slice(0, 200)}"</p>}
                       {t.reasoning && <p className="text-xs text-muted-foreground">{t.reasoning}</p>}
@@ -442,7 +443,7 @@ export default async function EpisodeDetailPage({
                         {ai.confidence != null && (
                           <Badge variant="secondary" className="text-xs">{Math.round(Number(ai.confidence) * 100)}% confidence</Badge>
                         )}
-                        <span className="text-xs text-muted-foreground ml-auto">{format(new Date(ai.created_at), 'dd MMM HH:mm')}</span>
+                        <span className="text-xs text-muted-foreground ml-auto">{fmt(ai.created_at, 'dd MMM HH:mm', tz)}</span>
                       </div>
                       <div className="space-y-1">
                         <p className="text-xs text-muted-foreground font-medium">Patient asked:</p>
@@ -478,7 +479,7 @@ export default async function EpisodeDetailPage({
                 <div key={appt.id} className="flex items-center justify-between py-1.5 border-b last:border-0">
                   <div>
                     <p className="text-sm font-medium">{appt.specialty}</p>
-                    <p className="text-xs text-muted-foreground">{format(new Date(appt.scheduled_at), 'dd MMM yyyy HH:mm')}</p>
+                    <p className="text-xs text-muted-foreground">{fmt(appt.scheduled_at, 'dd MMM yyyy HH:mm', tz)}</p>
                   </div>
                   <StatusBadge status={appt.status as EpisodeStatus} />
                 </div>

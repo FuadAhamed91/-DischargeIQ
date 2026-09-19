@@ -25,10 +25,12 @@ export async function updateSession(request: NextRequest) {
     },
   )
 
-  // Refresh the session without catching errors — let middleware handle it
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // Verify the session on every request. getClaims() checks the JWT signature
+  // locally against the project's JWKS (ES256) and still refreshes an expired
+  // token through the cookie adapter — unlike getUser(), it does not make a
+  // network round-trip to Supabase Auth per request.
+  const { data: claimsData } = await supabase.auth.getClaims()
+  const user = claimsData?.claims?.sub ? { id: claimsData.claims.sub } : null
 
   const { pathname } = request.nextUrl
 

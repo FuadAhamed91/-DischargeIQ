@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import { requireSession } from '@/lib/auth/session'
+import { fmt } from '@/lib/format'
 import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -12,12 +13,13 @@ import {
   Users, Bell, TrendingUp, DollarSign, CalendarCheck, Activity,
   ShieldCheck, AlertCircle,
 } from 'lucide-react'
-import { subDays, format } from 'date-fns'
+import { subDays } from 'date-fns'
 
 export const metadata = { title: 'Analytics' }
 
 export default async function AnalyticsPage() {
-  const { profile } = await requireSession()
+  const { profile, hospital } = await requireSession()
+  const tz = hospital.timezone
   const hospitalId = profile.hospital_id
   const supabase = await createClient()
 
@@ -46,7 +48,7 @@ export default async function AnalyticsPage() {
     supabase.from('patient_timeline_events').select('*', { count: 'exact', head: true }).eq('hospital_id', hospitalId).eq('event_type', 'reminder_response'),
     supabase.from('care_episodes').select('current_risk_level').eq('hospital_id', hospitalId).eq('status', 'active'),
     supabase.from('appointments').select('status').eq('hospital_id', hospitalId),
-    supabase.from('compliance_snapshots').select('snapshot_date, medication_adherence, reminder_response_rate').eq('hospital_id', hospitalId).gte('snapshot_date', format(subDays(new Date(), 30), 'yyyy-MM-dd')).order('snapshot_date', { ascending: true }),
+    supabase.from('compliance_snapshots').select('snapshot_date, medication_adherence, reminder_response_rate').eq('hospital_id', hospitalId).gte('snapshot_date', fmt(subDays(new Date(), 30), 'yyyy-MM-dd', tz)).order('snapshot_date', { ascending: true }),
     supabase.from('alerts').select('created_at, severity').eq('hospital_id', hospitalId).gte('created_at', subDays(new Date(), 14).toISOString()),
   ])
 
@@ -74,7 +76,7 @@ export default async function AnalyticsPage() {
   const estimatedSavingsAED = readmissionsPrevented * 15000
 
   const complianceTrend = (snapshots ?? []).map((s) => ({
-    date: format(new Date(s.snapshot_date), 'dd MMM'),
+    date: fmt(s.snapshot_date, 'dd MMM', tz),
     adherence: Number(s.medication_adherence),
     responseRate: Number(s.reminder_response_rate),
   }))
@@ -82,11 +84,11 @@ export default async function AnalyticsPage() {
   // Build 14-day alert activity
   const alertByDay: Record<string, { date: string; critical: number; high: number; medium: number; low: number }> = {}
   for (let i = 13; i >= 0; i--) {
-    const day = format(subDays(new Date(), i), 'dd MMM')
+    const day = fmt(subDays(new Date(), i), 'dd MMM', tz)
     alertByDay[day] = { date: day, critical: 0, high: 0, medium: 0, low: 0 }
   }
   for (const a of alertActivity ?? []) {
-    const day = format(new Date(a.created_at), 'dd MMM')
+    const day = fmt(a.created_at, 'dd MMM', tz)
     if (alertByDay[day]) {
       alertByDay[day][a.severity as 'critical' | 'high' | 'medium' | 'low'] += 1
     }

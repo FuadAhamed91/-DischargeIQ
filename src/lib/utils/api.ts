@@ -13,9 +13,11 @@ export async function resolveAuthContext(): Promise<
   | { ok: false; response: NextResponse }
 > {
   const supabase = await createClient()
-  const { data: { user }, error } = await supabase.auth.getUser()
+  // Local JWT verification (see lib/supabase/middleware.ts) — no Auth round-trip.
+  const { data: claimsData, error } = await supabase.auth.getClaims()
+  const userId = claimsData?.claims?.sub
 
-  if (error || !user) {
+  if (error || !userId) {
     return {
       ok: false,
       response: NextResponse.json(apiError('Unauthorized'), { status: 401 }),
@@ -25,7 +27,7 @@ export async function resolveAuthContext(): Promise<
   const { data: profile } = await supabase
     .from('profiles')
     .select('*')
-    .eq('id', user.id)
+    .eq('id', userId)
     .single()
 
   if (!profile) {
