@@ -75,6 +75,28 @@ export function extractPhoneNumberId(params: Record<string, string>): string | n
   return to.replace('whatsapp:', '') || null
 }
 
+const KNOWN_STATES: ReadonlySet<string> = new Set<ConversationState>([
+  'idle',
+  'awaiting_appointment_confirm',
+  'awaiting_slot_selection',
+  'awaiting_reminder_response',
+])
+
+/**
+ * conversation_state is jsonb. The episode-activation trigger seeds it as
+ * {"state": "idle"} while this handler and the dispatcher store a plain
+ * string; accept both and fall back to idle for anything unrecognised.
+ */
+function normaliseState(raw: unknown): ConversationState {
+  const value =
+    typeof raw === 'string'
+      ? raw
+      : raw && typeof raw === 'object' && 'state' in raw
+        ? String((raw as { state: unknown }).state)
+        : 'idle'
+  return (KNOWN_STATES.has(value) ? value : 'idle') as ConversationState
+}
+
 // ------------------------------------
 // Main handler
 // ------------------------------------
@@ -130,21 +152,39 @@ export async function handleInboundMessage(
     return
   }
 
-  // 4. Get or create conversation record
-  const { data: conversation } = await supabase
+  // 4. Get or create the conversation record (messages hang off it)
+  let { data: conversation } = await supabase
     .from('whatsapp_conversations')
     .select('id, conversation_state')
     .eq('episode_id', episode.id)
-    .single()
+    .maybeSingle()
 
-  const state: ConversationState =
-    (conversation?.conversation_state as ConversationState) ?? 'idle'
+  if (!conversation) {
+    const { data: created, error: convErr } = await supabase
+      .from('whatsapp_conversations')
+      .insert({
+        episode_id: episode.id,
+        hospital_id: hospital.id,
+        patient_id: patient.id,
+        wa_phone: message.from,
+        conversation_state: 'idle',
+      })
+      .select('id, conversation_state')
+      .single()
+    if (convErr || !created) {
+      console.error('[WhatsApp] could not create conversation:', convErr?.message)
+      return
+    }
+    conversation = created
+  }
+
+  const state = normaliseState(conversation.conversation_state)
 
   // 5. Persist inbound message
-  const { data: savedMsg } = await supabase
+  const { data: savedMsg, error: msgErr } = await supabase
     .from('whatsapp_messages')
     .insert({
-      episode_id: episode.id,
+      conversation_id: conversation.id,
       hospital_id: hospital.id,
       wa_message_id: message.waMessageId,
       direction: 'inbound',
@@ -154,6 +194,7 @@ export async function handleInboundMessage(
     })
     .select('id')
     .single()
+  if (msgErr) console.error('[WhatsApp] could not persist inbound message:', msgErr.message)
 
   // 6. Run FSM
   const result = transition(state, message)
@@ -431,21 +472,15 @@ export async function handleInboundMessage(
       break
   }
 
-  // 8. Update conversation state
-  if (conversation) {
-    await supabase
-      .from('whatsapp_conversations')
-      .update({ conversation_state: result.nextState, updated_at: new Date().toISOString() })
-      .eq('id', conversation.id)
-  } else {
-    await supabase.from('whatsapp_conversations').insert({
-      episode_id: episode.id,
-      hospital_id: hospital.id,
-      patient_id: patient.id,
-      wa_phone: message.from,
+  // 8. Update conversation state (the row is guaranteed to exist from step 4)
+  await supabase
+    .from('whatsapp_conversations')
+    .update({
       conversation_state: result.nextState,
+      last_message_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     })
-  }
+    .eq('id', conversation.id)
 
   // 9. Log timeline for outbound (generic)
   await supabase.from('patient_timeline_events').insert({

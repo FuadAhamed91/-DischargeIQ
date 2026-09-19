@@ -148,27 +148,39 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
         })
         .eq('id', job.id)
 
-      // Update conversation state to awaiting_reminder_response
-      await supabase
+      // Put the conversation into awaiting_reminder_response so the patient's
+      // "TAKEN"/"YES" reply is logged as a reminder response by the FSM rather
+      // than routed to AI Q&A. The row normally exists already (created by the
+      // episode-activation trigger); upsert covers episodes activated by hand.
+      const { data: conversation, error: convErr } = await supabase
         .from('whatsapp_conversations')
         .upsert({
           episode_id: job.episode_id,
           hospital_id: job.hospital_id,
-          patient_phone: patient.phone_e164,
+          patient_id: episode.patient_id,
+          wa_phone: patient.phone_e164,
           conversation_state: 'awaiting_reminder_response',
+          last_message_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }, { onConflict: 'episode_id' })
+        .select('id')
+        .single()
 
-      // Log outbound message
-      await supabase.from('whatsapp_messages').insert({
-        episode_id: job.episode_id,
-        hospital_id: job.hospital_id,
-        wa_message_id: sendResult.messageId,
-        direction: 'outbound',
-        message_type: 'text',
-        content: `${schedule.type} reminder`,
-        status: 'sent',
-      })
+      if (convErr || !conversation) {
+        console.error(`[dispatcher] conversation state update failed for job ${job.id}:`, convErr?.message)
+      } else {
+        // Log outbound message on the conversation
+        const { error: msgErr } = await supabase.from('whatsapp_messages').insert({
+          conversation_id: conversation.id,
+          hospital_id: job.hospital_id,
+          wa_message_id: sendResult.messageId,
+          direction: 'outbound',
+          message_type: 'text',
+          content: `${schedule.type} reminder`,
+          status: 'sent',
+        })
+        if (msgErr) console.error(`[dispatcher] outbound message log failed for job ${job.id}:`, msgErr.message)
+      }
 
       // Timeline event
       await supabase.from('patient_timeline_events').insert({
