@@ -10,6 +10,7 @@ import { after } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ExtractionResult } from '@/lib/ai/extraction'
 import { translateAndStoreSummary } from '@/lib/ai/translation'
+import { syncFollowUpAppointments } from '@/lib/appointments/sync-follow-ups'
 import type { LanguageCode } from '@/types/enums'
 
 const SUPPORTED = new Set<LanguageCode>(['ar', 'en', 'hi', 'ta', 'tl'])
@@ -26,6 +27,8 @@ export interface PersistExtractionParams {
   extracted: ExtractionResult
   /** Languages to translate the summary into (patient's + hospital's). Deduped here. */
   targetLanguages: (string | null | undefined)[]
+  /** Hospital timezone: provisional appointments land at 09:00 local on the follow-up's "by" date. */
+  timezone: string
 }
 
 /** Creates or replaces the draft summary for the episode; returns its id. */
@@ -100,6 +103,9 @@ export async function persistExtraction(params: PersistExtractionParams): Promis
     )
     if (error) throw new Error(`Failed to save follow-up requirements: ${error.message}`)
   }
+
+  // Dated follow-ups show up on the Appointments screen straight away.
+  await syncFollowUpAppointments({ serviceClient, episodeId, hospitalId, summaryId, timezone: params.timezone })
 
   await serviceClient.from('patient_timeline_events').insert({
     episode_id: episodeId,

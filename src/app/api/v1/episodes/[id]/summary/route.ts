@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { syncFollowUpAppointments } from '@/lib/appointments/sync-follow-ups'
 import { resolveAuthContext } from '@/lib/utils/api'
 import { apiSuccess, apiError } from '@/types/api'
 import { z } from 'zod'
@@ -127,7 +128,9 @@ export async function PATCH(
     }
   }
 
-  // Update follow-up requirements if provided
+  // Update follow-up requirements if provided, then keep the provisional
+  // appointments derived from them in step (nurse may have fixed a date or
+  // removed a follow-up in review).
   if (follow_up_requirements) {
     await supabase.from('follow_up_requirements').delete().eq('summary_id', summary.id)
     if (follow_up_requirements.length > 0) {
@@ -140,6 +143,19 @@ export async function PATCH(
           instructions: f.instructions,
         })),
       )
+    }
+    const serviceClient = await createServiceClient()
+    const { data: hospitalRow } = await serviceClient.from('hospitals').select('timezone').eq('id', summary.hospital_id).single()
+    try {
+      await syncFollowUpAppointments({
+        serviceClient,
+        episodeId,
+        hospitalId: summary.hospital_id,
+        summaryId: summary.id,
+        timezone: (hospitalRow?.timezone as string | null) ?? 'Asia/Dubai',
+      })
+    } catch (err) {
+      console.error('[summary PATCH] follow-up appointment sync failed:', err)
     }
   }
 

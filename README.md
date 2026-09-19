@@ -71,6 +71,13 @@ episode (and for the "enter details manually" fallback when there is no readable
 
 Approval activates the episode, which creates its `whatsapp_conversations` row (DB trigger).
 
+The care plan message (`buildDischargeSummaryMessage`, plain text on the sandbox) lists medicines,
+key instructions, **follow-up appointments** (booked slots with time and place, or the letter's
+"by" date marked "time to be confirmed") and the warning signs. Section headings are in the
+patient's language and the content uses the stored `discharge_summary_translations` row when the
+patient's language differs from the document's. Preview it without sending:
+`npx --yes tsx scripts/preview-care-plan.ts hi`.
+
 ### 2. Nightly check-in (automatic)
 
 One scheduled conversation per patient per day, at **21:00 hospital-local** (override:
@@ -148,6 +155,16 @@ keywords still escalate instantly and voice notes are still triaged. "Hand back 
 nightly check-in also takes over when it fires.
 
 ### 4. Appointments
+
+**From the letter, automatically.** Every dated follow-up in a discharge summary ("Cardiology
+clinic by 3 Oct") becomes a provisional appointment the moment the document is read
+(`lib/appointments/sync-follow-ups.ts`, called from `persistExtraction()` and from the review
+PATCH): `time_tbc = true`, `scheduled_at` = the "by" date at 09:00 hospital-local, linked through
+`appointments.follow_up_id`. The Appointments screen shows these as "Due by … · time to confirm"
+with the letter's instructions; booking a real time (appointment PATCH) clears the flag. Follow-ups
+without a timeframe are listed under "Needs a date" until the nurse adds one on the review page.
+Edits in review re-sync: untouched provisional rows move or disappear with their follow-up; anything
+a nurse has booked, confirmed or cancelled is left alone.
 
 `/api/v1/episodes/[id]/appointments/[appointmentId]/send-confirmation` asks the patient "Can you
 attend?" and puts the conversation in `awaiting_appointment_confirm`. YES confirms; NO starts the
@@ -267,8 +284,9 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/appo
 | 00005 | `harden_functions` | Revoke `anon`/`authenticated` EXECUTE on SECURITY DEFINER functions (helpers stay callable by `authenticated`); fixed `search_path` |
 | 00006 | `reminder_jobs_unique` | Unique `(schedule_id, fire_at)` — required by the generator's `ON CONFLICT` |
 | 00007 | `pg_cron_dispatch` | `pg_cron` + `pg_net`; `configure_cron_dispatch(url, secret)` (service_role only) writes Vault; job `dispatch-reminders-every-5-min` |
-| 00009 | `nightly_checkin` | `alert_type += missed_medication`; retires per-dose `medication` schedules (+ cancels their pending jobs); one `symptom_check` / `nightly_checkin_v1` schedule at the hospital's check-in time per active episode |
 | 00008 | `realtime_whatsapp_messages` | Realtime for the conversation transcript |
+| 00009 | `nightly_checkin` | `alert_type += missed_medication`; retires per-dose `medication` schedules (+ cancels their pending jobs); one `symptom_check` / `nightly_checkin_v1` schedule at the hospital's check-in time per active episode |
+| 00010 | `follow_up_appointments` | `appointments.time_tbc`; backfills provisional appointments for dated follow-ups on open episodes and links existing appointments to their follow-up |
 
 Applying to a project:
 

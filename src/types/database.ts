@@ -158,6 +158,8 @@ export interface Appointment {
   confirmation_requested_at: string | null
   confirmed_at: string | null
   rescheduled_from_id: string | null
+  /** Created from a discharge-summary follow-up; scheduled_at is the "by" date until a slot is booked */
+  time_tbc: boolean
   created_at: string
   updated_at: string
 }

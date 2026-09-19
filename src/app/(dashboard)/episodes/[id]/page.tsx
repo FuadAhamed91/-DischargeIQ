@@ -72,7 +72,7 @@ export default async function EpisodeDetailPage({
     supabase.from('ai_interactions').select('id, input_text, output_text, confidence, escalated, model, created_at').eq('episode_id', id).order('created_at', { ascending: false }).limit(20),
     supabase.from('reminder_jobs').select('status, schedule_id').eq('episode_id', id),
     supabase.from('patient_timeline_events').select('*', { count: 'exact', head: true }).eq('episode_id', id).eq('event_type', 'reminder_response'),
-    supabase.from('appointments').select('id, specialty, scheduled_at, status').eq('episode_id', id).order('scheduled_at', { ascending: true }),
+    supabase.from('appointments').select('id, specialty, scheduled_at, status, time_tbc').eq('episode_id', id).order('scheduled_at', { ascending: true }),
     supabase.from('whatsapp_conversations').select('id, conversation_state, last_message_at').eq('episode_id', id).maybeSingle(),
     // Transcript (oldest first, capped; the component streams new ones in) —
     // joined through the conversation so it needs no second trip.
@@ -489,7 +489,9 @@ export default async function EpisodeDetailPage({
                 <div key={appt.id} className="flex items-center justify-between py-1.5 border-b last:border-0">
                   <div>
                     <p className="text-sm font-medium">{appt.specialty}</p>
-                    <p className="text-xs text-muted-foreground">{fmt(appt.scheduled_at, 'dd MMM yyyy HH:mm', tz)}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {appt.time_tbc ? <>Due by {fmt(appt.scheduled_at, 'dd MMM yyyy', tz)} · time to confirm</> : fmt(appt.scheduled_at, 'dd MMM yyyy HH:mm', tz)}
+                    </p>
                   </div>
                   <StatusBadge status={appt.status as EpisodeStatus} />
                 </div>

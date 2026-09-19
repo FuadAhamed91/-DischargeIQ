@@ -13,6 +13,7 @@ import type {
   InteractiveButtonMessage,
   InteractiveListMessage,
 } from './client'
+import { formatInTimeZone } from 'date-fns-tz'
 import type { LanguageCode } from '@/types/enums'
 import type { DischargeSummary, Medication, Appointment } from '@/types/database'
 
@@ -35,9 +36,91 @@ const LANG_MAP: Record<LanguageCode, string> = {
 // Discharge summary delivery
 // ------------------------------------
 
+/** Appointment as it appears in the care plan message. */
+export interface CarePlanAppointment {
+  specialty: string
+  scheduled_at: string
+  location: string | null
+  /** Provisional: scheduled_at is the letter's "by" date, no slot booked yet */
+  time_tbc: boolean
+}
+
+/** Translated summary content (discharge_summary_translations.content), when the patient's language differs. */
+export interface CarePlanTranslation {
+  medications?: Array<{ name: string; dosage: string; frequency: string; instructions?: string }>
+  follow_up_requirements?: Array<{ specialty: string; instructions: string | null }>
+  emergency_symptoms?: string[]
+  lifestyle_instructions?: string[]
+}
+
+const CARE_PLAN_STRINGS: Record<LanguageCode, {
+  hello: (n: string) => string
+  ready: (h: string) => string
+  meds: string
+  instructions: string
+  appointments: string
+  by: (d: string) => string
+  warn: string
+  close: string
+}> = {
+  en: {
+    hello: (n) => `Hello ${n} 👋`,
+    ready: (h) => `Your discharge instructions from *${h}* are ready.`,
+    meds: '💊 Medications',
+    instructions: '📋 Instructions',
+    appointments: '📅 Follow-up appointments',
+    by: (d) => `by ${d} (time to be confirmed — we will message you)`,
+    warn: '🚨 Contact emergency services if you experience:',
+    close: 'Reply with any questions. We are here to help. 🩺',
+  },
+  ar: {
+    hello: (n) => `مرحباً ${n} 👋`,
+    ready: (h) => `تعليمات الخروج من *${h}* جاهزة.`,
+    meds: '💊 الأدوية',
+    instructions: '📋 التعليمات',
+    appointments: '📅 مواعيد المتابعة',
+    by: (d) => `قبل ${d} — سيتم تأكيد الوقت لاحقاً وسنراسلك`,
+    warn: '🚨 اتصل بالطوارئ إذا شعرت بـ:',
+    close: 'أرسل لنا أي سؤال. نحن هنا لمساعدتك. 🩺',
+  },
+  hi: {
+    hello: (n) => `नमस्ते ${n} 👋`,
+    ready: (h) => `*${h}* से आपके डिस्चार्ज निर्देश तैयार हैं।`,
+    meds: '💊 दवाइयाँ',
+    instructions: '📋 निर्देश',
+    appointments: '📅 फ़ॉलो-अप अपॉइंटमेंट',
+    by: (d) => `${d} तक — सही समय की पुष्टि बाद में होगी, हम आपको संदेश भेजेंगे`,
+    warn: '🚨 यदि ये लक्षण हों तो तुरंत आपातकालीन सेवा को कॉल करें:',
+    close: 'कोई भी सवाल हो तो जवाब दें। हम मदद के लिए यहाँ हैं। 🩺',
+  },
+  ta: {
+    hello: (n) => `வணக்கம் ${n} 👋`,
+    ready: (h) => `*${h}* இலிருந்து உங்கள் டிஸ்சார்ஜ் வழிமுறைகள் தயார்.`,
+    meds: '💊 மருந்துகள்',
+    instructions: '📋 வழிமுறைகள்',
+    appointments: '📅 பின்தொடர் சந்திப்புகள்',
+    by: (d) => `${d} க்குள் — சரியான நேரம் பின்னர் உறுதி செய்யப்படும், நாங்கள் உங்களுக்கு செய்தி அனுப்புவோம்`,
+    warn: '🚨 இந்த அறிகுறிகள் இருந்தால் அவசர சேவையை அழைக்கவும்:',
+    close: 'ஏதேனும் கேள்விகள் இருந்தால் பதிலளிக்கவும். உதவ நாங்கள் இருக்கிறோம். 🩺',
+  },
+  tl: {
+    hello: (n) => `Kumusta ${n} 👋`,
+    ready: (h) => `Handa na ang iyong mga tagubilin sa paglabas mula sa *${h}*.`,
+    meds: '💊 Mga gamot',
+    instructions: '📋 Mga tagubilin',
+    appointments: '📅 Mga follow-up na appointment',
+    by: (d) => `bago mag-${d} — kukumpirmahin pa ang eksaktong oras, magme-message kami`,
+    warn: '🚨 Tumawag sa emergency kung maranasan mo ang:',
+    close: 'Mag-reply kung may tanong. Nandito kami para tumulong. 🩺',
+  },
+}
+
 /**
- * Builds the initial discharge instructions message sent to the patient
- * after a nurse approves the summary.
+ * Builds the care plan message sent to the patient after a nurse approves
+ * the summary: medicines, key instructions, follow-up appointments (booked
+ * times, or the "by" date from the letter while the slot is still to be
+ * confirmed) and the warning signs. Section text comes from the patient's
+ * language; the content itself uses the stored translation when one exists.
  */
 export function buildDischargeSummaryMessage(params: {
   to: string
@@ -46,35 +129,44 @@ export function buildDischargeSummaryMessage(params: {
   language: LanguageCode
   summary: DischargeSummary
   medications: Medication[]
+  appointments?: CarePlanAppointment[]
+  timezone?: string
+  translation?: CarePlanTranslation | null
 }): OutboundMessage {
-  const { to, patientName, hospitalName, language, summary, medications } = params
+  const { to, patientName, hospitalName, language, summary, medications, translation } = params
+  const appointments = params.appointments ?? []
+  const timezone = params.timezone ?? 'Asia/Dubai'
 
   if (USE_TEXT_FALLBACK) {
-    const medList = medications
-      .map((m) => `• ${m.name} ${m.dosage} — ${m.frequency}`)
-      .join('\n')
+    const t = CARE_PLAN_STRINGS[language] ?? CARE_PLAN_STRINGS.en
 
-    const warnings = summary.emergency_symptoms.slice(0, 3).join(', ')
+    const medRows = translation?.medications?.length === medications.length && translation.medications.length > 0
+      ? translation.medications
+      : medications
+    const medList = medRows.map((m) => `• ${m.name} ${m.dosage} — ${m.frequency}`).join('\n')
+
+    const instructions = (translation?.lifestyle_instructions?.length ? translation.lifestyle_instructions : summary.lifestyle_instructions).slice(0, 3)
+    const warnings = (translation?.emergency_symptoms?.length ? translation.emergency_symptoms : summary.emergency_symptoms).slice(0, 4)
+
+    const apptList = appointments.map((a) => {
+      const date = formatInTimeZone(new Date(a.scheduled_at), timezone, 'EEE d MMM yyyy')
+      if (a.time_tbc) return `• ${a.specialty} — ${t.by(date)}`
+      const time = formatInTimeZone(new Date(a.scheduled_at), timezone, 'HH:mm')
+      return `• ${a.specialty} — ${date}, ${time}${a.location ? ` (${a.location})` : ''}`
+    }).join('\n')
 
     return {
       type: 'text',
       to,
+      // One blank line between sections: reads as a card on a phone screen.
       body: [
-        `Hello ${patientName} 👋`,
-        `Your discharge instructions from *${hospitalName}* are ready.`,
-        '',
-        medications.length
-          ? `*💊 Medications:*\n${medList}`
-          : '',
-        summary.lifestyle_instructions.length
-          ? `*📋 Instructions:*\n${summary.lifestyle_instructions.slice(0, 3).map((i) => `• ${i}`).join('\n')}`
-          : '',
-        warnings
-          ? `*🚨 Contact emergency services if you experience:* ${warnings}`
-          : '',
-        '',
-        'Reply with any questions. We are here to help. 🩺',
-      ].filter(Boolean).join('\n'),
+        `${t.hello(patientName)}\n${t.ready(hospitalName)}`,
+        medList ? `*${t.meds}:*\n${medList}` : '',
+        instructions.length ? `*${t.instructions}:*\n${instructions.map((i) => `• ${i}`).join('\n')}` : '',
+        apptList ? `*${t.appointments}:*\n${apptList}` : '',
+        warnings.length ? `*${t.warn}*\n${warnings.map((w) => `• ${w}`).join('\n')}` : '',
+        t.close,
+      ].filter(Boolean).join('\n\n'),
     }
   }
 

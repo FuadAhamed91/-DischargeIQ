@@ -198,8 +198,9 @@ export async function POST(request: Request) {
   })
 
   // 4. Draft summary from the confirmed extraction (+ translations in the background).
-  const { data: hospital } = await supabase.from('hospitals').select('settings').eq('id', hospitalId).single()
+  const { data: hospital } = await supabase.from('hospitals').select('settings, timezone').eq('id', hospitalId).single()
   const hospitalLangs = ((hospital?.settings as { languages?: string[] } | null)?.languages) ?? ['en']
+  const timezone = (hospital?.timezone as string | null) ?? 'Asia/Dubai'
 
   try {
     const summaryId = await persistExtraction({
@@ -209,6 +210,7 @@ export async function POST(request: Request) {
       documentId: doc.id,
       extracted: rawExtraction,
       targetLanguages: [patientInput.preferred_language, ...hospitalLangs],
+      timezone,
     })
     return NextResponse.json(
       apiSuccess({ episode_id: episodeId, patient_id: patientId, summary_id: summaryId, patient_existed: !!existing }),

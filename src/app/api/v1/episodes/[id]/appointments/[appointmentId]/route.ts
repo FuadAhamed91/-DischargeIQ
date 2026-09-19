@@ -44,9 +44,19 @@ export async function PATCH(request: Request, { params }: Params) {
 
   const supabase = await createClient()
 
+  const changes: Record<string, unknown> = {}
+  if (body.specialty !== undefined) changes.specialty = body.specialty
+  if (body.location !== undefined) changes.location = body.location
+  if (body.status !== undefined) changes.status = body.status
+  if (body.scheduled_at !== undefined) {
+    changes.scheduled_at = body.scheduled_at
+    // A nurse setting the time turns a provisional (from-the-letter) slot into a real one
+    changes.time_tbc = false
+  }
+
   const { data, error } = await supabase
     .from('appointments')
-    .update({ ...body, updated_at: new Date().toISOString() })
+    .update({ ...changes, updated_at: new Date().toISOString() })
     .eq('id', appointmentId)
     .select()
     .single()

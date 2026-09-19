@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { resolveAuthContext, apiSuccess, apiError } from '@/lib/utils/api'
 import { sendAndLog } from '@/lib/whatsapp/outbound'
 import { buildDischargeSummaryMessage } from '@/lib/whatsapp/templates'
+import type { CarePlanAppointment, CarePlanTranslation } from '@/lib/whatsapp/templates'
 import { nightlyCheckinSchedule } from '@/lib/reminders/checkin'
 import type { LanguageCode } from '@/types/enums'
 
@@ -73,7 +74,7 @@ export async function POST(
   // Load hospital for WhatsApp phone_number_id
   const { data: hospital } = await serviceClient
     .from('hospitals')
-    .select('id, name, whatsapp_phone_number_id, settings')
+    .select('id, name, whatsapp_phone_number_id, settings, timezone')
     .eq('id', episode.hospital_id)
     .single()
 
@@ -84,21 +85,34 @@ export async function POST(
     )
   }
 
-  // Load medications
-  const { data: medications } = await supabase
-    .from('medications')
-    .select('*')
-    .eq('summary_id', summary.id)
-    .order('sort_order')
+  const patientLanguage = (patient.preferred_language as LanguageCode) ?? 'en'
+
+  // Medications, the follow-up appointments (booked or provisional from the
+  // letter) and, when the patient reads another language, the stored translation.
+  const [{ data: medications }, { data: appointments }, { data: translation }] = await Promise.all([
+    supabase.from('medications').select('*').eq('summary_id', summary.id).order('sort_order'),
+    serviceClient
+      .from('appointments')
+      .select('specialty, scheduled_at, location, time_tbc, status')
+      .eq('episode_id', episodeId)
+      .in('status', ['scheduled', 'confirmation_pending', 'confirmed'])
+      .order('scheduled_at', { ascending: true }),
+    patientLanguage !== summary.source_language
+      ? serviceClient.from('discharge_summary_translations').select('content').eq('summary_id', summary.id).eq('language', patientLanguage).maybeSingle()
+      : Promise.resolve({ data: null }),
+  ])
 
   // Build and send the WhatsApp message
   const msgPayload = buildDischargeSummaryMessage({
     to: patient.phone_e164,
     patientName: patient.full_name,
     hospitalName: hospital.name,
-    language: (patient.preferred_language as LanguageCode) ?? 'en',
+    language: patientLanguage,
     summary: summary as Parameters<typeof buildDischargeSummaryMessage>[0]['summary'],
     medications: (medications ?? []) as Parameters<typeof buildDischargeSummaryMessage>[0]['medications'],
+    appointments: (appointments ?? []) as CarePlanAppointment[],
+    timezone: (hospital.timezone as string | null) ?? 'Asia/Dubai',
+    translation: (translation?.content as CarePlanTranslation | null) ?? null,
   })
 
   // Send and record on the patient's conversation (transcript on the dashboard).

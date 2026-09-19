@@ -98,7 +98,7 @@ export async function POST(
 
     const { data: episode } = await serviceClient
       .from('care_episodes')
-      .select('hospital_id, patients(preferred_language), hospitals(settings)')
+      .select('hospital_id, patients(preferred_language), hospitals(settings, timezone)')
       .eq('id', episodeId)
       .single()
 
@@ -108,7 +108,8 @@ export async function POST(
     }
 
     const patientLang = (episode.patients as unknown as { preferred_language: string } | null)?.preferred_language
-    const hospitalLangs = ((episode.hospitals as unknown as { settings: { languages?: string[] } } | null)?.settings?.languages) ?? ['en']
+    const hospitalRow = episode.hospitals as unknown as { settings: { languages?: string[] }; timezone: string | null } | null
+    const hospitalLangs = hospitalRow?.settings?.languages ?? ['en']
 
     const summaryId = await persistExtraction({
       serviceClient,
@@ -117,6 +118,7 @@ export async function POST(
       documentId: document_id,
       extracted,
       targetLanguages: [patientLang, ...hospitalLangs],
+      timezone: hospitalRow?.timezone ?? 'Asia/Dubai',
     })
 
     return NextResponse.json(apiSuccess({ summary_id: summaryId, extraction: extracted }))

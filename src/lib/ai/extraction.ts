@@ -81,7 +81,7 @@ Schema:
   "follow_up_requirements": [
     {
       "specialty": "string (e.g. Cardiology, General Practice)",
-      "deadline": "YYYY-MM-DD or null",
+      "deadline": "YYYY-MM-DD or null", // the date the visit should happen BY
       "instructions": "string or null"
     }
   ],
@@ -95,6 +95,7 @@ Schema:
 Rules:
 - patient / encounter: copy values exactly as written; use null when a field is not in the document. Never guess a name, MRN, date of birth or phone number.
 - Dates: convert any format (12/03/2024, 12 Mar 2024, 2024-03-12) to YYYY-MM-DD. Day-first is the norm in UAE documents when ambiguous.
+- follow_up_requirements.deadline: if the document gives a date, use it; if it gives a timeframe ("in 2 weeks", "within 3 months", "after 10-14 days"), compute the date from the discharge date using the END of the range; null only when no timeframe is given at all.
 - Extract ALL medications listed, even if instructions are brief.
 - For reminder_times: infer sensible dose times from frequency (e.g. "twice daily" → ["08:00", "20:00"]).
 - Emergency symptoms: extract ONLY symptoms explicitly listed as warning signs or reasons to call emergency services.
