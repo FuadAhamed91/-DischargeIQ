@@ -6,7 +6,7 @@
  */
 
 import { createServiceClient } from '@/lib/supabase/server'
-import { sendMessage } from '@/lib/whatsapp/client'
+import { sendAndLog } from '@/lib/whatsapp/outbound'
 import {
   buildMedicationReminder,
   buildSymptomCheckReminder,
@@ -125,8 +125,18 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
         })
       }
 
-      // Send via WhatsApp
-      const sendResult = await sendMessage(hospital.whatsapp_phone_number_id, message)
+      // Send via WhatsApp, log it on the conversation, and move the conversation
+      // into awaiting_reminder_response so the patient's "TAKEN"/"YES" reply is
+      // logged as a reminder response by the FSM rather than routed to AI Q&A.
+      const sendResult = await sendAndLog({
+        supabase,
+        phoneNumberId: hospital.whatsapp_phone_number_id ?? '',
+        message,
+        episodeId: job.episode_id,
+        hospitalId: job.hospital_id,
+        patientId: episode.patient_id,
+        nextState: 'awaiting_reminder_response',
+      })
 
       if (sendResult.status === 'failed') {
         await supabase
@@ -147,40 +157,6 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
           whatsapp_message_id: sendResult.messageId,
         })
         .eq('id', job.id)
-
-      // Put the conversation into awaiting_reminder_response so the patient's
-      // "TAKEN"/"YES" reply is logged as a reminder response by the FSM rather
-      // than routed to AI Q&A. The row normally exists already (created by the
-      // episode-activation trigger); upsert covers episodes activated by hand.
-      const { data: conversation, error: convErr } = await supabase
-        .from('whatsapp_conversations')
-        .upsert({
-          episode_id: job.episode_id,
-          hospital_id: job.hospital_id,
-          patient_id: episode.patient_id,
-          wa_phone: patient.phone_e164,
-          conversation_state: 'awaiting_reminder_response',
-          last_message_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'episode_id' })
-        .select('id')
-        .single()
-
-      if (convErr || !conversation) {
-        console.error(`[dispatcher] conversation state update failed for job ${job.id}:`, convErr?.message)
-      } else {
-        // Log outbound message on the conversation
-        const { error: msgErr } = await supabase.from('whatsapp_messages').insert({
-          conversation_id: conversation.id,
-          hospital_id: job.hospital_id,
-          wa_message_id: sendResult.messageId,
-          direction: 'outbound',
-          message_type: 'text',
-          content: `${schedule.type} reminder`,
-          status: 'sent',
-        })
-        if (msgErr) console.error(`[dispatcher] outbound message log failed for job ${job.id}:`, msgErr.message)
-      }
 
       // Timeline event
       await supabase.from('patient_timeline_events').insert({

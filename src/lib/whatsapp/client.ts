@@ -92,39 +92,39 @@ function getCredentials() {
  * Interactive button/list messages are automatically converted to plain text
  * because Twilio sandbox does not support WhatsApp interactive messages.
  */
+/**
+ * The exact plain-text body delivered over the Twilio sandbox (text only).
+ * Exported so the transcript logs precisely what the patient received.
+ */
+export function renderMessageBody(message: OutboundMessage): string {
+  switch (message.type) {
+    case 'text':
+      return message.body
+
+    case 'template':
+      // Templates aren't supported in Twilio sandbox; send a generic fallback
+      return 'Message from your care team. Please reply with any questions.'
+
+    case 'interactive_buttons': {
+      const options = message.buttons.map((b, i) => `${i + 1}. ${b.title}`).join('\n')
+      return `${message.body}${message.footer ? `\n_${message.footer}_` : ''}\n\n${options}\n\nReply with the number of your choice.`
+    }
+
+    case 'interactive_list': {
+      const rows = message.sections.flatMap((s) => s.rows)
+      const options = rows.map((r, i) => `${i + 1}. ${r.title}`).join('\n')
+      return `${message.body}\n\n${options}\n\nReply with the number of your choice.`
+    }
+  }
+}
+
 export async function sendMessage(
   _phoneNumberId: string,
   message: OutboundMessage,
 ): Promise<SendResult> {
   const { sid, token, from } = getCredentials()
   const to = message.to.startsWith('whatsapp:') ? message.to : `whatsapp:${message.to}`
-
-  // Build the plain-text body (Twilio sandbox supports text only)
-  let body: string
-
-  switch (message.type) {
-    case 'text':
-      body = message.body
-      break
-
-    case 'template':
-      // Templates aren't supported in Twilio sandbox; send a generic fallback
-      body = 'Message from your care team. Please reply with any questions.'
-      break
-
-    case 'interactive_buttons': {
-      const options = message.buttons.map((b, i) => `${i + 1}. ${b.title}`).join('\n')
-      body = `${message.body}${message.footer ? `\n_${message.footer}_` : ''}\n\n${options}\n\nReply with the number of your choice.`
-      break
-    }
-
-    case 'interactive_list': {
-      const rows = message.sections.flatMap((s) => s.rows)
-      const options = rows.map((r, i) => `${i + 1}. ${r.title}`).join('\n')
-      body = `${message.body}\n\n${options}\n\nReply with the number of your choice.`
-      break
-    }
-  }
+  const body = renderMessageBody(message)
 
   const auth = Buffer.from(`${sid}:${token}`).toString('base64')
   const params = new URLSearchParams({ From: from, To: to, Body: body })

@@ -15,7 +15,8 @@ import { StatusBadge } from '@/components/shared/status-badge'
 import { LanguageBadge } from '@/components/shared/language-badge'
 import { EpisodeTimeline } from '@/components/patients/episode-timeline'
 import { MedicationAdherence } from '@/components/patients/medication-adherence'
-import { ArrowLeft, Pencil, User, Calendar, Pill, AlertTriangle, ChevronRight, Mic, Bot, Activity } from 'lucide-react'
+import { ConversationTranscript, type TranscriptMessage } from '@/components/patients/conversation-transcript'
+import { ArrowLeft, Pencil, User, Calendar, Pill, AlertTriangle, ChevronRight, Mic, Bot, Activity, MessageCircle } from 'lucide-react'
 import { format } from 'date-fns'
 import type { RiskLevel, EpisodeStatus, SummaryStatus, LanguageCode } from '@/types/enums'
 import type { Medication, FollowUpRequirement } from '@/types/database'
@@ -61,6 +62,7 @@ export default async function EpisodeDetailPage({
     { data: reminderJobs },
     { count: positiveResponses },
     { data: appointments },
+    { data: conversation },
   ] = await Promise.all([
     supabase.from('patient_timeline_events').select('id, event_type, payload, risk_level, created_at').eq('episode_id', id).order('created_at', { ascending: false }).limit(50),
     supabase.from('triage_assessments').select('id, risk_level, inbound_text, matched_symptoms, reasoning, created_at').eq('episode_id', id).order('created_at', { ascending: false }).limit(20),
@@ -68,7 +70,23 @@ export default async function EpisodeDetailPage({
     supabase.from('reminder_jobs').select('status, schedule_id').eq('episode_id', id),
     supabase.from('patient_timeline_events').select('*', { count: 'exact', head: true }).eq('episode_id', id).eq('event_type', 'reminder_response'),
     supabase.from('appointments').select('id, specialty, scheduled_at, status').eq('episode_id', id).order('scheduled_at', { ascending: true }),
+    supabase.from('whatsapp_conversations').select('id, conversation_state, last_message_at').eq('episode_id', id).maybeSingle(),
   ])
+
+  // Conversation transcript (oldest first, capped; the component streams new ones in)
+  const { data: transcript } = conversation
+    ? await supabase
+        .from('whatsapp_messages')
+        .select('id, direction, message_type, content, status, metadata, created_at')
+        .eq('conversation_id', conversation.id)
+        .order('created_at', { ascending: true })
+        .limit(200)
+    : { data: [] as TranscriptMessage[] }
+  const rawState = conversation?.conversation_state as unknown
+  const conversationState =
+    typeof rawState === 'string' ? rawState
+    : rawState && typeof rawState === 'object' && 'state' in rawState ? String((rawState as { state: unknown }).state)
+    : 'idle'
 
   const patient = episode.patients as { id: string; full_name: string; phone_e164: string; preferred_language: string; mrn: string; date_of_birth: string | null }
   const nurse = episode.profiles as { id: string; full_name: string } | null
@@ -173,8 +191,12 @@ export default async function EpisodeDetailPage({
 
       {/* Main tabs */}
       <Tabs defaultValue="summary">
-        <TabsList className="grid grid-cols-4 w-full max-w-lg">
+        <TabsList className="grid grid-cols-5 w-full max-w-2xl">
           <TabsTrigger value="summary">Summary</TabsTrigger>
+          <TabsTrigger value="conversation">
+            Conversation
+            {(transcript?.length ?? 0) > 0 && <span className="ml-1.5 text-xs text-muted-foreground">{transcript!.length}</span>}
+          </TabsTrigger>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
           <TabsTrigger value="triage">
             Triage
@@ -380,6 +402,26 @@ export default async function EpisodeDetailPage({
         </TabsContent>
 
         {/* ── AI CHAT TAB ─────────────────────────────────────────── */}
+        {/* ── CONVERSATION TAB ────────────────────────────────────── */}
+        <TabsContent value="conversation" className="mt-4">
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base flex items-center gap-2">
+                <MessageCircle className="w-4 h-4" /> WhatsApp Conversation
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ConversationTranscript
+                initialMessages={(transcript ?? []) as TranscriptMessage[]}
+                conversationId={conversation?.id ?? null}
+                patientName={patient.full_name}
+                patientPhone={patient.phone_e164}
+                conversationState={conversationState}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="chat" className="mt-4">
           <Card>
             <CardHeader className="pb-4">

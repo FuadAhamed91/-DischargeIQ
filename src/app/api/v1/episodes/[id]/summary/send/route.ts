@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { resolveAuthContext, apiSuccess, apiError } from '@/lib/utils/api'
-import { sendMessage } from '@/lib/whatsapp/client'
+import { sendAndLog } from '@/lib/whatsapp/outbound'
 import { buildDischargeSummaryMessage } from '@/lib/whatsapp/templates'
 import type { LanguageCode } from '@/types/enums'
 
@@ -100,7 +100,16 @@ export async function POST(
     medications: (medications ?? []) as Parameters<typeof buildDischargeSummaryMessage>[0]['medications'],
   })
 
-  const result = await sendMessage(hospital.whatsapp_phone_number_id, msgPayload)
+  // Send and record on the patient's conversation (transcript on the dashboard).
+  // The summary asks nothing of the patient, so the conversation stays idle.
+  const result = await sendAndLog({
+    supabase: serviceClient,
+    phoneNumberId: hospital.whatsapp_phone_number_id,
+    message: msgPayload,
+    episodeId,
+    hospitalId: episode.hospital_id,
+    patientId: patient.id,
+  })
 
   if (result.status === 'failed') {
     return NextResponse.json(
@@ -119,17 +128,6 @@ export async function POST(
     .from('care_episodes')
     .update({ status: 'active', started_at: new Date().toISOString() })
     .eq('id', episodeId)
-
-  // Log outbound message
-  await serviceClient.from('whatsapp_messages').insert({
-    episode_id: episodeId,
-    hospital_id: episode.hospital_id,
-    wa_message_id: result.messageId,
-    direction: 'outbound',
-    message_type: 'text',
-    content: 'Discharge instructions sent',
-    status: 'sent',
-  })
 
   // Timeline event
   await supabase.from('patient_timeline_events').insert({

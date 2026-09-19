@@ -12,6 +12,8 @@
 
 import { createServiceClient } from '@/lib/supabase/server'
 import { sendMessage, markAsRead } from './client'
+import type { OutboundMessage } from './client'
+import { sendAndLog } from './outbound'
 import {
   buildNotRegisteredMessage,
   buildEscalationAcknowledgement,
@@ -184,6 +186,18 @@ export async function handleInboundMessage(
 
   const state = normaliseState(conversation.conversation_state)
 
+  // Every reply from here on is sent AND recorded on the conversation so the
+  // dashboard transcript shows both sides. Conversation state is set in step 8.
+  const reply = (outbound: OutboundMessage) =>
+    sendAndLog({
+      supabase,
+      phoneNumberId,
+      message: outbound,
+      episodeId: episode.id,
+      hospitalId: hospital.id,
+      patientId: patient.id,
+    })
+
   // 5. Persist inbound message
   const { data: savedMsg, error: msgErr } = await supabase
     .from('whatsapp_messages')
@@ -228,7 +242,7 @@ export async function handleInboundMessage(
           .update({ status: 'confirmed', confirmed_at: new Date().toISOString() })
           .eq('id', appointmentId)
 
-        await sendMessage(phoneNumberId, {
+        await reply({
           type: 'text',
           to: message.from,
           body: `✅ Thank you ${patient.full_name}! Your appointment has been confirmed. We look forward to seeing you.`,
@@ -262,7 +276,7 @@ export async function handleInboundMessage(
         ? (await supabase.from('appointments').select('specialty').eq('id', appointmentId).single()).data?.specialty
         : 'follow-up'
 
-      await sendMessage(phoneNumberId, {
+      await reply({
         type: 'text',
         to: message.from,
         body: `We understand, ${patient.full_name}. 🙏\n\nPlease contact the hospital to reschedule your *${specialty ?? 'follow-up'}* appointment, or reply with your preferred date and a nurse will assist you.`,
@@ -290,7 +304,7 @@ export async function handleInboundMessage(
         },
       })
       // Simple acknowledgement
-      await sendMessage(phoneNumberId, {
+      await reply({
         type: 'text',
         to: message.from,
         body: `Thank you, ${patient.full_name}! ✅ Keep it up!`,
@@ -300,7 +314,7 @@ export async function handleInboundMessage(
 
     case 'route_to_triage': {
       // Always acknowledge immediately so patient isn't left waiting
-      await sendMessage(phoneNumberId, buildEscalationAcknowledgement({
+      await reply(buildEscalationAcknowledgement({
         to: message.from,
         patientName: patient.full_name,
       }))
@@ -367,7 +381,7 @@ export async function handleInboundMessage(
 
           // RED: send urgent WhatsApp response
           if (triageResult.riskLevel === 'red') {
-            await sendMessage(phoneNumberId, {
+            await reply({
               type: 'text',
               to: message.from,
               body: `🚨 *Important, ${patient.full_name}*\n\nBased on what you described, please seek emergency medical attention immediately or call emergency services.\n\nYour care team has been notified and will follow up urgently. 💙`,
@@ -398,7 +412,7 @@ export async function handleInboundMessage(
 
       // Emergency keyword: instant, deterministic, critical — no model in the loop.
       if (preIntent === 'emergency') {
-        await sendMessage(phoneNumberId, buildEmergencyEscalationMessage({ to: message.from, patientName: patient.full_name }))
+        await reply(buildEmergencyEscalationMessage({ to: message.from, patientName: patient.full_name }))
         await supabase.from('alerts').insert({
           episode_id: episode.id,
           hospital_id: hospital.id,
@@ -418,10 +432,10 @@ export async function handleInboundMessage(
       // Plain acknowledgement or greeting: reply instantly, no model, no alert.
       // (These used to be sent to the model, which escalated them as "unanswerable".)
       if (preIntent === 'acknowledgement' || preIntent === 'greeting') {
-        const reply = preIntent === 'greeting'
+        const instantReply = preIntent === 'greeting'
           ? buildGreetingReply({ to: message.from, patientName: patient.full_name, language: lang })
           : buildAcknowledgementReply({ to: message.from, patientName: patient.full_name, language: lang })
-        await sendMessage(phoneNumberId, reply)
+        await reply(instantReply)
         break
       }
 
@@ -452,7 +466,7 @@ export async function handleInboundMessage(
         })
 
         // Send AI answer to patient
-        await sendMessage(phoneNumberId, {
+        await reply({
           type: 'text',
           to: message.from,
           body: chatResult.answer,
@@ -507,7 +521,7 @@ export async function handleInboundMessage(
         })
       } catch (err) {
         console.error('[AI chat] failed:', err)
-        await sendMessage(phoneNumberId, {
+        await reply({
           type: 'text',
           to: message.from,
           body: `Thank you for your message, ${patient.full_name}. 💙\n\nA member of your care team will follow up with you shortly.\n\n_If this is urgent, please call emergency services._`,

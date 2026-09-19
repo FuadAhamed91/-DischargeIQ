@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { resolveAuthContext, apiSuccess, apiError, requireRole } from '@/lib/utils/api'
-import { sendMessage } from '@/lib/whatsapp/client'
+import { sendAndLog } from '@/lib/whatsapp/outbound'
 import { buildAppointmentConfirmationRequest } from '@/lib/whatsapp/templates'
 import type { LanguageCode } from '@/types/enums'
 import type { Appointment } from '@/types/database'
@@ -72,7 +72,17 @@ export async function POST(
     appointment: appointment as unknown as Appointment,
   })
 
-  const result = await sendMessage(hospital.whatsapp_phone_number_id, message)
+  // Send, log on the conversation, and move it to awaiting_appointment_confirm
+  // so the patient's YES/NO reply is handled by the appointment flow.
+  const result = await sendAndLog({
+    supabase: serviceClient,
+    phoneNumberId: hospital.whatsapp_phone_number_id,
+    message,
+    episodeId,
+    hospitalId: episode.hospital_id,
+    patientId: episode.patient_id,
+    nextState: 'awaiting_appointment_confirm',
+  })
 
   if (result.status === 'failed') {
     return NextResponse.json(apiError('WhatsApp send failed', result.error), { status: 502 })
@@ -86,28 +96,6 @@ export async function POST(
       confirmation_requested_at: new Date().toISOString(),
     })
     .eq('id', appointmentId)
-
-  // Update conversation state
-  await serviceClient
-    .from('whatsapp_conversations')
-    .upsert({
-      episode_id: episodeId,
-      hospital_id: episode.hospital_id,
-      patient_phone: patient.phone_e164,
-      conversation_state: 'awaiting_appointment_confirm',
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'episode_id' })
-
-  // Log outbound message
-  await serviceClient.from('whatsapp_messages').insert({
-    episode_id: episodeId,
-    hospital_id: episode.hospital_id,
-    wa_message_id: result.messageId,
-    direction: 'outbound',
-    message_type: 'interactive',
-    content: `Appointment confirmation request: ${appointment.specialty}`,
-    status: 'sent',
-  })
 
   // Timeline
   await supabase.from('patient_timeline_events').insert({
