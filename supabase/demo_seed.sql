@@ -2,6 +2,10 @@
 -- DischargeIQ — Demo Seed Data
 -- Run this in Supabase SQL Editor to populate the demo.
 -- Assumes hospital ID 00000000-0000-0000-0000-000000000001 exists.
+--
+-- All dates are relative to now() so the demo stays evergreen: discharges
+-- and activity sit in the recent past, follow-ups and appointments in the
+-- near future. Appointment times are Dubai local (Asia/Dubai).
 -- ============================================================
 
 -- ── PATIENTS ──────────────────────────────────────────────────────────
@@ -19,11 +23,11 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO care_episodes (id, hospital_id, patient_id, status, discharge_date, current_risk_level, compliance_score, started_at)
 VALUES
-  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'active',    '2026-06-22', 'yellow', 72.0,  now() - interval '8 days'),
-  ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000002', 'active',    '2026-06-25', 'green',  88.5,  now() - interval '5 days'),
-  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003', 'active',    '2026-06-20', 'red',    51.0,  now() - interval '10 days'),
-  ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000004', 'active',    '2026-06-27', 'green',  94.0,  now() - interval '3 days'),
-  ('20000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000005', 'completed', '2026-06-10', 'green',  91.0,  now() - interval '20 days')
+  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'active',    current_date - 8,  'yellow', 72.0,  now() - interval '8 days'),
+  ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000002', 'active',    current_date - 5,  'green',  88.5,  now() - interval '5 days'),
+  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003', 'active',    current_date - 10, 'red',    51.0,  now() - interval '10 days'),
+  ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000004', 'active',    current_date - 3,  'green',  94.0,  now() - interval '3 days'),
+  ('20000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000005', 'completed', current_date - 20, 'green',  91.0,  now() - interval '20 days')
 ON CONFLICT (id) DO NOTHING;
 
 -- ── DISCHARGE SUMMARIES ───────────────────────────────────────────────
@@ -104,31 +108,33 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO follow_up_requirements (id, summary_id, hospital_id, specialty, deadline, instructions)
 VALUES
   ('50000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001',
-   'Cardiology', '2026-07-20', 'ECG and echo review — bring all current medications'),
+   'Cardiology', current_date + 20, 'ECG and echo review — bring all current medications'),
   ('50000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001',
-   'Endocrinology', '2026-07-30', 'HbA1c blood test and insulin dosage review'),
+   'Endocrinology', current_date + 30, 'HbA1c blood test and insulin dosage review'),
   ('50000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
-   'Orthopaedics', '2026-07-10', 'Wound check and X-ray — bring walking aid'),
+   'Orthopaedics', current_date + 10, 'Wound check and X-ray — bring walking aid'),
   ('50000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
-   'Physiotherapy', '2026-07-05', 'First physiotherapy session — wear comfortable clothing'),
+   'Physiotherapy', current_date + 5, 'First physiotherapy session — wear comfortable clothing'),
   ('50000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001',
-   'Obstetrics', '2026-07-15', '6-week postpartum check — bring baby for newborn review')
+   'Obstetrics', current_date + 15, '6-week postpartum check — bring baby for newborn review')
 ON CONFLICT (id) DO NOTHING;
 
 -- ── APPOINTMENTS ──────────────────────────────────────────────────────
+-- scheduled_at = (day offset from today) + clinic time, interpreted as Asia/Dubai.
+-- The missed physiotherapy slot sits 3 days back to line up with David's missed-appointment alert.
 
 INSERT INTO appointments (id, episode_id, hospital_id, specialty, scheduled_at, location, status, confirmed_at)
 VALUES
   ('60000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001',
-   'Cardiology', '2026-07-20 10:00:00+04', 'Cardiology Clinic, Floor 3', 'confirmed', now() - interval '5 days'),
+   'Cardiology', ((current_date + 20) + time '10:00') AT TIME ZONE 'Asia/Dubai', 'Cardiology Clinic, Floor 3', 'confirmed', now() - interval '5 days'),
   ('60000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001',
-   'Endocrinology', '2026-07-30 09:00:00+04', 'Diabetes Centre, Ground Floor', 'confirmation_pending', null),
+   'Endocrinology', ((current_date + 30) + time '09:00') AT TIME ZONE 'Asia/Dubai', 'Diabetes Centre, Ground Floor', 'confirmation_pending', null),
   ('60000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
-   'Orthopaedics', '2026-07-10 11:30:00+04', 'Orthopaedic Clinic, Floor 2', 'confirmation_pending', null),
+   'Orthopaedics', ((current_date + 10) + time '11:30') AT TIME ZONE 'Asia/Dubai', 'Orthopaedic Clinic, Floor 2', 'confirmation_pending', null),
   ('60000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
-   'Physiotherapy', '2026-07-05 08:00:00+04', 'Physiotherapy Department, Floor 1', 'missed', null),
+   'Physiotherapy', ((current_date - 3) + time '08:00') AT TIME ZONE 'Asia/Dubai', 'Physiotherapy Department, Floor 1', 'missed', null),
   ('60000000-0000-0000-0000-000000000005', '20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001',
-   'Obstetrics', '2026-07-15 10:00:00+04', 'Women''s Health Clinic, Floor 4', 'confirmed', now() - interval '1 day')
+   'Obstetrics', ((current_date + 15) + time '10:00') AT TIME ZONE 'Asia/Dubai', 'Women''s Health Clinic, Floor 4', 'confirmed', now() - interval '1 day')
 ON CONFLICT (id) DO NOTHING;
 
 -- ── ALERTS ────────────────────────────────────────────────────────────
@@ -297,7 +303,7 @@ VALUES
   ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', 'extraction_completed', '{"medications_found": 2, "symptoms_found": 5}', null, now() - interval '3 days' + interval '2 minutes'),
   ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', 'summary_approved', '{}', null, now() - interval '2 days'),
   ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', 'summary_sent', '{}', null, now() - interval '2 days' + interval '5 minutes'),
-  ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', 'appointment_confirmed', '{"specialty": "Obstetrics", "scheduled_at": "2026-07-15T10:00:00+04"}', null, now() - interval '1 day'),
+  ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', 'appointment_confirmed', jsonb_build_object('specialty', 'Obstetrics', 'scheduled_at', ((current_date + 15) + time '10:00') AT TIME ZONE 'Asia/Dubai'), null, now() - interval '1 day'),
   ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', 'reminder_response', '{"response": "yes", "medication": "Ibuprofen"}', null, now() - interval '1 day');
 
 -- ── COMPLIANCE SNAPSHOTS (14 days of trending data) ────────────────────
