@@ -198,21 +198,6 @@ export function buildMedicationReminder(params: {
   }
 }
 
-export function buildSymptomCheckReminder(params: {
-  to: string
-  patientName: string
-  language: LanguageCode
-}): OutboundMessage {
-  const { to, patientName } = params
-
-  // Plain text for Twilio — patient replies "1" for OK or "2" for concern
-  return {
-    type: 'text',
-    to,
-    body: `Hi ${patientName} 👋\n\nHow are you feeling today?\n\nReply *1* if you are feeling good 😊\nReply *2* if you have a concern 😟\n\nOr send us a *voice note* and our care team will review it. 💙`,
-  }
-}
-
 export function buildGeneralReminder(params: {
   to: string
   patientName: string

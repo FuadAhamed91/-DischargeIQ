@@ -23,8 +23,14 @@ import {
 } from './templates'
 import { transition } from './fsm'
 import type { ParsedInbound, ConversationState } from './fsm'
+import {
+  buildCheckinSymptomQuestion,
+  buildCheckinGoodnight,
+  buildTriageReply,
+} from './checkin-templates'
 import type { LanguageCode } from '@/types/enums'
-import { triageVoiceNote } from '@/lib/ai/triage'
+import { classifyRisk, triageVoiceNote } from '@/lib/ai/triage'
+import type { TriageResult } from '@/lib/ai/triage'
 import { answerPatientQuestion } from '@/lib/ai/chat'
 import { classifyPreIntent } from '@/lib/ai/intent'
 import type { DischargeSummary, Medication } from '@/types/database'
@@ -86,6 +92,8 @@ const KNOWN_STATES: ReadonlySet<string> = new Set<ConversationState>([
   'awaiting_appointment_confirm',
   'awaiting_slot_selection',
   'awaiting_reminder_response',
+  'awaiting_checkin_meds',
+  'awaiting_checkin_symptoms',
 ])
 
 /**
@@ -101,6 +109,84 @@ function normaliseState(raw: unknown): ConversationState {
         ? String((raw as { state: unknown }).state)
         : 'idle'
   return (KNOWN_STATES.has(value) ? value : 'idle') as ConversationState
+}
+
+// ------------------------------------
+// Triage persistence (voice notes, text symptom reports, nightly check-in)
+// ------------------------------------
+
+type ServiceClient = Awaited<ReturnType<typeof createServiceClient>>
+
+interface RecordTriageParams {
+  supabase: ServiceClient
+  episodeId: string
+  hospitalId: string
+  patient: { full_name: string; language: LanguageCode; to: string }
+  reply: (outbound: OutboundMessage) => Promise<unknown>
+  triage: TriageResult
+  waMessageId: string
+  source: 'voice' | 'text' | 'nightly_checkin'
+  voiceArtifactId?: string | null
+}
+
+/**
+ * Stores a triage result, moves the episode's risk level, raises the nurse
+ * alert for yellow/red and tells the patient what to do next. Shared by every
+ * path that classifies a symptom report so the dashboard sees one shape.
+ */
+async function recordTriage(params: RecordTriageParams): Promise<void> {
+  const { supabase, episodeId, hospitalId, patient, reply, triage, waMessageId, source } = params
+
+  const { data: assessment } = await supabase
+    .from('triage_assessments')
+    .insert({
+      episode_id: episodeId,
+      hospital_id: hospitalId,
+      voice_artifact_id: params.voiceArtifactId ?? null,
+      inbound_text: triage.transcript,
+      risk_level: triage.riskLevel,
+      matched_symptoms: triage.keySymptoms,
+      reasoning: triage.reasoning,
+      model_version: 'gemini-2.5-flash',
+    })
+    .select('id')
+    .single()
+
+  await supabase
+    .from('care_episodes')
+    .update({ current_risk_level: triage.riskLevel })
+    .eq('id', episodeId)
+
+  if (triage.riskLevel !== 'green') {
+    await supabase.from('alerts').insert({
+      episode_id: episodeId,
+      hospital_id: hospitalId,
+      triage_id: assessment?.id ?? null,
+      type: triage.riskLevel === 'red' ? 'risk_red' : 'risk_yellow',
+      severity: triage.riskLevel === 'red' ? 'critical' : 'medium',
+    })
+  }
+
+  await reply(buildTriageReply({
+    to: patient.to,
+    patientName: patient.full_name,
+    language: patient.language,
+    riskLevel: triage.riskLevel,
+  }))
+
+  await supabase.from('patient_timeline_events').insert({
+    episode_id: episodeId,
+    hospital_id: hospitalId,
+    event_type: 'triage_completed',
+    payload: {
+      risk_level: triage.riskLevel,
+      transcript: triage.transcript,
+      key_symptoms: triage.keySymptoms,
+      source,
+      wa_message_id: waMessageId,
+    },
+    risk_level: triage.riskLevel,
+  })
 }
 
 // ------------------------------------
@@ -352,57 +438,137 @@ export async function handleInboundMessage(
             voiceArtifactId = voiceArtifact?.id ?? null
           }
 
-          await supabase.from('triage_assessments').insert({
-            episode_id: episode.id,
-            hospital_id: hospital.id,
-            voice_artifact_id: voiceArtifactId,
-            inbound_text: triageResult.transcript,
-            risk_level: triageResult.riskLevel,
-            matched_symptoms: triageResult.keySymptoms,
-            reasoning: triageResult.reasoning,
-            model_version: 'gemini-2.5-flash',
-          })
-
-          // Update episode risk level
-          await supabase
-            .from('care_episodes')
-            .update({ current_risk_level: triageResult.riskLevel })
-            .eq('id', episode.id)
-
-          // Create alert for YELLOW and RED
-          if (triageResult.riskLevel !== 'green') {
-            await supabase.from('alerts').insert({
-              episode_id: episode.id,
-              hospital_id: hospital.id,
-              type: triageResult.riskLevel === 'red' ? 'risk_red' : 'risk_yellow',
-              severity: triageResult.riskLevel === 'red' ? 'critical' : 'medium',
-            })
-          }
-
-          // RED: send urgent WhatsApp response
-          if (triageResult.riskLevel === 'red') {
-            await reply({
-              type: 'text',
-              to: message.from,
-              body: `🚨 *Important, ${patient.full_name}*\n\nBased on what you described, please seek emergency medical attention immediately or call emergency services.\n\nYour care team has been notified and will follow up urgently. 💙`,
-            })
-          }
-
-          await supabase.from('patient_timeline_events').insert({
-            episode_id: episode.id,
-            hospital_id: hospital.id,
-            event_type: 'triage_completed',
-            payload: {
-              risk_level: triageResult.riskLevel,
-              transcript: triageResult.transcript,
-              wa_message_id: message.waMessageId,
-            },
+          await recordTriage({
+            supabase,
+            episodeId: episode.id,
+            hospitalId: hospital.id,
+            patient: { full_name: patient.full_name, language: lang, to: message.from },
+            reply,
+            triage: triageResult,
+            waMessageId: message.waMessageId,
+            source: 'voice',
+            voiceArtifactId,
           })
         } catch (err) {
           console.error('[Triage] failed:', err)
           // Already sent acknowledgement above — no further action needed
         }
       }
+      break
+    }
+
+    case 'triage_text': {
+      // Free-text symptom report (nightly check-in answer, or instead of one).
+      const text = (message.text ?? '').trim()
+      try {
+        const { data: summary } = await supabase
+          .from('discharge_summaries')
+          .select('emergency_symptoms')
+          .eq('episode_id', episode.id)
+          .maybeSingle()
+
+        const triage = await classifyRisk({
+          transcript: text,
+          emergencySymptoms: (summary?.emergency_symptoms as string[]) ?? [],
+          patientName: patient.full_name,
+        })
+
+        await recordTriage({
+          supabase,
+          episodeId: episode.id,
+          hospitalId: hospital.id,
+          patient: { full_name: patient.full_name, language: lang, to: message.from },
+          reply,
+          triage,
+          waMessageId: message.waMessageId,
+          source: state === 'idle' ? 'text' : 'nightly_checkin',
+        })
+      } catch (err) {
+        // The model is down or returned garbage: never drop a symptom report
+        // on the floor. Acknowledge, and hand it to a nurse at medium.
+        console.error('[Triage text] failed:', err)
+        await reply(buildEscalationAcknowledgement({ to: message.from, patientName: patient.full_name }))
+        await supabase.from('alerts').insert({
+          episode_id: episode.id,
+          hospital_id: hospital.id,
+          type: 'escalation',
+          severity: 'medium',
+        })
+        await supabase.from('patient_timeline_events').insert({
+          episode_id: episode.id,
+          hospital_id: hospital.id,
+          event_type: 'escalation_created',
+          payload: { reason: 'Symptom report could not be triaged automatically', text, wa_message_id: message.waMessageId },
+          risk_level: 'yellow',
+        })
+      }
+      break
+    }
+
+    case 'log_checkin_meds': {
+      const taken = result.medsTaken ?? 'all'
+
+      // Tie the answer to the latest check-in job when there is one.
+      const { data: job } = await supabase
+        .from('reminder_jobs')
+        .select('id')
+        .eq('episode_id', episode.id)
+        .eq('status', 'sent')
+        .order('fire_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      // reminder_response feeds the adherence metrics, so it is only written
+      // when at least some medicines were taken; "none" becomes an escalation.
+      if (taken !== 'none') {
+        await supabase.from('patient_timeline_events').insert({
+          episode_id: episode.id,
+          hospital_id: hospital.id,
+          event_type: 'reminder_response',
+          payload: {
+            response: taken,
+            source: 'nightly_checkin',
+            job_id: job?.id ?? null,
+            wa_message_id: message.waMessageId,
+            message_id: savedMsg?.id,
+          },
+        })
+      }
+
+      if (taken !== 'all') {
+        const severity = taken === 'none' ? 'medium' : 'low'
+        await supabase.from('alerts').insert({
+          episode_id: episode.id,
+          hospital_id: hospital.id,
+          type: 'missed_medication',
+          severity,
+        })
+        await supabase.from('patient_timeline_events').insert({
+          episode_id: episode.id,
+          hospital_id: hospital.id,
+          event_type: 'escalation_created',
+          payload: {
+            reason: taken === 'none' ? 'Patient took none of their medicines today' : 'Patient missed some medicines today',
+            intent: 'missed_medication',
+            severity,
+            job_id: job?.id ?? null,
+            wa_message_id: message.waMessageId,
+          },
+          risk_level: taken === 'none' ? 'yellow' : null,
+        })
+      }
+
+      await reply(buildCheckinSymptomQuestion({
+        to: message.from,
+        patientName: patient.full_name,
+        language: lang,
+        medsTaken: taken,
+      }))
+      break
+    }
+
+    case 'checkin_ok': {
+      await reply(buildCheckinGoodnight({ to: message.from, patientName: patient.full_name, language: lang }))
       break
     }
 

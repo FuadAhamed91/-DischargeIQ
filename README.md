@@ -2,11 +2,11 @@
 
 Post-discharge patient follow-up over WhatsApp, for hospitals in the UAE.
 
-Clinical staff use a web dashboard; patients never install anything. When a nurse approves a
-discharge summary, the patient receives their care plan on WhatsApp in their own language,
-gets medication and symptom-check reminders at the right times, can ask questions that are
-answered strictly from their own discharge instructions, and is escalated to a nurse the
-moment they report a warning sign.
+Clinical staff use a web dashboard; patients never install anything. A nurse uploads the
+discharge document, checks the details it was read into, and approves the summary; the patient
+then receives their care plan on WhatsApp in their own language, gets one check-in every night
+(medicines taken? how are you feeling?), can ask questions that are answered strictly from their
+own discharge instructions, and is escalated to a nurse the moment they report a warning sign.
 
 - **Product context:** [PROJECT_CONTEXT.md](./PROJECT_CONTEXT.md) (vision, systems, languages)
 - **Design:** [ARCHITECTURE.md](./ARCHITECTURE.md) (schema, roles, workflows — the original proposal)
@@ -50,33 +50,50 @@ Roles: `super_admin`, `hospital_admin`, `discharge_coordinator`, `nurse`, `case_
 
 ### 1. Discharge → care plan (nurse)
 
+Intake is **document-first**: the nurse drops the discharge PDF and the form fills itself.
+
 ```
-upload PDF ──► /api/v1/episodes/[id]/documents   (Storage: discharge-documents/<hospital>/<episode>/…)
-           ──► /api/v1/episodes/[id]/extract     (unpdf → Gemini → discharge_summaries, medications, follow_up_requirements)
-                                                  └─ after(): translate into patient + hospital languages
-nurse reviews ► /episodes/[id]/review             (edit, notes, approve)
-           ──► /api/v1/episodes/[id]/summary/send (WhatsApp care plan; episode → active)
+drop PDF   ──► /api/v1/intake/extract            (unpdf → Gemini: patient demographics + encounter + medications,
+                                                   follow-ups, warning signs; nothing written yet)
+nurse checks ► /episodes/new                      (pre-filled; nurse types the WhatsApp number — it is never in
+                                                   the document — fixes anything marked "not found", confirms)
+           ──► /api/v1/intake/commit             (patient by MRN or new · episode · PDF → Storage
+                                                   discharge-documents/<hospital>/<episode>/… · discharge_documents
+                                                   · draft summary + medications + follow_up_requirements
+                                                   └─ after(): translate into patient + hospital languages)
+nurse reviews ► /episodes/[id]/review             (edit, notes, approve — nothing reaches the patient before this)
+           ──► /api/v1/episodes/[id]/summary/send (WhatsApp care plan; episode → active; nightly check-in scheduled)
 ```
+
+`lib/intake/persist-extraction.ts` is the single place an extraction becomes a summary; the older
+`/api/v1/episodes/[id]/documents` + `/extract` pair still works for re-uploading on an existing
+episode (and for the "enter details manually" fallback when there is no readable PDF).
 
 Approval activates the episode, which creates its `whatsapp_conversations` row (DB trigger).
 
-### 2. Reminders (automatic)
+### 2. Nightly check-in (automatic)
+
+One scheduled conversation per patient per day, at **21:00 hospital-local** (override:
+`hospitals.settings.checkin_time`). Per-dose medication reminders were retired in migration 00009;
+dose times stay on the medications as instructions in the care plan.
 
 ```mermaid
 flowchart LR
-  A[reminder_schedules<br/>per medication / symptom check] -->|00:00 UTC daily<br/>Vercel cron| B["/api/cron/reminders/generate"]
+  A[reminder_schedules<br/>one symptom_check per episode<br/>nightly_checkin_v1] -->|00:00 UTC daily<br/>Vercel cron| B["/api/cron/reminders/generate"]
   B -->|next 24h, hospital tz| C[(reminder_jobs<br/>pending)]
   D[pg_cron every 5 min] -->|GET + CRON_SECRET from Vault| E["/api/cron/reminders/dispatch"]
   C --> E
-  E -->|Twilio| F((patient WhatsApp))
+  E -->|Twilio: Q1 medicines 1/2/3| F((patient WhatsApp))
   E -->|sendAndLog| G[(whatsapp_messages<br/>timeline: reminder_sent)]
-  E -->|state| H[conversation:<br/>awaiting_reminder_response]
+  E -->|state| H[conversation:<br/>awaiting_checkin_meds]
 ```
 
-- `lib/reminders/generator.ts` converts each schedule's wall-clock time in the hospital's timezone
-  to a UTC instant with `date-fns-tz` (`fromZonedTime`) — correct regardless of the server's timezone.
+- `lib/reminders/checkin.ts` builds the schedule row; `summary/send` inserts it when the plan goes out.
+- `lib/reminders/generator.ts` converts the wall-clock time in the hospital's timezone to a UTC
+  instant with `date-fns-tz` (`fromZonedTime`) — correct regardless of the server's timezone.
 - `reminder_jobs (schedule_id, fire_at)` is unique, so re-running the generator is idempotent.
 - `lib/reminders/dispatcher.ts` sends everything due (`status = pending AND fire_at <= now()`).
+- Wording for all five languages lives in `lib/whatsapp/checkin-templates.ts`.
 
 ### 3. Inbound WhatsApp (patient)
 
@@ -87,9 +104,16 @@ immediately, and does the work inside Next's `after()` so Vercel keeps the funct
 flowchart TD
   M[inbound message] --> S{conversation state<br/>lib/whatsapp/fsm.ts}
   S -->|awaiting_appointment_confirm| AP[confirm / start reschedule]
-  S -->|awaiting_reminder_response| R{acknowledgement?}
-  R -->|taken · done · ok · 👍 · تم · ले लिया …| L[log reminder_response<br/>adherence ✓]
-  R -->|no · not yet| T[route_to_triage]
+  S -->|awaiting_checkin_meds| Q1{1 · 2 · 3 ?}
+  Q1 -->|all · some| L[log reminder_response<br/>adherence ✓ · some → alert: low]
+  Q1 -->|none| N[alert: missed_medication medium]
+  L --> Q2ask[ask Q2: how are you feeling?]
+  N --> Q2ask
+  Q1 -->|free text instead| T2[text triage]
+  S -->|awaiting_checkin_symptoms| Q2{OK / fine?}
+  Q2 -->|yes| GN[good night, no alert]
+  Q2 -->|symptoms in own words| T2
+  T2 -->|classifyRisk vs own warning signs| TR[triage_assessments<br/>yellow → alert medium · red → alert critical + urgent reply]
   S -->|idle / anything else| P{pre-intent<br/>lib/ai/intent.ts}
   P -->|emergency keyword| E[instant emergency reply<br/>alert: critical]
   P -->|acknowledgement / greeting| I[instant localised reply<br/>no alert]
@@ -104,8 +128,11 @@ Escalation is **derived in code** from the classified intent (`deriveEscalation(
 the model's discretion: a thank-you cannot page a nurse, a symptom report always does.
 
 Voice notes: `triageVoiceNote()` transcribes with Whisper and grades the transcript against the
-patient's own emergency symptoms → `triage_assessments` (green / yellow / red). DB triggers raise
-the corresponding alert and bump the episode's `current_risk_level`.
+patient's own emergency symptoms. Text symptom reports use the same `classifyRisk()`. Both land in
+`recordTriage()` (webhook handler): `triage_assessments` row, episode `current_risk_level`, the
+yellow/red alert, a localised reply telling the patient what to do, and a `triage_completed`
+timeline event. If the model is unavailable the report is still acknowledged and escalated at
+medium — a symptom report is never dropped.
 
 Every outbound message — from any path — goes through `lib/whatsapp/outbound.ts` `sendAndLog()`,
 which sends via Twilio and records the exact delivered text on the conversation. The episode page's
@@ -125,7 +152,7 @@ appointments as missed. The scheduling adapter is currently `manual` — no hosp
 |---|---|
 | `/` | Overview: KPIs, recent alerts, live alert banner |
 | `/patients`, `/patients/[id]` | Patient list and profile |
-| `/episodes/new`, `/episodes/[id]`, `/episodes/[id]/review` | Create episode, episode detail (Summary · Conversation · Timeline · Triage · AI Chat), review/approve |
+| `/episodes/new`, `/episodes/[id]`, `/episodes/[id]/review` | Document-first intake (drop PDF → pre-filled form), episode detail (Summary · Conversation · Timeline · Triage · AI Chat), review/approve |
 | `/appointments` | Appointment status across the hospital |
 | `/alerts` | Open / acknowledged / resolved alerts, realtime |
 | `/analytics` | Compliance trend, risk distribution, alert activity, appointment funnel |
@@ -231,6 +258,7 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/appo
 | 00005 | `harden_functions` | Revoke `anon`/`authenticated` EXECUTE on SECURITY DEFINER functions (helpers stay callable by `authenticated`); fixed `search_path` |
 | 00006 | `reminder_jobs_unique` | Unique `(schedule_id, fire_at)` — required by the generator's `ON CONFLICT` |
 | 00007 | `pg_cron_dispatch` | `pg_cron` + `pg_net`; `configure_cron_dispatch(url, secret)` (service_role only) writes Vault; job `dispatch-reminders-every-5-min` |
+| 00009 | `nightly_checkin` | `alert_type += missed_medication`; retires per-dose `medication` schedules (+ cancels their pending jobs); one `symptom_check` / `nightly_checkin_v1` schedule at the hospital's check-in time per active episode |
 | 00008 | `realtime_whatsapp_messages` | Realtime for the conversation transcript |
 
 Applying to a project:
@@ -283,8 +311,8 @@ patient) · `discharge_documents` · `discharge_summaries` (+ `_translations`, `
 
 | Job | Where | Schedule | Route |
 |---|---|---|---|
-| Generate next-day reminder jobs | Vercel Cron | `0 0 * * *` (00:00 UTC / 04:00 Dubai) | `/api/cron/reminders/generate` |
-| Dispatch due reminders | **pg_cron** (`dispatch-reminders-every-5-min`) | `*/5 * * * *` | `/api/cron/reminders/dispatch` |
+| Generate next-day check-in jobs | Vercel Cron | `0 0 * * *` (00:00 UTC / 04:00 Dubai) | `/api/cron/reminders/generate` |
+| Dispatch due check-ins | **pg_cron** (`dispatch-reminders-every-5-min`) | `*/5 * * * *` | `/api/cron/reminders/dispatch` |
 | Escalate unconfirmed / mark missed appointments | Vercel Cron | `0 8 * * *` (08:00 UTC) | `/api/cron/appointments/escalate` |
 
 Why the split: Vercel's Hobby plan only allows once-a-day crons, which delivered evening reminders
@@ -381,13 +409,13 @@ functions callable by `authenticated` (required — policies evaluate them as th
 npm run lint           # eslint (a few pre-existing react/no-unescaped-entities warnings in JSX)
 npx tsc --noEmit       # typecheck
 npm run build          # production build (needs NEXT_PUBLIC_SUPABASE_* set; placeholders are fine)
-npm run check:intent   # 45 table-driven checks: pre-intent classifier, escalation derivation, FSM
+npm run check:intent   # 74 table-driven checks: pre-intent classifier, escalation derivation, FSM incl. nightly check-in
 ```
 
 There is no end-to-end test suite yet. The reference manual test is: create a patient with a real
-sandbox-joined number → set a `reminder_schedules` row a few minutes ahead → trigger `generate` →
-wait for the 5-minute tick → reply "taken" → confirm `reminder_response` on the timeline and both
-messages in the Conversation tab.
+sandbox-joined number → move their `reminder_schedules` row a few minutes ahead → trigger `generate` →
+wait for the 5-minute tick → reply "1" then "OK" → confirm `reminder_response` on the timeline and
+all four messages in the Conversation tab; then reply with a symptom in idle state and check the alert.
 
 ---
 

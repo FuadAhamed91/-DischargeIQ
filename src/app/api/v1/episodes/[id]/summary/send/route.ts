@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { resolveAuthContext, apiSuccess, apiError } from '@/lib/utils/api'
 import { sendAndLog } from '@/lib/whatsapp/outbound'
 import { buildDischargeSummaryMessage } from '@/lib/whatsapp/templates'
+import { nightlyCheckinSchedule } from '@/lib/reminders/checkin'
 import type { LanguageCode } from '@/types/enums'
 
 export const dynamic = 'force-dynamic'
@@ -72,7 +73,7 @@ export async function POST(
   // Load hospital for WhatsApp phone_number_id
   const { data: hospital } = await serviceClient
     .from('hospitals')
-    .select('id, name, whatsapp_phone_number_id')
+    .select('id, name, whatsapp_phone_number_id, settings')
     .eq('id', episode.hospital_id)
     .single()
 
@@ -142,28 +143,18 @@ export async function POST(
     created_by: profile.id,
   })
 
-  // Auto-generate reminder schedules from medications if not already present
+  // Schedule the nightly check-in (one per episode). Dose times stay on the
+  // medications as instructions in the summary; they are not messaged.
   const { count } = await supabase
     .from('reminder_schedules')
     .select('id', { count: 'exact', head: true })
     .eq('episode_id', episodeId)
+    .eq('is_active', true)
 
   if (!count || count === 0) {
-    const reminderRows = (medications ?? []).flatMap((med) =>
-      (med.reminder_times ?? []).map((time: string) => ({
-        episode_id: episodeId,
-        hospital_id: episode.hospital_id,
-        type: 'medication' as const,
-        scheduled_time: time,
-        medication_id: med.id,
-        message_template_key: 'medication_reminder_v1',
-        is_active: true,
-      })),
+    await supabase.from('reminder_schedules').insert(
+      nightlyCheckinSchedule({ episodeId, hospitalId: episode.hospital_id, settings: hospital.settings }),
     )
-
-    if (reminderRows.length > 0) {
-      await supabase.from('reminder_schedules').insert(reminderRows)
-    }
   }
 
   return NextResponse.json(apiSuccess({ waMessageId: result.messageId }))

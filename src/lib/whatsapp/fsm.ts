@@ -5,13 +5,16 @@
  * Transitions happen when a patient replies to an interactive message.
  */
 
-import { containsEmergencyKeyword, isAcknowledgement } from '@/lib/ai/intent'
+import { containsEmergencyKeyword, isAcknowledgement, normaliseMessage } from '@/lib/ai/intent'
+import type { MedsTaken } from './checkin-templates'
 
 export type ConversationState =
   | 'idle'
   | 'awaiting_appointment_confirm'
   | 'awaiting_slot_selection'
-  | 'awaiting_reminder_response'
+  | 'awaiting_reminder_response'   // legacy per-dose reminders
+  | 'awaiting_checkin_meds'        // nightly check-in Q1: did you take your medicines?
+  | 'awaiting_checkin_symptoms'    // nightly check-in Q2: how are you feeling?
 
 export type InboundMessageType =
   | 'text'
@@ -41,12 +44,72 @@ export interface FsmResult {
     | 'start_reschedule'
     | 'log_reminder_response'
     | 'log_symptom_ok'
-    | 'route_to_triage'
+    | 'log_checkin_meds'      // nightly Q1 answered → record, then ask Q2
+    | 'checkin_ok'            // nightly Q2 answered "fine" → say good night
+    | 'triage_text'           // free-text symptom report → AI risk classification
+    | 'route_to_triage'       // voice note → transcribe + classify
     | 'route_to_ai'
     | 'noop'
   appointmentId?: string
   slotId?: string
   reminderResponse?: string
+  medsTaken?: MedsTaken
+}
+
+// ------------------------------------
+// Nightly check-in answer parsing
+// ------------------------------------
+
+// Whole-message matches after normalisation. "no" lives under NONE because in
+// answer to "did you take all your medicines?" it means none were taken.
+const MEDS_NONE = new Set([
+  '3', 'no', 'none', 'nothing', 'not yet', 'missed', 'forgot', 'i forgot', 'did not', 'didnt', 'not taken', 'no i did not', 'nope',
+  'لا', 'لم اتناول', 'لم آخذ', 'لا شيء', 'ولا واحد', 'نسيت',
+  'नहीं', 'नहीं ली', 'एक भी नहीं', 'भूल गया', 'भूल गयी', 'nahi', 'nahin', 'bhool gaya',
+  'இல்லை', 'எடுக்கவில்லை', 'எதுவும் இல்லை', 'மறந்துவிட்டேன்', 'illai',
+  'hindi', 'wala', 'hindi ko nainom', 'nakalimutan ko',
+])
+
+const MEDS_SOME = new Set([
+  '2', 'some', 'a few', 'few', 'partly', 'partially', 'partial', 'most', 'most of them', 'some of them', 'not all', 'missed one', 'missed some', 'half',
+  'بعض', 'بعضها', 'ليس كلها', 'معظمها',
+  'कुछ', 'कुछ ली', 'सब नहीं', 'आधी', 'kuch', 'kuch li',
+  'சில', 'சிலவற்றை', 'எல்லாம் இல்லை', 'sila',
+  'ilan', 'ang ilan', 'ilan lang', 'hindi lahat', 'karamihan',
+])
+
+const MEDS_ALL = new Set([
+  '1', 'all', 'yes all', 'all of them', 'took all', 'taken all', 'all taken', 'yes taken', 'everything', 'complete', 'completed',
+  'كلها', 'نعم كلها', 'جميعها', 'الكل',
+  'सभी', 'हाँ सभी', 'सब', 'सब ली', 'sab', 'sabhi', 'haan sab',
+  'அனைத்தும்', 'ஆம் அனைத்தும்', 'எல்லாம்', 'ellam',
+  'lahat', 'oo lahat', 'nainom ko lahat',
+])
+
+const FEELING_OK = new Set([
+  'ok', 'okay', 'k', 'fine', 'good', 'im fine', 'i am fine', 'im ok', 'i am ok', 'all good', 'feeling fine', 'feeling good', 'feeling ok',
+  'no', 'nothing', 'none', 'no symptoms', 'no problem', 'no problems', 'no pain', 'better', 'much better', 'well', 'great', 'normal', '1',
+  'بخير', 'انا بخير', 'أنا بخير', 'تمام', 'الحمد لله', 'لا شيء', 'لا اعراض', 'كويس', 'ممتاز',
+  'ठीक', 'ठीक हूँ', 'ठीक हूं', 'मैं ठीक हूँ', 'अच्छा', 'अच्छी', 'सब ठीक', 'कोई दिक्कत नहीं', 'theek', 'theek hoon', 'thik hu', 'sab theek', 'accha', 'badhiya',
+  'நலம்', 'நன்றாக', 'நன்றாக இருக்கிறேன்', 'நலமாக இருக்கிறேன்', 'பரவாயில்லை', 'எதுவும் இல்லை', 'nalam', 'nalla irukken',
+  'ayos', 'ayos lang', 'ok lang', 'okay lang', 'maayos', 'maayos naman', 'mabuti', 'mabuti naman', 'wala', 'walang sintomas', 'walang problema',
+])
+
+/** Interprets a reply to "Did you take all your medicines today?", or null if it isn't one. */
+export function parseMedsAnswer(text: string): MedsTaken | null {
+  const norm = normaliseMessage(text)
+  if (MEDS_NONE.has(norm)) return 'none'
+  if (MEDS_SOME.has(norm)) return 'some'
+  if (MEDS_ALL.has(norm)) return 'all'
+  // "yes", "taken", "done", "👍", "ok"… in answer to Q1 mean all taken
+  // (isAcknowledgement also recognises emoji-only replies, which normalise to "")
+  if (isAcknowledgement(text)) return 'all'
+  return null
+}
+
+/** True when a reply to "How are you feeling?" means "fine / nothing to report". */
+export function isFeelingOk(text: string): boolean {
+  return FEELING_OK.has(normaliseMessage(text)) || isAcknowledgement(text)
 }
 
 /**
@@ -59,6 +122,13 @@ export function transition(
 ): FsmResult {
   if (message.type === 'audio') {
     return { nextState: 'idle', action: 'route_to_triage' }
+  }
+
+  const raw = message.text ?? ''
+
+  // Anything alarming outranks whatever question was pending.
+  if (raw && containsEmergencyKeyword(raw)) {
+    return { nextState: 'idle', action: 'route_to_ai' }
   }
 
   switch (state) {
@@ -74,7 +144,7 @@ export function transition(
         return { nextState: 'awaiting_slot_selection', action: 'start_reschedule', appointmentId }
       }
       // Twilio text replies ("1", "YES", "CONFIRM" = confirm; "2", "NO" = reschedule)
-      const textBody = (message.text ?? '').toUpperCase().trim()
+      const textBody = raw.toUpperCase().trim()
       if (textBody === '1' || textBody === 'YES' || textBody === 'CONFIRM') {
         return { nextState: 'idle', action: 'confirm_appointment' }
       }
@@ -93,6 +163,25 @@ export function transition(
       return { nextState: 'idle', action: 'route_to_ai' }
     }
 
+    case 'awaiting_checkin_meds': {
+      // Stickers/images carry no text: keep the question pending.
+      if (!raw.trim()) return { nextState: state, action: 'noop' }
+      const meds = parseMedsAnswer(raw)
+      if (meds) {
+        return { nextState: 'awaiting_checkin_symptoms', action: 'log_checkin_meds', medsTaken: meds }
+      }
+      // Skipped the question and described how they feel instead.
+      return { nextState: 'idle', action: 'triage_text' }
+    }
+
+    case 'awaiting_checkin_symptoms': {
+      if (!raw.trim()) return { nextState: state, action: 'noop' }
+      if (isFeelingOk(raw)) {
+        return { nextState: 'idle', action: 'checkin_ok' }
+      }
+      return { nextState: 'idle', action: 'triage_text' }
+    }
+
     case 'awaiting_reminder_response': {
       const interactiveId = message.interactiveId
       if (interactiveId === 'symptom_good') {
@@ -102,12 +191,7 @@ export function transition(
         return { nextState: 'idle', action: 'route_to_triage' }
       }
       // Plain text reply (Twilio) or text fallback
-      const raw = message.text ?? ''
       const body = raw.toUpperCase().trim()
-      // Anything alarming outranks the reminder context
-      if (containsEmergencyKeyword(raw)) {
-        return { nextState: 'idle', action: 'route_to_ai' }
-      }
       if (body === '2' || body === 'CONCERN' || body === 'NO' || body === 'NOT YET' || body === 'MISSED') {
         return { nextState: 'idle', action: 'route_to_triage' }
       }

@@ -31,6 +31,7 @@ export const ALERT_TYPE_LABELS: Record<string, string> = {
   escalation: 'Escalated to nurse',
   missed_appointment: 'Missed appointment',
   unconfirmed_appointment: 'Appointment not confirmed',
+  missed_medication: 'Missed medication',
 }
 
 export const ALERT_STATUS_LABELS: Record<string, string> = {

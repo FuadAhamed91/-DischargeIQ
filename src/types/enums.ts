@@ -44,6 +44,7 @@ export type AlertType =
   | 'escalation'
   | 'missed_appointment'
   | 'unconfirmed_appointment'
+  | 'missed_medication'
 
 export type AlertStatus = 'open' | 'acknowledged' | 'resolved'
 

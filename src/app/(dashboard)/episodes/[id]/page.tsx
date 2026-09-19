@@ -183,7 +183,7 @@ export default async function EpisodeDetailPage({
         </Card>
         <Card className="py-0">
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Reminders</p>
+            <p className="text-xs text-muted-foreground">Check-ins</p>
             <p className={`text-2xl font-bold mt-0.5 ${reminderRate === null ? 'text-muted-foreground' : reminderRate >= 70 ? 'text-success' : 'text-warning'}`}>
               {reminderRate !== null ? `${reminderRate}%` : '—'}
             </p>

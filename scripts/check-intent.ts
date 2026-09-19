@@ -3,14 +3,20 @@
  *   - lib/ai/intent.ts        pre-classification (acknowledgement / greeting / emergency)
  *   - lib/ai/chat.ts          deriveEscalation() — intent → escalate? + severity
  *   - lib/whatsapp/fsm.ts     transitions while awaiting a reminder response
+ *                             and through the nightly check-in (Q1 meds, Q2 symptoms)
  *
  * No network or API keys needed. Run with:  npm run check:intent
  */
 import { classifyPreIntent } from '@/lib/ai/intent'
 import { deriveEscalation } from '@/lib/ai/chat'
 import { transition } from '@/lib/whatsapp/fsm'
+import type { ParsedInbound } from '@/lib/whatsapp/fsm'
 
 let fails = 0
+
+// Minimal inbound message for FSM checks
+const inbound = (text?: string, type: ParsedInbound['type'] = 'text', extra: Partial<ParsedInbound> = {}): ParsedInbound =>
+  ({ waMessageId: 'x', from: '+9715', type, text, timestamp: 0, ...extra })
 const eq = (label: string, got: unknown, want: unknown) => {
   const ok = JSON.stringify(got) === JSON.stringify(want)
   if (!ok) fails++
@@ -41,7 +47,7 @@ eq('concern + emergency symptom → high', deriveEscalation({ intent: 'concern',
 eq('garbage intent → fail closed (out_of_scope, low)', deriveEscalation({ intent: 'banana' }).severity, 'low')
 
 console.log('— FSM in awaiting_reminder_response —')
-const t = (text: string) => transition('awaiting_reminder_response', { type: 'text', text, from: '+9715', waMessageId: 'x' } as any).action
+const t = (text: string) => transition('awaiting_reminder_response', inbound(text)).action
 eq('"TAKEN"', t('TAKEN'), 'log_reminder_response')
 eq('"done ✅"', t('done ✅'), 'log_reminder_response')
 eq('"ok"', t('ok'), 'log_reminder_response')
@@ -51,7 +57,48 @@ eq('"no"', t('no'), 'route_to_triage')
 eq('"not yet"', t('not yet'), 'route_to_triage')
 eq('"I have chest pain"', t('I have chest pain'), 'route_to_ai')     // handler escalates as emergency
 eq('"can I take it with milk?"', t('can I take it with milk?'), 'route_to_ai')
-eq('idle + "thanks" → route_to_ai (handler answers instantly)', transition('idle', { type: 'text', text: 'thanks', from: '+9715', waMessageId: 'x' } as any).action, 'route_to_ai')
+eq('idle + "thanks" → route_to_ai (handler answers instantly)', transition('idle', inbound('thanks')).action, 'route_to_ai')
+
+console.log('— FSM: nightly check-in Q1 (awaiting_checkin_meds) —')
+const q1 = (text: string) => {
+  const r = transition('awaiting_checkin_meds', inbound(text))
+  return r.action === 'log_checkin_meds' ? `${r.action}:${r.medsTaken}→${r.nextState}` : `${r.action}→${r.nextState}`
+}
+eq('"1"', q1('1'), 'log_checkin_meds:all→awaiting_checkin_symptoms')
+eq('"Yes"', q1('Yes'), 'log_checkin_meds:all→awaiting_checkin_symptoms')
+eq('"taken ✅"', q1('taken ✅'), 'log_checkin_meds:all→awaiting_checkin_symptoms')
+eq('"all of them"', q1('all of them'), 'log_checkin_meds:all→awaiting_checkin_symptoms')
+eq('"2"', q1('2'), 'log_checkin_meds:some→awaiting_checkin_symptoms')
+eq('"some"', q1('some'), 'log_checkin_meds:some→awaiting_checkin_symptoms')
+eq('"missed one"', q1('missed one'), 'log_checkin_meds:some→awaiting_checkin_symptoms')
+eq('"3"', q1('3'), 'log_checkin_meds:none→awaiting_checkin_symptoms')
+eq('"No"', q1('No'), 'log_checkin_meds:none→awaiting_checkin_symptoms')
+eq('"not yet"', q1('not yet'), 'log_checkin_meds:none→awaiting_checkin_symptoms')
+eq('"I forgot"', q1('I forgot'), 'log_checkin_meds:none→awaiting_checkin_symptoms')
+eq('"نعم"', q1('نعم'), 'log_checkin_meds:all→awaiting_checkin_symptoms')
+eq('"بعضها"', q1('بعضها'), 'log_checkin_meds:some→awaiting_checkin_symptoms')
+eq('"नहीं"', q1('नहीं'), 'log_checkin_meds:none→awaiting_checkin_symptoms')
+eq('"wala"', q1('wala'), 'log_checkin_meds:none→awaiting_checkin_symptoms')
+eq('"my wound is red and swollen" (skipped Q1)', q1('my wound is red and swollen'), 'triage_text→idle')
+eq('"I have chest pain" (emergency wins)', q1('I have chest pain'), 'route_to_ai→idle')
+eq('sticker (no text) keeps Q1 pending', transition('awaiting_checkin_meds', inbound(undefined, 'unknown')).nextState, 'awaiting_checkin_meds')
+
+console.log('— FSM: nightly check-in Q2 (awaiting_checkin_symptoms) —')
+const q2 = (text: string) => {
+  const r = transition('awaiting_checkin_symptoms', inbound(text))
+  return `${r.action}→${r.nextState}`
+}
+eq('"OK"', q2('OK'), 'checkin_ok→idle')
+eq('"fine thanks"', q2('fine thanks'), 'checkin_ok→idle')
+eq('"no symptoms"', q2('no symptoms'), 'checkin_ok→idle')
+eq('"👍"', q2('👍'), 'checkin_ok→idle')
+eq('"الحمد لله"', q2('الحمد لله'), 'checkin_ok→idle')
+eq('"ठीक हूँ"', q2('ठीक हूँ'), 'checkin_ok→idle')
+eq('"ayos lang"', q2('ayos lang'), 'checkin_ok→idle')
+eq('"a bit dizzy and my ankle is swollen"', q2('a bit dizzy and my ankle is swollen'), 'triage_text→idle')
+eq('"pain 8/10 in my stomach"', q2('pain 8/10 in my stomach'), 'triage_text→idle')
+eq('"cant breathe" (emergency wins)', q2('cant breathe'), 'route_to_ai→idle')
+eq('voice note', transition('awaiting_checkin_symptoms', inbound(undefined, 'audio', { audioUrl: 'https://x' })).action, 'route_to_triage')
 
 console.log(fails === 0 ? '\nALL PASSED' : `\n${fails} FAILED`)
 process.exit(fails ? 1 : 0)

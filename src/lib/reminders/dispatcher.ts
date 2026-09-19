@@ -9,9 +9,10 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { sendAndLog } from '@/lib/whatsapp/outbound'
 import {
   buildMedicationReminder,
-  buildSymptomCheckReminder,
   buildGeneralReminder,
 } from '@/lib/whatsapp/templates'
+import { buildNightlyCheckinMessage } from '@/lib/whatsapp/checkin-templates'
+import type { ConversationState } from '@/lib/whatsapp/fsm'
 import type { LanguageCode } from '@/types/enums'
 
 interface DispatchResult {
@@ -42,7 +43,7 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
         patient_id,
         status,
         patients!inner(full_name, phone_e164, preferred_language),
-        hospitals!inner(whatsapp_phone_number_id)
+        hospitals!inner(whatsapp_phone_number_id, name)
       )
     `)
     .eq('status', 'pending')
@@ -62,7 +63,7 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
         patient_id: string
         status: string
         patients: { full_name: string; phone_e164: string; preferred_language: string }
-        hospitals: { whatsapp_phone_number_id: string | null }
+        hospitals: { whatsapp_phone_number_id: string | null; name: string }
       }
 
       const schedule = job.reminder_schedules as unknown as {
@@ -92,9 +93,20 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
 
       const lang = (patient.preferred_language as LanguageCode) ?? 'en'
 
-      // Build the message based on reminder type
+      // Build the message based on reminder type. The nightly check-in opens a
+      // two-question conversation (medicines, then symptoms); legacy per-dose
+      // reminders expect a TAKEN-style reply.
       let message
-      if (schedule.type === 'medication' && schedule.medications) {
+      let nextState: ConversationState = 'awaiting_reminder_response'
+      if (schedule.type === 'symptom_check') {
+        message = buildNightlyCheckinMessage({
+          to: patient.phone_e164,
+          patientName: patient.full_name,
+          hospitalName: hospital.name,
+          language: lang,
+        })
+        nextState = 'awaiting_checkin_meds'
+      } else if (schedule.type === 'medication' && schedule.medications) {
         message = buildMedicationReminder({
           to: patient.phone_e164,
           patientName: patient.full_name,
@@ -110,12 +122,6 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
             created_at: '',
           },
         })
-      } else if (schedule.type === 'symptom_check') {
-        message = buildSymptomCheckReminder({
-          to: patient.phone_e164,
-          patientName: patient.full_name,
-          language: lang,
-        })
       } else {
         message = buildGeneralReminder({
           to: patient.phone_e164,
@@ -126,8 +132,8 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
       }
 
       // Send via WhatsApp, log it on the conversation, and move the conversation
-      // into awaiting_reminder_response so the patient's "TAKEN"/"YES" reply is
-      // logged as a reminder response by the FSM rather than routed to AI Q&A.
+      // into the awaiting state so the reply is handled by the FSM rather than
+      // routed to AI Q&A.
       const sendResult = await sendAndLog({
         supabase,
         phoneNumberId: hospital.whatsapp_phone_number_id ?? '',
@@ -135,7 +141,7 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
         episodeId: job.episode_id,
         hospitalId: job.hospital_id,
         patientId: episode.patient_id,
-        nextState: 'awaiting_reminder_response',
+        nextState,
       })
 
       if (sendResult.status === 'failed') {
