@@ -1,14 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { AlertCircle, X } from 'lucide-react'
+import { ShieldAlert, X } from 'lucide-react'
 
 export function RealtimeAlertsBanner({ hospitalId, initialRedCount }: { hospitalId: string; initialRedCount: number }) {
   const [criticalCount, setCriticalCount] = useState(initialRedCount)
   const [dismissed, setDismissed] = useState(false)
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   useEffect(() => {
     const channel = supabase
@@ -34,19 +34,24 @@ export function RealtimeAlertsBanner({ hospitalId, initialRedCount }: { hospital
   if (criticalCount === 0 || dismissed) return null
 
   return (
-    <div className="flex items-center justify-between gap-3 px-4 py-3 bg-red-600 text-white rounded-lg animate-pulse">
-      <div className="flex items-center gap-2">
-        <AlertCircle className="w-5 h-5 shrink-0" />
-        <span className="font-semibold text-sm">
-          {criticalCount} critical alert{criticalCount > 1 ? 's' : ''} require immediate attention
+    <div role="alert" className="flex items-center justify-between gap-3 rounded-xl bg-danger px-4 py-3 text-white shadow-sm motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1 motion-safe:duration-300">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <ShieldAlert className="h-5 w-5 shrink-0" aria-hidden="true" />
+        <span className="text-sm font-semibold">
+          {criticalCount} critical alert{criticalCount > 1 ? 's' : ''} need immediate attention
         </span>
       </div>
-      <div className="flex items-center gap-2">
-        <Link href="/alerts" className="text-xs font-medium underline hover:no-underline" onClick={() => setDismissed(true)}>
-          View alerts →
+      <div className="flex items-center gap-1 shrink-0">
+        <Link href="/alerts" className="rounded-md px-2.5 py-1.5 text-sm font-medium underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-white/70">
+          View alerts
         </Link>
-        <button onClick={() => setDismissed(true)} className="hover:opacity-70">
-          <X className="w-4 h-4" />
+        <button
+          type="button"
+          onClick={() => setDismissed(true)}
+          aria-label="Dismiss critical alert banner"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md hover:bg-white/15 focus-visible:ring-2 focus-visible:ring-white/70 transition-colors duration-200"
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
     </div>

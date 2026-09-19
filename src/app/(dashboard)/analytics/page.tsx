@@ -5,9 +5,7 @@ import { fmt } from '@/lib/format'
 import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { ComplianceChart } from '@/components/analytics/compliance-chart'
-import { RiskDonut } from '@/components/analytics/risk-donut'
-import { AlertActivityChart } from '@/components/analytics/alert-activity-chart'
+import { ComplianceChart, RiskDonut, AlertActivityChart } from '@/components/analytics/lazy-charts'
 import { AppointmentFunnel } from '@/components/analytics/appointment-funnel'
 import {
   Users, Bell, TrendingUp, DollarSign, CalendarCheck, Activity,
@@ -95,9 +93,9 @@ export default async function AnalyticsPage() {
   }
 
   const riskDistribution = [
-    { name: 'Green', value: riskCounts.green ?? 0, color: '#22c55e' },
-    { name: 'Yellow', value: riskCounts.yellow ?? 0, color: '#eab308' },
-    { name: 'Red', value: riskCounts.red ?? 0, color: '#ef4444' },
+    { name: 'Green', value: riskCounts.green ?? 0, color: 'var(--success)' },
+    { name: 'Yellow', value: riskCounts.yellow ?? 0, color: 'var(--warning)' },
+    { name: 'Red', value: riskCounts.red ?? 0, color: 'var(--danger)' },
   ]
 
   // ── KPI card data ──────────────────────────────────────────────────
@@ -115,48 +113,48 @@ export default async function AnalyticsPage() {
       value: `${adherenceRate}%`,
       sub: `${respondedR} of ${totalR} reminders responded`,
       icon: ShieldCheck,
-      color: adherenceRate >= 70 ? 'text-green-600' : 'text-amber-600',
-      bg: adherenceRate >= 70 ? 'bg-green-50' : 'bg-amber-50',
+      color: adherenceRate >= 70 ? 'text-success' : 'text-warning',
+      bg: adherenceRate >= 70 ? 'bg-success-soft' : 'bg-warning-soft',
     },
     {
       label: 'Appt Completion',
       value: `${apptCompletionRate}%`,
       sub: `${confirmedAppts} of ${totalAppts} confirmed`,
       icon: CalendarCheck,
-      color: apptCompletionRate >= 70 ? 'text-green-600' : 'text-amber-600',
-      bg: apptCompletionRate >= 70 ? 'bg-green-50' : 'bg-amber-50',
+      color: apptCompletionRate >= 70 ? 'text-success' : 'text-warning',
+      bg: apptCompletionRate >= 70 ? 'bg-success-soft' : 'bg-warning-soft',
     },
     {
       label: 'Open Alerts',
       value: openAlerts ?? 0,
       sub: `${criticalAlerts ?? 0} critical · ${totalAlerts30d ?? 0} in 30 days`,
       icon: Bell,
-      color: (criticalAlerts ?? 0) > 0 ? 'text-red-600' : 'text-amber-600',
-      bg: (criticalAlerts ?? 0) > 0 ? 'bg-red-50' : 'bg-amber-50',
+      color: (criticalAlerts ?? 0) > 0 ? 'text-danger' : 'text-warning',
+      bg: (criticalAlerts ?? 0) > 0 ? 'bg-danger-soft' : 'bg-warning-soft',
     },
     {
       label: 'Readmissions Prevented',
       value: readmissionsPrevented,
       sub: 'Estimated (15% of discharged)',
       icon: Activity,
-      color: 'text-emerald-600',
-      bg: 'bg-emerald-50',
+      color: 'text-success',
+      bg: 'bg-success-soft',
     },
     {
       label: 'Est. Savings (AED)',
       value: estimatedSavingsAED > 0 ? `${(estimatedSavingsAED / 1000).toFixed(0)}K` : '—',
       sub: 'At AED 15,000 per readmission',
       icon: DollarSign,
-      color: 'text-emerald-600',
-      bg: 'bg-emerald-50',
+      color: 'text-success',
+      bg: 'bg-success-soft',
     },
     {
       label: 'Active Risk Alerts',
       value: (riskCounts.red ?? 0) + (riskCounts.yellow ?? 0),
       sub: `${riskCounts.red ?? 0} red · ${riskCounts.yellow ?? 0} yellow`,
       icon: AlertCircle,
-      color: (riskCounts.red ?? 0) > 0 ? 'text-red-600' : 'text-amber-600',
-      bg: (riskCounts.red ?? 0) > 0 ? 'bg-red-50' : 'bg-amber-50',
+      color: (riskCounts.red ?? 0) > 0 ? 'text-danger' : 'text-warning',
+      bg: (riskCounts.red ?? 0) > 0 ? 'bg-danger-soft' : 'bg-warning-soft',
     },
     {
       label: 'Completed Episodes',
@@ -171,7 +169,7 @@ export default async function AnalyticsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Analytics</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Analytics</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Hospital performance metrics and patient outcome insights
         </p>
@@ -188,15 +186,15 @@ export default async function AnalyticsPage() {
         {kpiCards.map((kpi) => {
           const Icon = kpi.icon
           return (
-            <Card key={kpi.label} className="border shadow-sm">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">{kpi.label}</CardTitle>
-                <div className={`p-1.5 rounded-lg ${kpi.bg}`}>
+            <Card key={kpi.label}>
+              <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 pb-2">
+                <CardTitle className="text-xs font-medium text-muted-foreground leading-snug">{kpi.label}</CardTitle>
+                <div className={`shrink-0 p-1.5 rounded-lg ${kpi.bg}`} aria-hidden="true">
                   <Icon className={`w-3.5 h-3.5 ${kpi.color}`} />
                 </div>
               </CardHeader>
               <CardContent className="pb-4">
-                <div className={`text-2xl font-bold ${kpi.color}`}>{kpi.value}</div>
+                <div className={`text-2xl font-semibold tracking-tight tnum ${kpi.color}`}>{kpi.value}</div>
                 <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{kpi.sub}</p>
               </CardContent>
             </Card>
@@ -206,7 +204,7 @@ export default async function AnalyticsPage() {
 
       {/* Charts row 1 */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2 border shadow-sm">
+        <Card className="lg:col-span-2">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">30-Day Compliance Trend</CardTitle>
             <p className="text-xs text-muted-foreground">Medication adherence and reminder response rates over time</p>
@@ -216,7 +214,7 @@ export default async function AnalyticsPage() {
           </CardContent>
         </Card>
 
-        <Card className="border shadow-sm">
+        <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Patient Risk Distribution</CardTitle>
             <p className="text-xs text-muted-foreground">Current risk levels across active episodes</p>
@@ -229,7 +227,7 @@ export default async function AnalyticsPage() {
 
       {/* Charts row 2 */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2 border shadow-sm">
+        <Card className="lg:col-span-2">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Alert Activity (14 days)</CardTitle>
             <p className="text-xs text-muted-foreground">Stacked by severity — critical, high, medium, low</p>
@@ -239,7 +237,7 @@ export default async function AnalyticsPage() {
           </CardContent>
         </Card>
 
-        <Card className="border shadow-sm">
+        <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Appointment Funnel</CardTitle>
             <p className="text-xs text-muted-foreground">Scheduled → confirmed → missed</p>
@@ -257,15 +255,15 @@ export default async function AnalyticsPage() {
 
       {/* Business value callout */}
       {readmissionsPrevented > 0 && (
-        <Card className="border-emerald-200 bg-emerald-50 shadow-sm">
+        <Card className="border-success/30 bg-success-soft/50">
           <CardContent className="py-5">
             <div className="flex items-center gap-4">
-              <div className="p-3 bg-emerald-100 rounded-xl">
-                <DollarSign className="w-6 h-6 text-emerald-700" />
+              <div className="p-3 bg-success-soft rounded-xl" aria-hidden="true">
+                <DollarSign className="w-6 h-6 text-success" />
               </div>
               <div>
-                <p className="font-semibold text-emerald-900">Estimated value delivered</p>
-                <p className="text-sm text-emerald-700 mt-0.5">
+                <p className="font-semibold text-foreground">Estimated value delivered</p>
+                <p className="text-sm text-muted-foreground mt-0.5">
                   DischargeIQ has helped prevent an estimated <strong>{readmissionsPrevented} readmission{readmissionsPrevented > 1 ? 's' : ''}</strong>,
                   saving approximately <strong>AED {estimatedSavingsAED.toLocaleString()}</strong> in avoided hospital costs.
                 </p>

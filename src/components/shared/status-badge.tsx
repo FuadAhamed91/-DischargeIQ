@@ -6,21 +6,21 @@ type AnyStatus = EpisodeStatus | SummaryStatus | AppointmentStatus
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   // Episode
-  draft: { label: 'Draft', className: 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-100' },
-  pending_review: { label: 'Pending Review', className: 'bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-100' },
-  active: { label: 'Active', className: 'bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-100' },
-  completed: { label: 'Completed', className: 'bg-green-100 text-green-700 border-green-200 hover:bg-green-100' },
-  cancelled: { label: 'Cancelled', className: 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-100' },
+  draft:          { label: 'Draft',           className: 'bg-muted text-muted-foreground border-border' },
+  pending_review: { label: 'Pending review',  className: 'bg-warning-soft text-warning border-warning/30' },
+  active:         { label: 'Active',          className: 'bg-info-soft text-info border-info/20' },
+  completed:      { label: 'Completed',       className: 'bg-success-soft text-success border-success/20' },
+  cancelled:      { label: 'Cancelled',       className: 'bg-muted text-muted-foreground/70 border-border line-through decoration-muted-foreground/40' },
   // Summary
-  approved: { label: 'Approved', className: 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-100' },
-  sent: { label: 'Sent', className: 'bg-violet-100 text-violet-700 border-violet-200 hover:bg-violet-100' },
+  approved:       { label: 'Approved',        className: 'bg-success-soft text-success border-success/20' },
+  sent:           { label: 'Sent',            className: 'bg-brand-soft text-brand border-brand/15' },
   // Appointment
-  scheduled: { label: 'Scheduled', className: 'bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-100' },
-  confirmation_pending: { label: 'Awaiting Confirm', className: 'bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-100' },
-  confirmed: { label: 'Confirmed', className: 'bg-green-100 text-green-700 border-green-200 hover:bg-green-100' },
-  reschedule_pending: { label: 'Reschedule Pending', className: 'bg-orange-100 text-orange-700 border-orange-200 hover:bg-orange-100' },
-  rescheduled: { label: 'Rescheduled', className: 'bg-cyan-100 text-cyan-700 border-cyan-200 hover:bg-cyan-100' },
-  missed: { label: 'Missed', className: 'bg-red-100 text-red-700 border-red-200 hover:bg-red-100' },
+  scheduled:            { label: 'Scheduled',          className: 'bg-info-soft text-info border-info/20' },
+  confirmation_pending: { label: 'Awaiting confirmation', className: 'bg-warning-soft text-warning border-warning/30' },
+  confirmed:            { label: 'Confirmed',          className: 'bg-success-soft text-success border-success/20' },
+  reschedule_pending:   { label: 'Reschedule pending', className: 'bg-warning-soft text-warning border-warning/30' },
+  rescheduled:          { label: 'Rescheduled',        className: 'bg-teal-soft text-teal-foreground border-teal/30' },
+  missed:               { label: 'Missed',             className: 'bg-danger-soft text-danger border-danger/20' },
 }
 
 interface StatusBadgeProps {
@@ -29,9 +29,9 @@ interface StatusBadgeProps {
 }
 
 export function StatusBadge({ status, className }: StatusBadgeProps) {
-  const config = STATUS_CONFIG[status] ?? { label: status, className: 'bg-slate-100 text-slate-600' }
+  const config = STATUS_CONFIG[status] ?? { label: status, className: 'bg-muted text-muted-foreground border-border' }
   return (
-    <Badge variant="outline" className={cn(config.className, className)}>
+    <Badge variant="outline" className={cn('font-medium whitespace-nowrap', config.className, className)}>
       {config.label}
     </Badge>
   )

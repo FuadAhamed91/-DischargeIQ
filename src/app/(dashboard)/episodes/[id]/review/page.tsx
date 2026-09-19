@@ -49,8 +49,9 @@ export default async function ReviewPage({
   if (!episode) notFound()
 
   const patient = episode.patients as unknown as { full_name: string; mrn: string; preferred_language: string }
-  const summaries = episode.discharge_summaries as unknown[]
-  const summary = summaries?.[0] as {
+  // One-to-one embed: PostgREST returns an object, older code expected an array — accept both
+  const rawSummary = episode.discharge_summaries as unknown
+  const summary = (Array.isArray(rawSummary) ? rawSummary[0] : rawSummary) as {
     id: string; status: SummaryStatus; version: number; nurse_notes: string | null;
     emergency_symptoms: string[]; lifestyle_instructions: string[]; restrictions: string[]; activities: string[];
     approved_at: string | null; medications: unknown[]; follow_up_requirements: unknown[]

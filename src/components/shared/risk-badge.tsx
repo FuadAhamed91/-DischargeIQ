@@ -2,10 +2,10 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import type { RiskLevel } from '@/types/enums'
 
-const RISK_CONFIG: Record<RiskLevel, { label: string; className: string }> = {
-  green: { label: 'Stable', className: 'bg-green-100 text-green-700 border-green-200 hover:bg-green-100' },
-  yellow: { label: 'Monitor', className: 'bg-yellow-100 text-yellow-700 border-yellow-200 hover:bg-yellow-100' },
-  red: { label: 'Critical', className: 'bg-red-100 text-red-700 border-red-200 hover:bg-red-100' },
+const RISK_CONFIG: Record<RiskLevel, { label: string; className: string; dot: string; sr: string }> = {
+  green:  { label: 'Stable',   className: 'bg-success-soft text-success border-success/20', dot: 'bg-success', sr: 'green risk' },
+  yellow: { label: 'Monitor',  className: 'bg-warning-soft text-warning border-warning/30', dot: 'bg-warning', sr: 'yellow risk' },
+  red:    { label: 'Critical', className: 'bg-danger-soft text-danger border-danger/20',    dot: 'bg-danger',  sr: 'red risk' },
 }
 
 interface RiskBadgeProps {
@@ -14,14 +14,10 @@ interface RiskBadgeProps {
 }
 
 export function RiskBadge({ level, className }: RiskBadgeProps) {
-  const config = RISK_CONFIG[level]
+  const config = RISK_CONFIG[level] ?? RISK_CONFIG.green
   return (
-    <Badge variant="outline" className={cn(config.className, className)}>
-      <span className={cn('w-1.5 h-1.5 rounded-full mr-1.5 inline-block', {
-        'bg-green-500': level === 'green',
-        'bg-yellow-500': level === 'yellow',
-        'bg-red-500': level === 'red',
-      })} />
+    <Badge variant="outline" className={cn('gap-1.5 font-medium', config.className, className)} title={config.sr}>
+      <span className={cn('inline-block h-1.5 w-1.5 rounded-full', config.dot)} aria-hidden="true" />
       {config.label}
     </Badge>
   )

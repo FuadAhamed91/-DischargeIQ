@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { AlertCircle, AlertTriangle, CheckCircle, Clock } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
+import { ChevronRight } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { SEVERITY, ALERT_TYPE_LABELS, SeverityBadge, AlertStatusBadge, alertTime, severityOf } from './alert-primitives'
 
 interface Alert {
   id: string
@@ -19,85 +20,75 @@ interface Alert {
   } | null
 }
 
-const SEVERITY_ICONS: Record<string, typeof AlertCircle> = {
-  critical: AlertCircle,
-  high: AlertCircle,
-  medium: AlertTriangle,
-  low: CheckCircle,
+interface RecentAlertsProps {
+  alerts: Alert[]
+  hospitalId: string
+  tz: string
 }
 
-const SEVERITY_COLORS: Record<string, string> = {
-  critical: 'text-red-500',
-  high: 'text-orange-500',
-  medium: 'text-yellow-500',
-  low: 'text-green-500',
-}
-
-const TYPE_LABELS: Record<string, string> = {
-  risk_red: 'Red Risk Alert',
-  risk_yellow: 'Yellow Risk Alert',
-  escalation: 'Escalation',
-  missed_appointment: 'Missed Appointment',
-  unconfirmed_appointment: 'Unconfirmed Appointment',
-}
-
-const SEVERITY_BADGE_COLORS: Record<string, string> = {
-  critical: 'bg-red-500 text-white',
-  high: 'bg-orange-500 text-white',
-  medium: 'bg-yellow-500 text-black',
-  low: 'bg-green-500 text-white',
-}
-
-export function RecentAlerts({ alerts: initialAlerts, hospitalId }: { alerts: Alert[], hospitalId: string }) {
+export function RecentAlerts({ alerts: initialAlerts, hospitalId, tz }: RecentAlertsProps) {
   const [alerts, setAlerts] = useState(initialAlerts)
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   useEffect(() => {
     const channel = supabase
-      .channel('recent-alerts')
+      .channel(`recent-alerts-${hospitalId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'alerts', filter: `hospital_id=eq.${hospitalId}` },
         (payload) => { setAlerts((prev) => [payload.new as Alert, ...prev].slice(0, 5)) })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'alerts', filter: `hospital_id=eq.${hospitalId}` },
+        (payload) => {
+          const updated = payload.new as Partial<Alert> & { id: string }
+          setAlerts((prev) => prev.map((a) => (a.id === updated.id ? { ...a, ...updated, care_episodes: a.care_episodes } : a)))
+        })
       .subscribe()
-
     return () => { supabase.removeChannel(channel) }
   }, [hospitalId, supabase])
 
   if (alerts.length === 0) {
-    return <p className="text-sm text-muted-foreground px-4 pb-4">No recent alerts.</p>
+    return (
+      <div className="px-5 py-8 text-center">
+        <p className="text-sm font-medium">No alerts yet</p>
+        <p className="mt-1 text-xs text-muted-foreground">Triage results, escalations and missed appointments will show here.</p>
+      </div>
+    )
   }
 
   return (
-    <div className="divide-y">
+    <ul className="divide-y">
       {alerts.slice(0, 5).map((alert) => {
-        const sev = alert.severity ?? 'low'
-        const Icon = SEVERITY_ICONS[sev] ?? CheckCircle
+        const sev = severityOf(alert.severity)
+        const Icon = SEVERITY[sev].icon
         const patient = alert.care_episodes?.patients
-        const episodeId = alert.care_episodes?.id
+        const episodeId = alert.care_episodes?.id ?? alert.episode_id
+        const isOpen = alert.status === 'open'
 
         return (
-          <div key={alert.id} className="flex items-start gap-3 px-4 py-3">
-            <Icon className={`w-4 h-4 mt-0.5 shrink-0 ${SEVERITY_COLORS[sev]}`} />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <Badge className={`text-xs ${SEVERITY_BADGE_COLORS[sev]}`}>{sev}</Badge>
-                <span className="text-xs text-muted-foreground">{TYPE_LABELS[alert.type] ?? alert.type}</span>
-                {patient && episodeId && (
-                  <Link href={`/episodes/${episodeId}`} className="text-xs text-muted-foreground hover:underline truncate">
-                    · {patient.full_name}
-                  </Link>
-                )}
-              </div>
-              <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground/60">
-                <Clock className="w-3 h-3" />
-                {new Date(alert.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-              </div>
-            </div>
-            {alert.status === 'open' && (
-              <div className="w-1.5 h-1.5 rounded-full bg-red-400 mt-1.5 shrink-0 animate-pulse" />
-            )}
-          </div>
+          <li key={alert.id}>
+            <Link
+              href={`/episodes/${episodeId}`}
+              className={cn(
+                'group flex items-center gap-3 px-5 py-3 transition-colors duration-200 hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none',
+                !isOpen && 'opacity-70',
+              )}
+            >
+              <span className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-full', SEVERITY[sev].soft_bg)} aria-hidden="true">
+                <Icon className={cn('h-4 w-4', SEVERITY[sev].icon_color)} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-2">
+                  <span className="truncate text-sm font-medium">{patient?.full_name ?? 'Patient'}</span>
+                  <AlertStatusBadge status={alert.status} />
+                </span>
+                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                  {ALERT_TYPE_LABELS[alert.type] ?? alert.type} · {alertTime(alert.created_at, tz)}
+                </span>
+              </span>
+              <SeverityBadge severity={sev} className="hidden sm:inline-flex" />
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+            </Link>
+          </li>
         )
       })}
-    </div>
+    </ul>
   )
 }

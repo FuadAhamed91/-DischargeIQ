@@ -91,7 +91,10 @@ export default async function EpisodeDetailPage({
 
   const patient = episode.patients as { id: string; full_name: string; phone_e164: string; preferred_language: string; mrn: string; date_of_birth: string | null }
   const nurse = episode.profiles as { id: string; full_name: string } | null
-  const summary = (episode.discharge_summaries as unknown[])?.[0] as {
+  // discharge_summaries.episode_id is UNIQUE, so PostgREST embeds ONE object (not an array).
+  // Accept either shape so the Summary tab renders regardless of the relationship cardinality.
+  const rawSummary = episode.discharge_summaries as unknown
+  const summary = (Array.isArray(rawSummary) ? rawSummary[0] : rawSummary) as {
     id: string; status: SummaryStatus; approved_at: string | null; nurse_notes: string | null;
     emergency_symptoms: string[]; lifestyle_instructions: string[]; restrictions: string[]; activities: string[];
     medications: Medication[]; follow_up_requirements: FollowUpRequirement[]
@@ -124,7 +127,7 @@ export default async function EpisodeDetailPage({
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">{patient.full_name}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{patient.full_name}</h1>
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
             <Badge variant="outline" className="font-mono text-xs">{patient.mrn}</Badge>
             <LanguageBadge language={patient.preferred_language as LanguageCode} />
@@ -192,7 +195,7 @@ export default async function EpisodeDetailPage({
 
       {/* Main tabs */}
       <Tabs defaultValue="summary">
-        <TabsList className="grid grid-cols-5 w-full max-w-2xl">
+        <TabsList className="flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto rounded-lg p-1 [&>button]:shrink-0 [&>button]:whitespace-nowrap [&>button]:px-3 [&>button]:py-1.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <TabsTrigger value="summary">Summary</TabsTrigger>
           <TabsTrigger value="conversation">
             Conversation
@@ -302,7 +305,7 @@ export default async function EpisodeDetailPage({
                                   {med.instructions && <p className="text-xs text-muted-foreground mt-0.5">{med.instructions}</p>}
                                 </div>
                                 <div className="flex gap-1 flex-wrap justify-end">
-                                  {(med.reminder_times ?? []).map((t) => <Badge key={t} variant="secondary" className="text-xs">{t}</Badge>)}
+                                  {(med.reminder_times ?? []).map((t) => <Badge key={t} variant="secondary" className="text-xs tnum">{String(t).slice(0, 5)}</Badge>)}
                                 </div>
                               </div>
                             </div>

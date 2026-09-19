@@ -11,7 +11,7 @@ export async function generateMetadata() {
 }
 
 export default async function AlertsPage() {
-  const { profile } = await requireSession()
+  const { profile, hospital } = await requireSession()
   const supabase = await createClient()
 
   const { data: alerts } = await supabase
@@ -32,7 +32,7 @@ export default async function AlertsPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Alerts</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Alerts</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Real-time patient alerts — triage results, unconfirmed appointments, and escalations
         </p>
@@ -46,7 +46,7 @@ export default async function AlertsPage() {
         />
       ) : (
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        <AlertsList initialAlerts={alerts as any} hospitalId={profile.hospital_id} />
+        <AlertsList initialAlerts={alerts as any} hospitalId={profile.hospital_id} tz={hospital.timezone} />
       )}
     </div>
   )

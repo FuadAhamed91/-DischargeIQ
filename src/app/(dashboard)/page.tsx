@@ -141,7 +141,7 @@ export default async function OverviewPage() {
           </CardHeader>
           <CardContent className="p-0">
             {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-            <RecentAlerts alerts={(recentAlerts ?? []) as any} hospitalId={hid} />
+            <RecentAlerts alerts={(recentAlerts ?? []) as any} hospitalId={hid} tz={tz} />
           </CardContent>
         </Card>
 

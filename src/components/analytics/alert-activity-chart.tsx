@@ -31,10 +31,10 @@ export function AlertActivityChart({ data }: { data: AlertDay[] }) {
         <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} allowDecimals={false} />
         <Tooltip contentStyle={{ borderRadius: '8px', fontSize: 12 }} />
         <Legend wrapperStyle={{ fontSize: 12 }} />
-        <Bar dataKey="critical" name="Critical" fill="#ef4444" stackId="a" radius={[0, 0, 0, 0]} />
-        <Bar dataKey="high" name="High" fill="#f97316" stackId="a" />
-        <Bar dataKey="medium" name="Medium" fill="#eab308" stackId="a" />
-        <Bar dataKey="low" name="Low" fill="#22c55e" stackId="a" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="critical" name="Critical" fill="var(--danger)" stackId="a" radius={[0, 0, 0, 0]} />
+        <Bar dataKey="high" name="High" fill="var(--chart-4)" stackId="a" />
+        <Bar dataKey="medium" name="Medium" fill="var(--warning)" stackId="a" />
+        <Bar dataKey="low" name="Low" fill="var(--success)" stackId="a" radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   )
