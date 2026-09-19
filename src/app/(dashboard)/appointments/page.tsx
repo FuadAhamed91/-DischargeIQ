@@ -10,6 +10,7 @@ import type { AppointmentStatus } from '@/types/enums'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/shared/empty-state'
+import { LiveRefresh } from '@/components/shared/live-refresh'
 
 export async function generateMetadata() {
   return { title: 'Appointments' }
@@ -62,6 +63,7 @@ export default async function AppointmentsPage() {
 
   return (
     <div className="space-y-6">
+      <LiveRefresh hospitalId={profile.hospital_id} events={['appointment_confirmed', 'appointment_rescheduled', 'extraction_completed']} />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Appointments</h1>

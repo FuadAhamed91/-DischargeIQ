@@ -8,26 +8,30 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import type { Appointment } from '@/types/database'
 
 interface AppointmentActionsProps {
   episodeId: string
   appointment: Appointment
+  /** Hospital timezone: the date-time field is edited in local clinic time. */
+  timezone: string
 }
 
-export function AppointmentActions({ episodeId, appointment }: AppointmentActionsProps) {
+export function AppointmentActions({ episodeId, appointment, timezone }: AppointmentActionsProps) {
   const router = useRouter()
   const [sending, setSending] = useState(false)
-  const [editing, setEditing] = useState(false)
+  // A provisional slot from the discharge letter has no real time yet: open the editor straight away.
+  const [editing, setEditing] = useState(appointment.time_tbc && appointment.status === 'scheduled')
   const [saving, setSaving] = useState(false)
 
   const [specialty, setSpecialty] = useState(appointment.specialty)
-  const [scheduledAt, setScheduledAt] = useState(
-    appointment.scheduled_at.slice(0, 16), // datetime-local format
-  )
+  // datetime-local shows clinic wall-clock time, not the browser's or UTC
+  // (slicing the ISO string showed 05:00 for a 09:00 Dubai slot and shifted it on every save).
+  const [scheduledAt, setScheduledAt] = useState(formatInTimeZone(new Date(appointment.scheduled_at), timezone, "yyyy-MM-dd'T'HH:mm"))
   const [location, setLocation] = useState(appointment.location ?? '')
 
-  const canSendConfirmation = ['scheduled', 'reschedule_pending'].includes(appointment.status)
+  const canSendConfirmation = ['scheduled', 'reschedule_pending'].includes(appointment.status) && !appointment.time_tbc
   const isConfirmed = appointment.status === 'confirmed'
 
   async function handleSendConfirmation() {
@@ -58,13 +62,13 @@ export function AppointmentActions({ episodeId, appointment }: AppointmentAction
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             specialty,
-            scheduled_at: new Date(scheduledAt).toISOString(),
+            scheduled_at: fromZonedTime(scheduledAt, timezone).toISOString(),
             location: location || null,
           }),
         },
       )
       if (!res.ok) throw new Error('Save failed')
-      toast.success('Appointment updated')
+      toast.success(appointment.time_tbc ? 'Time booked — you can now ask the patient to confirm' : 'Appointment updated')
       setEditing(false)
       router.refresh()
     } catch {
@@ -99,7 +103,12 @@ export function AppointmentActions({ episodeId, appointment }: AppointmentAction
       {editing ? (
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Edit Appointment</CardTitle>
+            <CardTitle className="text-base">{appointment.time_tbc ? 'Book the appointment time' : 'Edit Appointment'}</CardTitle>
+            {appointment.time_tbc && (
+              <p className="text-sm text-muted-foreground">
+                The discharge summary asks for this visit by {formatInTimeZone(new Date(appointment.scheduled_at), timezone, 'EEEE d MMMM')}. Enter the booked date, time and place; then the patient can be asked to confirm.
+              </p>
+            )}
           </CardHeader>
           <CardContent className="space-y-3">
             <div>
@@ -107,7 +116,7 @@ export function AppointmentActions({ episodeId, appointment }: AppointmentAction
               <Input value={specialty} onChange={(e) => setSpecialty(e.target.value)} className="h-8 text-sm" />
             </div>
             <div>
-              <Label className="text-xs mb-1 block">Date &amp; Time</Label>
+              <Label className="text-xs mb-1 block">Date &amp; Time ({timezone})</Label>
               <Input
                 type="datetime-local"
                 value={scheduledAt}
@@ -145,8 +154,11 @@ export function AppointmentActions({ episodeId, appointment }: AppointmentAction
           )}
           {!editing && (
             <Button variant="outline" onClick={() => setEditing(true)}>
-              <Pencil className="w-4 h-4 mr-2" /> Edit appointment
+              <Pencil className="w-4 h-4 mr-2" /> {appointment.time_tbc ? 'Book time' : 'Edit appointment'}
             </Button>
+          )}
+          {appointment.time_tbc && !editing && (
+            <p className="basis-full text-xs text-muted-foreground">Book the time first — the patient is asked to confirm a real slot, not the letter’s “by” date.</p>
           )}
           {!['cancelled', 'missed'].includes(appointment.status) && (
             <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={handleCancel}>

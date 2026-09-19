@@ -28,6 +28,11 @@ import {
   buildCheckinGoodnight,
   buildTriageReply,
 } from './checkin-templates'
+import {
+  buildAppointmentConfirmedReply,
+  buildRescheduleReply,
+  buildNoPendingAppointmentReply,
+} from './appointment-templates'
 import type { LanguageCode } from '@/types/enums'
 import { classifyRisk, triageVoiceNote } from '@/lib/ai/triage'
 import type { TriageResult } from '@/lib/ai/triage'
@@ -151,6 +156,26 @@ async function recordTriage(params: RecordTriageParams): Promise<void> {
     },
     risk_level: triage.riskLevel,
   })
+}
+
+interface AwaitingAppointment {
+  id: string
+  specialty: string
+  scheduled_at: string
+  location: string | null
+}
+
+/** The appointment a YES/NO reply refers to: by id when the channel gave one, else the latest one asked about. */
+async function findAwaitingAppointment(supabase: ServiceClient, episodeId: string, appointmentId?: string): Promise<AwaitingAppointment | null> {
+  let query = supabase
+    .from('appointments')
+    .select('id, specialty, scheduled_at, location')
+    .eq('episode_id', episodeId)
+  query = appointmentId
+    ? query.eq('id', appointmentId)
+    : query.eq('status', 'confirmation_pending').order('confirmation_requested_at', { ascending: false, nullsFirst: false })
+  const { data } = await query.limit(1).maybeSingle()
+  return (data as AwaitingAppointment | null) ?? null
 }
 
 /** Model unavailable: hand the message to a nurse at medium rather than lose it. */
@@ -296,71 +321,59 @@ export async function handleInboundMessage(
 
   switch (result.action) {
     case 'confirm_appointment': {
-      // appointmentId may be missing when patient typed "YES" (Twilio text reply)
-      let appointmentId = result.appointmentId
-      if (!appointmentId) {
-        const { data: pendingAppt } = await supabase
-          .from('appointments')
-          .select('id')
-          .eq('episode_id', episode.id)
-          .eq('status', 'pending_confirmation')
-          .order('scheduled_at', { ascending: true })
-          .limit(1)
-          .single()
-        appointmentId = pendingAppt?.id
+      // A text "1"/"YES" carries no id: take the appointment most recently
+      // asked about. (Status is confirmation_pending — a stale lookup for
+      // 'pending_confirmation' here meant a "1" confirmed nothing.)
+      const appointment = await findAwaitingAppointment(supabase, episode.id, result.appointmentId)
+
+      if (!appointment) {
+        await reply(buildNoPendingAppointmentReply({ to: message.from, patientName: patient.full_name, language: lang }))
+        break
       }
 
-      if (appointmentId) {
-        await supabase
-          .from('appointments')
-          .update({ status: 'confirmed', confirmed_at: new Date().toISOString() })
-          .eq('id', appointmentId)
+      await supabase
+        .from('appointments')
+        .update({ status: 'confirmed', confirmed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq('id', appointment.id)
 
-        await reply({
-          type: 'text',
-          to: message.from,
-          body: `✅ Thank you ${patient.full_name}! Your appointment has been confirmed. We look forward to seeing you.`,
-        })
+      await reply(buildAppointmentConfirmedReply({
+        to: message.from,
+        patientName: patient.full_name,
+        language: lang,
+        appointment,
+        timezone: hospital.timezone ?? 'Asia/Dubai',
+      }))
 
-        await supabase.from('patient_timeline_events').insert({
-          episode_id: episode.id,
-          hospital_id: hospital.id,
-          event_type: 'appointment_confirmed',
-          payload: { appointment_id: appointmentId, wa_message_id: message.waMessageId },
-        })
-      }
+      await supabase.from('patient_timeline_events').insert({
+        episode_id: episode.id,
+        hospital_id: hospital.id,
+        event_type: 'appointment_confirmed',
+        payload: { appointment_id: appointment.id, specialty: appointment.specialty, wa_message_id: message.waMessageId },
+      })
       break
     }
 
     case 'start_reschedule': {
-      let appointmentId = result.appointmentId
-      if (!appointmentId) {
-        const { data: pendingAppt } = await supabase
-          .from('appointments')
-          .select('id')
-          .eq('episode_id', episode.id)
-          .eq('status', 'pending_confirmation')
-          .order('scheduled_at', { ascending: true })
-          .limit(1)
-          .single()
-        appointmentId = pendingAppt?.id
-      }
+      const appointment = await findAwaitingAppointment(supabase, episode.id, result.appointmentId)
 
-      const specialty = appointmentId
-        ? (await supabase.from('appointments').select('specialty').eq('id', appointmentId).single()).data?.specialty
-        : 'follow-up'
-
-      await reply({
-        type: 'text',
+      await reply(buildRescheduleReply({
         to: message.from,
-        body: `We understand, ${patient.full_name}. 🙏\n\nPlease contact the hospital to reschedule your *${specialty ?? 'follow-up'}* appointment, or reply with your preferred date and a nurse will assist you.`,
-      })
+        patientName: patient.full_name,
+        language: lang,
+        specialty: appointment?.specialty ?? null,
+      }))
 
-      if (appointmentId) {
+      if (appointment) {
         await supabase
           .from('appointments')
-          .update({ status: 'reschedule_pending' })
-          .eq('id', appointmentId)
+          .update({ status: 'reschedule_pending', updated_at: new Date().toISOString() })
+          .eq('id', appointment.id)
+        await supabase.from('patient_timeline_events').insert({
+          episode_id: episode.id,
+          hospital_id: hospital.id,
+          event_type: 'appointment_rescheduled',
+          payload: { appointment_id: appointment.id, specialty: appointment.specialty, requested_by: 'patient', wa_message_id: message.waMessageId },
+        })
       }
       break
     }

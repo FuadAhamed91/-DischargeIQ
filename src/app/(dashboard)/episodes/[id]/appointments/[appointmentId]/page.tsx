@@ -9,6 +9,7 @@ import { ArrowLeft, Calendar, MapPin, Clock, User } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { AppointmentActions } from '@/components/appointments/appointment-actions'
+import { LiveRefresh } from '@/components/shared/live-refresh'
 import type { Appointment } from '@/types/database'
 
 export async function generateMetadata() {
@@ -87,11 +88,11 @@ export default async function AppointmentDetailPage({
         <CardContent className="space-y-3">
           <div className="flex items-center gap-2 text-sm">
             <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
-            <span>{fmt(appt.scheduled_at, 'EEEE, d MMMM yyyy', tz)}</span>
+            <span>{appt.time_tbc ? <>Due by {fmt(appt.scheduled_at, 'EEEE, d MMMM yyyy', tz)}</> : fmt(appt.scheduled_at, 'EEEE, d MMMM yyyy', tz)}</span>
           </div>
           <div className="flex items-center gap-2 text-sm">
             <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
-            <span>{fmt(appt.scheduled_at, 'HH:mm', tz)}</span>
+            <span>{appt.time_tbc ? <span className="text-muted-foreground">Time to confirm — from the discharge summary</span> : fmt(appt.scheduled_at, 'HH:mm', tz)}</span>
           </div>
           {appt.location && (
             <div className="flex items-center gap-2 text-sm">
@@ -111,7 +112,11 @@ export default async function AppointmentDetailPage({
       <AppointmentActions
         episodeId={episodeId}
         appointment={appt}
+        timezone={tz}
       />
+
+      {/* Patient confirms / reschedules on WhatsApp: reflect it here without a reload */}
+      <LiveRefresh episodeId={episodeId} events={['appointment_confirmed', 'appointment_rescheduled']} />
     </div>
   )
 }

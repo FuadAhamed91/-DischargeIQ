@@ -19,6 +19,7 @@ import { ConversationTranscript, type TranscriptMessage } from '@/components/pat
 import { ArrowLeft, Pencil, User, Calendar, Pill, AlertTriangle, ChevronRight, Mic, Bot, Activity, MessageCircle } from 'lucide-react'
 import { fmt } from '@/lib/format'
 import { readConversationState } from '@/lib/whatsapp/fsm'
+import { LiveRefresh } from '@/components/shared/live-refresh'
 import type { RiskLevel, EpisodeStatus, SummaryStatus, LanguageCode } from '@/types/enums'
 import type { Medication, FollowUpRequirement } from '@/types/database'
 
@@ -124,6 +125,8 @@ export default async function EpisodeDetailPage({
 
   return (
     <div className="space-y-5 max-w-5xl">
+      {/* Patient-side events (confirmations, check-in answers, triage) re-render the KPIs and tabs live */}
+      <LiveRefresh episodeId={id} events={['appointment_confirmed', 'appointment_rescheduled', 'reminder_response', 'triage_completed', 'escalation_created', 'summary_sent']} />
       <Link href="/patients" className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="w-3.5 h-3.5 mr-1.5" /> All patients
       </Link>

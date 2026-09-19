@@ -192,30 +192,7 @@ export function buildDischargeSummaryMessage(params: {
 // Appointment confirmation
 // ------------------------------------
 
-export function buildAppointmentConfirmationRequest(params: {
-  to: string
-  patientName: string
-  language: LanguageCode
-  appointment: Appointment
-}): OutboundMessage {
-  const { to, patientName, appointment } = params
-
-  const date = new Date(appointment.scheduled_at)
-  const dateStr = date.toLocaleDateString('en-GB', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
-  const timeStr = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-
-  // Plain text for Twilio — patient replies "1" to confirm or "2" to reschedule
-  return {
-    type: 'text',
-    to,
-    body: `Hi ${patientName},\n\nYour *${appointment.specialty}* follow-up appointment is scheduled for:\n📅 *${dateStr}* at *${timeStr}*\n📍 ${appointment.location ?? 'Hospital main clinic'}\n\nReply *1* to confirm ✅\nReply *2* to reschedule 🔄`,
-  }
-}
+// buildAppointmentConfirmationRequest moved to ./appointment-templates.ts (localised, hospital-timezone aware)
 
 // ------------------------------------
 // Appointment slot selection

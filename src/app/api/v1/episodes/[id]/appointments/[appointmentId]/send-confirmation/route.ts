@@ -3,9 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { resolveAuthContext, apiSuccess, apiError, requireRole } from '@/lib/utils/api'
 import { sendAndLog } from '@/lib/whatsapp/outbound'
-import { buildAppointmentConfirmationRequest } from '@/lib/whatsapp/templates'
+import { buildAppointmentConfirmationRequest } from '@/lib/whatsapp/appointment-templates'
 import type { LanguageCode } from '@/types/enums'
-import type { Appointment } from '@/types/database'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,6 +34,11 @@ export async function POST(
   if (appointment.status === 'confirmed') {
     return NextResponse.json(apiError('Appointment already confirmed'), { status: 409 })
   }
+  if (appointment.time_tbc) {
+    // The date on a provisional row is the letter's "by" date with a placeholder
+    // time — never ask a patient to confirm that. Book the slot first.
+    return NextResponse.json(apiError('Set the appointment date and time before asking the patient to confirm'), { status: 409 })
+  }
 
   // Load patient via episode
   const { data: episode } = await supabase
@@ -57,7 +61,7 @@ export async function POST(
 
   const { data: hospital } = await serviceClient
     .from('hospitals')
-    .select('whatsapp_phone_number_id')
+    .select('whatsapp_phone_number_id, timezone')
     .eq('id', episode.hospital_id)
     .single()
 
@@ -69,7 +73,8 @@ export async function POST(
     to: patient.phone_e164,
     patientName: patient.full_name,
     language: (patient.preferred_language as LanguageCode) ?? 'en',
-    appointment: appointment as unknown as Appointment,
+    appointment: { specialty: appointment.specialty, scheduled_at: appointment.scheduled_at, location: appointment.location ?? null },
+    timezone: (hospital.timezone as string | null) ?? 'Asia/Dubai',
   })
 
   // Send, log on the conversation, and move it to awaiting_appointment_confirm
