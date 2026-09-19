@@ -32,8 +32,9 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Public routes that don't require auth
-  const publicPaths = ['/login', '/invite', '/api/webhooks', '/api/v1/auth']
+  // Public routes that don't require a user session.
+  // /api/webhooks is verified by Twilio signature; /api/cron by CRON_SECRET bearer token.
+  const publicPaths = ['/login', '/invite', '/api/webhooks', '/api/cron', '/api/v1/auth']
   const isPublic = publicPaths.some((p) => pathname.startsWith(p))
 
   if (!user && !isPublic) {

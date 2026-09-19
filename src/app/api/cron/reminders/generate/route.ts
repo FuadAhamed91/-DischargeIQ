@@ -23,3 +23,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 })
   }
 }
+
+// Vercel Cron invokes scheduled routes with GET; keep POST for manual/curl triggering.
+export { POST as GET }
