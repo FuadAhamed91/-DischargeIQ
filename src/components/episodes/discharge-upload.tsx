@@ -101,7 +101,7 @@ export function DischargeUpload({ episodeId, onUploadComplete }: DischargeUpload
       {/* Drop zone */}
       <div
         className={cn(
-          'border-2 border-dashed rounded-xl p-10 text-center transition-colors cursor-pointer',
+          'border-2 border-dashed rounded-lg p-10 text-center transition-colors cursor-pointer',
           dragOver ? 'border-brand bg-brand-soft' : 'border-border hover:border-brand/40',
           (state === 'uploading' || state === 'extracting') && 'pointer-events-none opacity-60',
         )}

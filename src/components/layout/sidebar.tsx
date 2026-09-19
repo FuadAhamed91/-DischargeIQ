@@ -3,14 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard,
-  Users,
-  FileText,
-  Calendar,
-  Bell,
-  BarChart3,
-  Settings,
-  Activity,
+  LayoutDashboard, Users, FileText, Calendar, Bell, BarChart3, Settings, HeartPulse,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { siteConfig } from '@/config/site'
@@ -23,72 +16,104 @@ interface NavItem {
   roles?: UserRole[]
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { label: 'Overview', href: '/', icon: LayoutDashboard },
-  { label: 'Patients', href: '/patients', icon: Users },
-  { label: 'Episodes', href: '/episodes', icon: FileText },
-  { label: 'Appointments', href: '/appointments', icon: Calendar },
-  { label: 'Alerts', href: '/alerts', icon: Bell },
-  { label: 'Analytics', href: '/analytics', icon: BarChart3 },
-  { label: 'Settings', href: '/settings', icon: Settings },
+interface NavGroup {
+  label: string
+  items: NavItem[]
+}
+
+export const NAV_GROUPS: NavGroup[] = [
+  {
+    label: 'Care',
+    items: [
+      { label: 'Overview', href: '/', icon: LayoutDashboard },
+      { label: 'Patients', href: '/patients', icon: Users },
+      { label: 'Episodes', href: '/episodes', icon: FileText },
+      { label: 'Appointments', href: '/appointments', icon: Calendar },
+    ],
+  },
+  {
+    label: 'Monitoring',
+    items: [
+      { label: 'Alerts', href: '/alerts', icon: Bell },
+      { label: 'Analytics', href: '/analytics', icon: BarChart3 },
+    ],
+  },
+  {
+    label: 'Administration',
+    items: [
+      { label: 'Settings', href: '/settings', icon: Settings },
+    ],
+  },
 ]
+
+export function isNavActive(pathname: string, href: string) {
+  return href === '/' ? pathname === '/' : pathname.startsWith(href)
+}
 
 interface SidebarProps {
   role: UserRole
+  hospitalName: string
 }
 
-export function Sidebar({ role }: SidebarProps) {
+export function Sidebar({ role, hospitalName }: SidebarProps) {
   const pathname = usePathname()
 
-  const visibleItems = NAV_ITEMS.filter(
-    (item) => !item.roles || item.roles.includes(role),
-  )
-
   return (
-    <aside className="hidden md:flex flex-col w-60 shrink-0 bg-sidebar text-sidebar-foreground" aria-label="Primary">
-      {/* Logo */}
-      <div className="flex items-center gap-3 px-5 h-16 border-b border-sidebar-border">
-        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-sidebar-primary text-sidebar-primary-foreground font-bold text-sm" aria-hidden="true">
-          D
+    <aside
+      className="hidden md:flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
+      aria-label="Primary"
+    >
+      {/* Product + hospital */}
+      <div className="flex h-16 items-center gap-3 border-b border-sidebar-border px-4">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground" aria-hidden="true">
+          <HeartPulse className="h-5 w-5" />
         </div>
-        <span className="font-semibold tracking-tight">{siteConfig.name}</span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold leading-tight tracking-tight text-foreground">{siteConfig.name}</p>
+          <p className="truncate text-xs leading-tight text-muted-foreground" title={hospitalName}>{hospitalName}</p>
+        </div>
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5">
-        {visibleItems.map((item) => {
-          const isActive =
-            item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
-          const Icon = item.icon
-
+      {/* Navigation */}
+      <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
+        {NAV_GROUPS.map((group) => {
+          const items = group.items.filter((i) => !i.roles || i.roles.includes(role))
+          if (items.length === 0) return null
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-current={isActive ? 'page' : undefined}
-              className={cn(
-                'relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors duration-200',
-                'focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar',
-                isActive
-                  ? 'bg-sidebar-accent text-sidebar-foreground'
-                  : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
-              )}
-            >
-              {/* Active indicator (teal bar) — location is not conveyed by colour alone: aria-current + weight */}
-              {isActive && <span aria-hidden="true" className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-sidebar-primary" />}
-              <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
-              {item.label}
-            </Link>
+            <div key={group.label}>
+              <p className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80">{group.label}</p>
+              <ul className="space-y-0.5">
+                {items.map((item) => {
+                  const active = isNavActive(pathname, item.href)
+                  const Icon = item.icon
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        aria-current={active ? 'page' : undefined}
+                        className={cn(
+                          'relative flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200',
+                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring',
+                          active
+                            ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                            : 'text-sidebar-foreground hover:bg-muted hover:text-foreground',
+                        )}
+                      >
+                        {active && <span aria-hidden="true" className="absolute bottom-1.5 left-0 top-1.5 w-0.5 rounded-full bg-sidebar-primary" />}
+                        <Icon className={cn('h-4 w-4 shrink-0', active ? 'text-sidebar-primary' : 'text-muted-foreground')} aria-hidden="true" />
+                        {item.label}
+                      </Link>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
           )
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="px-5 py-4 border-t border-sidebar-border">
-        <div className="flex items-center gap-2 text-xs text-sidebar-foreground/50">
-          <Activity className="w-3 h-3" aria-hidden="true" />
-          <span>DischargeIQ v0.1</span>
-        </div>
+      <div className="border-t border-sidebar-border px-4 py-3">
+        <p className="text-[11px] text-muted-foreground">{siteConfig.name} · v0.1</p>
       </div>
     </aside>
   )

@@ -3,27 +3,15 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import {
-  LayoutDashboard, Users, FileText, Calendar, Bell, BarChart3, Settings, X, Menu,
-} from 'lucide-react'
+import { X, Menu, HeartPulse } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { siteConfig } from '@/config/site'
+import { NAV_GROUPS, isNavActive } from './sidebar'
 import type { UserRole } from '@/types/enums'
 
-const NAV_ITEMS = [
-  { label: 'Overview',     href: '/',            icon: LayoutDashboard },
-  { label: 'Patients',     href: '/patients',    icon: Users },
-  { label: 'Episodes',     href: '/episodes',    icon: FileText },
-  { label: 'Appointments', href: '/appointments',icon: Calendar },
-  { label: 'Alerts',       href: '/alerts',      icon: Bell },
-  { label: 'Analytics',    href: '/analytics',   icon: BarChart3 },
-  { label: 'Settings',     href: '/settings',    icon: Settings },
-]
-
-export function MobileNav({ role }: { role: UserRole }) {
+export function MobileNav({ role, hospitalName }: { role: UserRole; hospitalName?: string }) {
   const [open, setOpen] = useState(false)
   const pathname = usePathname()
-  void role  // available for future role-based filtering
 
   // Escape closes the drawer; lock body scroll while open
   useEffect(() => {
@@ -37,28 +25,25 @@ export function MobileNav({ role }: { role: UserRole }) {
 
   return (
     <>
-      {/* Hamburger button — 44px touch target */}
       <button
         type="button"
-        className="md:hidden inline-flex h-11 w-11 items-center justify-center rounded-lg hover:bg-accent transition-colors duration-200"
+        className="md:hidden inline-flex h-11 w-11 items-center justify-center rounded-lg transition-colors duration-200 hover:bg-accent"
         onClick={() => setOpen(true)}
         aria-label="Open navigation"
         aria-expanded={open}
         aria-controls="mobile-nav-drawer"
       >
-        <Menu className="w-5 h-5" aria-hidden="true" />
+        <Menu className="h-5 w-5" aria-hidden="true" />
       </button>
 
-      {/* Overlay */}
       {open && (
         <div
-          className="fixed inset-0 z-40 bg-black/50 md:hidden animate-in fade-in duration-200"
+          className="fixed inset-0 z-40 bg-foreground/40 md:hidden animate-in fade-in duration-200"
           onClick={() => setOpen(false)}
           aria-hidden="true"
         />
       )}
 
-      {/* Drawer */}
       <aside
         id="mobile-nav-drawer"
         role="dialog"
@@ -66,49 +51,64 @@ export function MobileNav({ role }: { role: UserRole }) {
         aria-label="Navigation"
         aria-hidden={!open}
         className={cn(
-          'fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] bg-sidebar text-sidebar-foreground transform transition-transform duration-200 ease-out md:hidden',
+          'fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform duration-200 ease-out md:hidden',
           open ? 'translate-x-0' : '-translate-x-full',
         )}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between pl-5 pr-2 h-16 border-b border-sidebar-border">
-          <div className="flex items-center gap-3">
-            <div className="w-7 h-7 rounded-lg bg-sidebar-primary text-sidebar-primary-foreground font-bold text-sm flex items-center justify-center" aria-hidden="true">
-              D
+        <div className="flex h-16 items-center justify-between border-b border-sidebar-border pl-4 pr-2">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground" aria-hidden="true">
+              <HeartPulse className="h-5 w-5" />
             </div>
-            <span className="font-semibold tracking-tight text-sm">{siteConfig.name}</span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold leading-tight tracking-tight text-foreground">{siteConfig.name}</p>
+              {hospitalName && <p className="truncate text-xs leading-tight text-muted-foreground">{hospitalName}</p>}
+            </div>
           </div>
           <button
             type="button"
             onClick={() => setOpen(false)}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-lg hover:bg-sidebar-accent transition-colors duration-200"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-lg transition-colors duration-200 hover:bg-muted"
             aria-label="Close navigation"
           >
-            <X className="w-4 h-4" aria-hidden="true" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
 
-        {/* Nav */}
-        <nav className="px-3 py-4 space-y-0.5">
-          {NAV_ITEMS.map((item) => {
-            const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
-            const Icon = item.icon
+        <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
+          {NAV_GROUPS.map((group) => {
+            const items = group.items.filter((i) => !i.roles || i.roles.includes(role))
+            if (items.length === 0) return null
             return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setOpen(false)}
-                aria-current={isActive ? 'page' : undefined}
-                tabIndex={open ? 0 : -1}
-                className={cn(
-                  'relative flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors duration-200',
-                  isActive ? 'bg-sidebar-accent text-sidebar-foreground' : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
-                )}
-              >
-                {isActive && <span aria-hidden="true" className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-sidebar-primary" />}
-                <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
-                {item.label}
-              </Link>
+              <div key={group.label}>
+                <p className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80">{group.label}</p>
+                <ul className="space-y-0.5">
+                  {items.map((item) => {
+                    const active = isNavActive(pathname, item.href)
+                    const Icon = item.icon
+                    return (
+                      <li key={item.href}>
+                        <Link
+                          href={item.href}
+                          onClick={() => setOpen(false)}
+                          aria-current={active ? 'page' : undefined}
+                          tabIndex={open ? 0 : -1}
+                          className={cn(
+                            'relative flex items-center gap-3 rounded-md px-3 py-3 text-sm font-medium transition-colors duration-200',
+                            active
+                              ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                              : 'text-sidebar-foreground hover:bg-muted hover:text-foreground',
+                          )}
+                        >
+                          {active && <span aria-hidden="true" className="absolute bottom-2 left-0 top-2 w-0.5 rounded-full bg-sidebar-primary" />}
+                          <Icon className={cn('h-4 w-4 shrink-0', active ? 'text-sidebar-primary' : 'text-muted-foreground')} aria-hidden="true" />
+                          {item.label}
+                        </Link>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
             )
           })}
         </nav>

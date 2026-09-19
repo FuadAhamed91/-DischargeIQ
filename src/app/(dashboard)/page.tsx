@@ -107,21 +107,21 @@ export default async function OverviewPage() {
       </div>
 
       {/* KPI cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
         {stats.map((stat) => {
           const Icon = stat.icon
           const tone = TONE[stat.tone]
           return (
-            <Link key={stat.label} href={stat.href} className="group rounded-xl focus-visible:ring-2 focus-visible:ring-ring">
-              <Card className={`h-full transition-shadow duration-200 group-hover:shadow-md ${'urgent' in stat && stat.urgent ? 'ring-2 ring-danger/60' : ''}`}>
-                <CardContent className="p-5">
+            <Link key={stat.label} href={stat.href} className="group rounded-lg focus-visible:ring-2 focus-visible:ring-ring">
+              <Card className={`h-full py-0 transition-shadow duration-200 group-hover:ring-brand/50 ${'urgent' in stat && stat.urgent ? 'ring-2 ring-danger/60' : ''}`}>
+                <CardContent className="p-4 sm:p-5">
                   <div className="flex items-start justify-between gap-3">
                     <p className="text-sm font-medium text-muted-foreground leading-snug">{stat.label}</p>
                     <span className={`shrink-0 rounded-lg p-2 ${tone.icon}`} aria-hidden="true">
                       <Icon className="h-4 w-4" />
                     </span>
                   </div>
-                  <p className={`mt-3 text-3xl font-semibold tracking-tight tnum ${tone.value}`}>{stat.value}</p>
+                  <p className={`mt-2 sm:mt-3 text-2xl sm:text-3xl font-semibold tracking-tight tnum ${tone.value}`}>{stat.value}</p>
                   {'sub' in stat && stat.sub && <p className="mt-1 text-xs text-muted-foreground">{stat.sub}</p>}
                 </CardContent>
               </Card>

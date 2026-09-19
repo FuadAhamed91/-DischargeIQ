@@ -147,7 +147,7 @@ export default async function EpisodeDetailPage({
 
       {/* Open alerts banner */}
       {openAlerts.length > 0 && (
-        <div className="flex items-center gap-3 p-4 bg-danger-soft border border-danger/30 rounded-xl">
+        <div className="flex items-center gap-3 p-4 bg-danger-soft border border-danger/30 rounded-lg">
           <AlertTriangle className="w-5 h-5 text-danger shrink-0" />
           <div className="flex-1">
             <p className="text-sm font-medium text-danger">{openAlerts.length} open alert{openAlerts.length > 1 ? 's' : ''}</p>
@@ -159,8 +159,8 @@ export default async function EpisodeDetailPage({
 
       {/* Top stats row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card className="border shadow-sm">
-          <CardContent className="pt-4 pb-3">
+        <Card className="py-0">
+          <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Compliance</p>
             <p className={`text-2xl font-bold mt-0.5 ${complianceScore === null ? 'text-muted-foreground' : complianceScore >= 80 ? 'text-success' : complianceScore >= 50 ? 'text-warning' : 'text-danger'}`}>
               {complianceScore !== null ? `${complianceScore}%` : '—'}
@@ -168,15 +168,15 @@ export default async function EpisodeDetailPage({
             {complianceScore !== null && <Progress value={complianceScore} className="h-1 mt-1.5" />}
           </CardContent>
         </Card>
-        <Card className="border shadow-sm">
-          <CardContent className="pt-4 pb-3">
+        <Card className="py-0">
+          <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Risk level</p>
             <div className="mt-1.5"><RiskBadge level={episode.current_risk_level as RiskLevel} /></div>
             <p className="text-xs text-muted-foreground mt-1">{totalTriages} triage assessments</p>
           </CardContent>
         </Card>
-        <Card className="border shadow-sm">
-          <CardContent className="pt-4 pb-3">
+        <Card className="py-0">
+          <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Reminders</p>
             <p className={`text-2xl font-bold mt-0.5 ${reminderRate === null ? 'text-muted-foreground' : reminderRate >= 70 ? 'text-success' : 'text-warning'}`}>
               {reminderRate !== null ? `${reminderRate}%` : '—'}
@@ -184,8 +184,8 @@ export default async function EpisodeDetailPage({
             <p className="text-xs text-muted-foreground mt-1">{posRes}/{totalJobs} responded</p>
           </CardContent>
         </Card>
-        <Card className="border shadow-sm">
-          <CardContent className="pt-4 pb-3">
+        <Card className="py-0">
+          <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Appointments</p>
             <p className="text-2xl font-bold mt-0.5">{completedAppts}/{totalAppts}</p>
             <p className="text-xs text-muted-foreground mt-1">confirmed</p>
@@ -383,14 +383,14 @@ export default async function EpisodeDetailPage({
               ) : (
                 <div className="space-y-4">
                   {triageAssessments.map((t) => (
-                    <div key={t.id} className={`p-4 rounded-xl border-l-4 ${t.risk_level === 'red' ? 'border-l-danger bg-danger-soft' : t.risk_level === 'yellow' ? 'border-l-warning bg-warning-soft' : 'border-l-success bg-success-soft'}`}>
+                    <div key={t.id} className={`p-4 rounded-lg border border-l-4 ${t.risk_level === 'red' ? 'border-l-danger bg-danger-soft/40' : t.risk_level === 'yellow' ? 'border-l-warning bg-warning-soft/40' : 'border-l-success bg-success-soft/40'}`}>
                       <div className="flex items-center justify-between mb-2">
-                        <Badge className={`text-xs uppercase ${t.risk_level === 'red' ? 'bg-danger text-danger-foreground' : t.risk_level === 'yellow' ? 'bg-warning text-warning-foreground' : 'bg-success text-success-foreground'}`}>
-                          {t.risk_level}
+                        <Badge variant="outline" className={`text-[11px] font-semibold ${t.risk_level === 'red' ? 'bg-danger-soft text-danger border-danger/20' : t.risk_level === 'yellow' ? 'bg-warning-soft text-warning border-warning/30' : 'bg-success-soft text-success border-success/20'}`}>
+                          {t.risk_level === 'red' ? 'Red risk' : t.risk_level === 'yellow' ? 'Yellow risk' : 'Green'}
                         </Badge>
                         <span className="text-xs text-muted-foreground">{fmt(t.created_at, 'dd MMM yyyy HH:mm', tz)}</span>
                       </div>
-                      {t.inbound_text && <p className="text-sm italic mb-2">"{t.inbound_text.slice(0, 200)}"</p>}
+                      {t.inbound_text && <p className="text-sm italic mb-2">&ldquo;{t.inbound_text.slice(0, 200)}&rdquo;</p>}
                       {t.reasoning && <p className="text-xs text-muted-foreground">{t.reasoning}</p>}
                       {Array.isArray(t.matched_symptoms) && t.matched_symptoms.length > 0 && (
                         <div className="flex gap-1 flex-wrap mt-2">
@@ -439,7 +439,7 @@ export default async function EpisodeDetailPage({
               ) : (
                 <div className="space-y-4">
                   {aiInteractions.map((ai) => (
-                    <div key={ai.id} className="space-y-2 p-4 rounded-xl bg-muted/40 border">
+                    <div key={ai.id} className="space-y-2 p-4 rounded-lg bg-muted/40 border">
                       <div className="flex items-center gap-2">
                         <Badge variant="outline" className="text-xs">{ai.model}</Badge>
                         {ai.escalated && <Badge variant="destructive" className="text-xs">Escalated</Badge>}
@@ -469,7 +469,7 @@ export default async function EpisodeDetailPage({
 
       {/* Appointments quick-view */}
       {appointments && appointments.length > 0 && (
-        <Card className="border shadow-sm">
+        <Card>
           <CardHeader className="pb-3 flex flex-row items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2"><Calendar className="w-4 h-4" /> Appointments</CardTitle>
             <Link href={`/episodes/${id}/appointments`} className="text-xs text-brand hover:underline flex items-center gap-0.5">

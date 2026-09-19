@@ -127,7 +127,7 @@ export default async function PatientDetailPage({
           ) : (
             episodes.map((ep) => (
               <Link key={ep.id} href={`/episodes/${ep.id}`}>
-                <Card className="hover:shadow-md transition-shadow cursor-pointer">
+                <Card className="transition-shadow duration-200 hover:ring-brand/50 cursor-pointer">
                   <CardContent className="py-4">
                     <div className="flex items-center justify-between">
                       <div className="space-y-1">

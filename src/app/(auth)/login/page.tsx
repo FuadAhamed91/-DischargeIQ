@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react'
+import { Eye, EyeOff, Loader2, AlertCircle, HeartPulse } from 'lucide-react'
 import { siteConfig } from '@/config/site'
 import { ThemeToggle } from '@/components/theme/theme-toggle'
 
@@ -57,16 +57,16 @@ export default function LoginPage() {
       <div className="w-full max-w-sm space-y-6">
         {/* Brand */}
         <div className="text-center space-y-3">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-brand text-brand-foreground text-xl font-bold shadow-sm" aria-hidden="true">
-            D
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-brand text-brand-foreground" aria-hidden="true">
+            <HeartPulse className="h-6 w-6" />
           </div>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-brand">{siteConfig.name}</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">{siteConfig.name}</h1>
             <p className="text-sm text-muted-foreground mt-1">Clinical dashboard</p>
           </div>
         </div>
 
-        <Card className="shadow-lg shadow-brand/5">
+        <Card className="shadow-sm">
           <CardHeader className="space-y-1 pb-4">
             <CardTitle className="text-lg">Sign in</CardTitle>
             <CardDescription>Use the account your hospital administrator set up for you.</CardDescription>

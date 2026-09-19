@@ -124,7 +124,7 @@ export function AlertsList({ initialAlerts, hospitalId, tz }: AlertsListProps) {
       </div>
 
       {filtered.length === 0 ? (
-        <div className="rounded-xl border border-dashed py-12 text-center">
+        <div className="rounded-lg border border-dashed py-12 text-center">
           <BellOff className="mx-auto h-6 w-6 text-muted-foreground" aria-hidden="true" />
           <p className="mt-3 text-sm font-medium">
             {filter === 'open' ? 'No open alerts' : filter === 'acknowledged' ? 'Nothing acknowledged' : 'No alerts'}
@@ -148,7 +148,7 @@ export function AlertsList({ initialAlerts, hospitalId, tz }: AlertsListProps) {
               <li
                 key={alert.id}
                 className={cn(
-                  'rounded-xl border border-l-4 bg-card p-4 shadow-sm transition-opacity duration-200',
+                  'rounded-lg border border-l-4 bg-card p-4 transition-opacity duration-200',
                   cfg.accent, isOpen && sev !== 'low' && cfg.soft_bg, !isOpen && 'opacity-70',
                 )}
                 aria-busy={!!pending}

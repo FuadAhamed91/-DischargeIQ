@@ -57,8 +57,9 @@ export function Header({ profile, hospitalName, openAlerts, criticalAlerts }: He
   return (
     <header className="h-16 border-b flex items-center justify-between px-3 md:px-6 shrink-0 bg-background">
       <div className="flex items-center gap-2 min-w-0">
-        <MobileNav role={profile.role as UserRole} />
-        <p className="hidden md:block text-sm text-muted-foreground truncate">{hospitalName}</p>
+        <MobileNav role={profile.role as UserRole} hospitalName={hospitalName} />
+        {/* Hospital name lives in the sidebar on desktop; show it here only on small screens */}
+        <p className="md:hidden text-sm font-medium truncate">{hospitalName}</p>
       </div>
 
       <div className="flex items-center gap-1.5 md:gap-3">
