@@ -15,6 +15,53 @@ export type ConversationState =
   | 'awaiting_reminder_response'   // legacy per-dose reminders
   | 'awaiting_checkin_meds'        // nightly check-in Q1: did you take your medicines?
   | 'awaiting_checkin_symptoms'    // nightly check-in Q2: how are you feeling?
+  | 'nurse_attending'              // a nurse is chatting from the dashboard: assistant stays quiet
+
+/** How long a nurse message keeps the assistant quiet before the conversation returns to idle. */
+export const NURSE_ATTENDING_MS = 30 * 60 * 1000
+
+export interface ConversationStateRecord {
+  state: ConversationState
+  /** nurse_attending only: ISO time after which the assistant answers again */
+  until?: string
+  /** nurse_attending only: profile id of the nurse who last wrote */
+  by?: string
+}
+
+const KNOWN_STATES = new Set<string>([
+  'idle',
+  'awaiting_appointment_confirm',
+  'awaiting_slot_selection',
+  'awaiting_reminder_response',
+  'awaiting_checkin_meds',
+  'awaiting_checkin_symptoms',
+  'nurse_attending',
+])
+
+/**
+ * whatsapp_conversations.conversation_state is jsonb and has been written three
+ * ways over time: the activation trigger seeds {"state":"idle"}, the handler and
+ * dispatcher store a bare string, and nurse chat stores {"state":"nurse_attending",
+ * "until": ..., "by": ...}. Read all of them; an expired nurse_attending is idle.
+ */
+export function readConversationState(raw: unknown, now: Date = new Date()): ConversationStateRecord {
+  let state = 'idle'
+  let until: string | undefined
+  let by: string | undefined
+  if (typeof raw === 'string') {
+    state = raw
+  } else if (raw && typeof raw === 'object' && 'state' in raw) {
+    const obj = raw as { state?: unknown; until?: unknown; by?: unknown }
+    state = String(obj.state ?? 'idle')
+    if (typeof obj.until === 'string') until = obj.until
+    if (typeof obj.by === 'string') by = obj.by
+  }
+  if (!KNOWN_STATES.has(state)) state = 'idle'
+  if (state === 'nurse_attending' && (!until || Date.parse(until) <= now.getTime())) {
+    return { state: 'idle' }
+  }
+  return { state: state as ConversationState, until, by }
+}
 
 export type InboundMessageType =
   | 'text'
@@ -180,6 +227,13 @@ export function transition(
         return { nextState: 'idle', action: 'checkin_ok' }
       }
       return { nextState: 'idle', action: 'triage_text' }
+    }
+
+    case 'nurse_attending': {
+      // A nurse is in the conversation: log the reply for them, say nothing.
+      // (Emergency keywords were already caught above; voice notes are still
+      // triaged so a red flag never waits on a human reading the transcript.)
+      return { nextState: 'nurse_attending', action: 'noop' }
     }
 
     case 'awaiting_reminder_response': {

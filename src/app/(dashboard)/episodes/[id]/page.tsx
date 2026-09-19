@@ -18,6 +18,7 @@ import { MedicationAdherence } from '@/components/patients/medication-adherence'
 import { ConversationTranscript, type TranscriptMessage } from '@/components/patients/conversation-transcript'
 import { ArrowLeft, Pencil, User, Calendar, Pill, AlertTriangle, ChevronRight, Mic, Bot, Activity, MessageCircle } from 'lucide-react'
 import { fmt } from '@/lib/format'
+import { readConversationState } from '@/lib/whatsapp/fsm'
 import type { RiskLevel, EpisodeStatus, SummaryStatus, LanguageCode } from '@/types/enums'
 import type { Medication, FollowUpRequirement } from '@/types/database'
 
@@ -30,9 +31,10 @@ export default async function EpisodeDetailPage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  const { hospital } = await requireSession()
+  const { hospital, profile } = await requireSession()
   const tz = hospital.timezone
   const { id } = await params
+  const canMessage = ['super_admin', 'hospital_admin', 'discharge_coordinator', 'nurse', 'case_manager'].includes(profile.role)
   const supabase = await createClient()
 
   // Everything keys off the route id, so the episode row and its satellite
@@ -89,11 +91,7 @@ export default async function EpisodeDetailPage({
     void whatsapp_conversations
     return m as TranscriptMessage
   })
-  const rawState = conversation?.conversation_state as unknown
-  const conversationState =
-    typeof rawState === 'string' ? rawState
-    : rawState && typeof rawState === 'object' && 'state' in rawState ? String((rawState as { state: unknown }).state)
-    : 'idle'
+  const conversationState = readConversationState(conversation?.conversation_state)
 
   const patient = episode.patients as { id: string; full_name: string; phone_e164: string; preferred_language: string; mrn: string; date_of_birth: string | null }
   const nurse = episode.profiles as { id: string; full_name: string } | null
@@ -422,11 +420,14 @@ export default async function EpisodeDetailPage({
             </CardHeader>
             <CardContent>
               <ConversationTranscript
+                episodeId={id}
                 initialMessages={(transcript ?? []) as TranscriptMessage[]}
                 conversationId={conversation?.id ?? null}
                 patientName={patient.full_name}
                 patientPhone={patient.phone_e164}
                 conversationState={conversationState}
+                canSend={canMessage && ['pending_review', 'active'].includes(episode.status)}
+                currentUserId={profile.id}
               />
             </CardContent>
           </Card>

@@ -38,7 +38,7 @@ own discharge instructions, and is escalated to a nurse the moment they report a
 | Backend | Next.js route handlers on Vercel; Supabase (Postgres 17, Auth, Storage, Realtime, Vault) |
 | Scheduling | Vercel Cron (daily jobs) + `pg_cron` / `pg_net` inside Supabase (5-minute dispatch) |
 | Messaging | WhatsApp via **Twilio** (currently the sandbox; text only) |
-| AI | Gemini 2.5 Flash (extraction, translation, patient Q&A, triage); OpenAI Whisper (voice-note transcription) |
+| AI | Gemini 2.5 Flash (extraction, translation, patient Q&A, triage, voice-note transcription); OpenAI Whisper only as an optional transcription fallback |
 | PDF | `unpdf` (serverless-safe text extraction) |
 
 Multi-tenant: every row carries `hospital_id` and Postgres Row Level Security enforces isolation.
@@ -139,6 +139,14 @@ Every outbound message — from any path — goes through `lib/whatsapp/outbound
 which sends via Twilio and records the exact delivered text on the conversation. The episode page's
 **Conversation** tab renders this transcript live.
 
+**Nurse chat.** Clinical staff can write to the patient from that tab (`POST /api/v1/episodes/[id]/messages`).
+The message is sent as the nurse (logged with `metadata.sender = 'nurse'`, shown in a solid bubble
+with their name) and the conversation enters `nurse_attending` for 30 minutes: patient replies are
+logged and streamed to the dashboard but the assistant does not answer over the nurse. Emergency
+keywords still escalate instantly and voice notes are still triaged. "Hand back to assistant"
+(`PATCH { attending: false }`) or the 30-minute expiry returns the conversation to `idle`; the
+nightly check-in also takes over when it fires.
+
 ### 4. Appointments
 
 `/api/v1/episodes/[id]/appointments/[appointmentId]/send-confirmation` asks the patient "Can you
@@ -217,7 +225,7 @@ Documented in [`.env.example`](./.env.example). Summary:
 | `NEXT_PUBLIC_APP_URL` | Public base URL. **Twilio's webhook URL must be exactly `<this>/api/webhooks/whatsapp`** — the signature check reconstructs it |
 | `CRON_SECRET` | Bearer token for `/api/cron/*`. Must match the Vault value used by pg_cron (see [Deployment](#deployment)) |
 | `GEMINI_API_KEY` | Extraction, translation, Q&A, triage |
-| `OPENAI_API_KEY` | Whisper transcription only |
+| `OPENAI_API_KEY` | Optional. Whisper fallback if Gemini transcription fails; not set in production since 2026-09-19 |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_NUMBER` | Sandbox sender is `whatsapp:+14155238886` |
 | `WHATSAPP_USE_TEXT_FALLBACK` | `true` on the sandbox: interactive buttons are rendered as numbered text options |
 
@@ -410,7 +418,7 @@ functions callable by `authenticated` (required — policies evaluate them as th
 npm run lint           # eslint (a few pre-existing react/no-unescaped-entities warnings in JSX)
 npx tsc --noEmit       # typecheck
 npm run build          # production build (needs NEXT_PUBLIC_SUPABASE_* set; placeholders are fine)
-npm run check:intent   # 74 table-driven checks: pre-intent classifier, escalation derivation, FSM incl. nightly check-in
+npm run check:intent   # 85 table-driven checks: pre-intent classifier, escalation derivation, FSM (check-in, nurse chat), state parsing
 ```
 
 There is no end-to-end test suite yet. The reference manual test is: create a patient with a real

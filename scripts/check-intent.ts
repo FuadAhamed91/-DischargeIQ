@@ -9,7 +9,7 @@
  */
 import { classifyPreIntent } from '@/lib/ai/intent'
 import { deriveEscalation } from '@/lib/ai/chat'
-import { transition } from '@/lib/whatsapp/fsm'
+import { transition, readConversationState } from '@/lib/whatsapp/fsm'
 import type { ParsedInbound } from '@/lib/whatsapp/fsm'
 
 let fails = 0
@@ -99,6 +99,26 @@ eq('"a bit dizzy and my ankle is swollen"', q2('a bit dizzy and my ankle is swol
 eq('"pain 8/10 in my stomach"', q2('pain 8/10 in my stomach'), 'triage_text→idle')
 eq('"cant breathe" (emergency wins)', q2('cant breathe'), 'route_to_ai→idle')
 eq('voice note', transition('awaiting_checkin_symptoms', inbound(undefined, 'audio', { audioUrl: 'https://x' })).action, 'route_to_triage')
+
+console.log('— FSM: nurse attending (dashboard chat) —')
+const att = (text: string) => {
+  const r = transition('nurse_attending', inbound(text))
+  return `${r.action}→${r.nextState}`
+}
+eq('"the wound looks fine today" → logged only', att('the wound looks fine today'), 'noop→nurse_attending')
+eq('"thanks nurse" → logged only', att('thanks nurse'), 'noop→nurse_attending')
+eq('"I have chest pain" → emergency still wins', att('I have chest pain'), 'route_to_ai→idle')
+eq('voice note → still triaged', transition('nurse_attending', inbound(undefined, 'audio', { audioUrl: 'https://x' })).action, 'route_to_triage')
+
+console.log('— conversation_state parsing —')
+const now = new Date('2026-09-19T12:00:00Z')
+eq('bare string', readConversationState('awaiting_checkin_meds', now).state, 'awaiting_checkin_meds')
+eq('trigger object', readConversationState({ state: 'idle' }, now).state, 'idle')
+eq('unknown → idle', readConversationState('banana', now).state, 'idle')
+eq('null → idle', readConversationState(null, now).state, 'idle')
+eq('attending, live', readConversationState({ state: 'nurse_attending', until: '2026-09-19T12:29:00Z', by: 'n1' }, now), { state: 'nurse_attending', until: '2026-09-19T12:29:00Z', by: 'n1' })
+eq('attending, expired → idle', readConversationState({ state: 'nurse_attending', until: '2026-09-19T11:59:00Z', by: 'n1' }, now).state, 'idle')
+eq('attending without expiry → idle', readConversationState({ state: 'nurse_attending' }, now).state, 'idle')
 
 console.log(fails === 0 ? '\nALL PASSED' : `\n${fails} FAILED`)
 process.exit(fails ? 1 : 0)

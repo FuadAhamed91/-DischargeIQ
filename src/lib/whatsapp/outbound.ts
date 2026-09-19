@@ -23,6 +23,8 @@ export interface SendAndLogParams {
   patientId: string
   /** Conversation state to enter once the message is sent (e.g. awaiting a reply). */
   nextState?: ConversationState
+  /** Extra fields stored on the logged message, e.g. who typed it ({ sender: 'nurse', ... }). */
+  metadata?: Record<string, unknown>
 }
 
 export interface SendAndLogResult extends SendResult {
@@ -37,7 +39,7 @@ function messageTypeForLog(message: OutboundMessage): 'text' | 'interactive' | '
 }
 
 export async function sendAndLog(params: SendAndLogParams): Promise<SendAndLogResult> {
-  const { supabase, phoneNumberId, message, episodeId, hospitalId, patientId, nextState } = params
+  const { supabase, phoneNumberId, message, episodeId, hospitalId, patientId, nextState, metadata } = params
   const waPhone = message.to.replace(/^whatsapp:/, '')
 
   const result = await sendMessage(phoneNumberId, message)
@@ -80,7 +82,7 @@ export async function sendAndLog(params: SendAndLogParams): Promise<SendAndLogRe
       message_type: messageTypeForLog(message),
       content: renderMessageBody(message),
       status: result.status === 'success' ? 'sent' : 'failed',
-      metadata: result.status === 'success' ? {} : { error: result.error ?? 'send failed' },
+      metadata: result.status === 'success' ? { ...metadata } : { ...metadata, error: result.error ?? 'send failed' },
     })
     .select('id')
     .single()

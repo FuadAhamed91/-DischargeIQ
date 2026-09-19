@@ -21,8 +21,8 @@ import {
   buildGreetingReply,
   buildEmergencyEscalationMessage,
 } from './templates'
-import { transition } from './fsm'
-import type { ParsedInbound, ConversationState } from './fsm'
+import { transition, readConversationState } from './fsm'
+import type { ParsedInbound } from './fsm'
 import {
   buildCheckinSymptomQuestion,
   buildCheckinGoodnight,
@@ -85,30 +85,6 @@ export function parseWebhookPayload(params: Record<string, string>): ParsedInbou
 export function extractPhoneNumberId(params: Record<string, string>): string | null {
   const to = params.To ?? ''
   return to.replace('whatsapp:', '') || null
-}
-
-const KNOWN_STATES: ReadonlySet<string> = new Set<ConversationState>([
-  'idle',
-  'awaiting_appointment_confirm',
-  'awaiting_slot_selection',
-  'awaiting_reminder_response',
-  'awaiting_checkin_meds',
-  'awaiting_checkin_symptoms',
-])
-
-/**
- * conversation_state is jsonb. The episode-activation trigger seeds it as
- * {"state": "idle"} while this handler and the dispatcher store a plain
- * string; accept both and fall back to idle for anything unrecognised.
- */
-function normaliseState(raw: unknown): ConversationState {
-  const value =
-    typeof raw === 'string'
-      ? raw
-      : raw && typeof raw === 'object' && 'state' in raw
-        ? String((raw as { state: unknown }).state)
-        : 'idle'
-  return (KNOWN_STATES.has(value) ? value : 'idle') as ConversationState
 }
 
 // ------------------------------------
@@ -282,7 +258,7 @@ export async function handleInboundMessage(
     conversation = created
   }
 
-  const state = normaliseState(conversation.conversation_state)
+  const state = readConversationState(conversation.conversation_state).state
 
   // Every reply from here on is sent AND recorded on the conversation so the
   // dashboard transcript shows both sides. Conversation state is set in step 8.
@@ -715,11 +691,14 @@ export async function handleInboundMessage(
       break
   }
 
-  // 8. Update conversation state (the row is guaranteed to exist from step 4)
+  // 8. Update conversation state (the row is guaranteed to exist from step 4).
+  // While a nurse is attending, keep the stored object (it carries the expiry)
+  // instead of flattening it to a bare string.
+  const keepAttending = result.nextState === 'nurse_attending' && state === 'nurse_attending'
   await supabase
     .from('whatsapp_conversations')
     .update({
-      conversation_state: result.nextState,
+      conversation_state: keepAttending ? conversation.conversation_state : result.nextState,
       last_message_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
