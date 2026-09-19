@@ -130,14 +130,18 @@ interface RecordTriageParams {
 }
 
 /**
- * Stores a triage result, moves the episode's risk level, raises the nurse
- * alert for yellow/red and tells the patient what to do next. Shared by every
- * path that classifies a symptom report so the dashboard sees one shape.
+ * Stores a triage result and tells the patient what to do next. Shared by
+ * every path that classifies a symptom report so the dashboard sees one shape.
+ *
+ * The alert and the episode risk level are NOT written here: migration 00003
+ * has AFTER INSERT triggers on triage_assessments (create_alert_on_triage,
+ * sync_episode_risk_on_triage) that do both — and assign the alert to the
+ * nurse. Inserting them here as well produced two alerts per red triage.
  */
 async function recordTriage(params: RecordTriageParams): Promise<void> {
   const { supabase, episodeId, hospitalId, patient, reply, triage, waMessageId, source } = params
 
-  const { data: assessment } = await supabase
+  const { error } = await supabase
     .from('triage_assessments')
     .insert({
       episode_id: episodeId,
@@ -149,23 +153,7 @@ async function recordTriage(params: RecordTriageParams): Promise<void> {
       reasoning: triage.reasoning,
       model_version: 'gemini-2.5-flash',
     })
-    .select('id')
-    .single()
-
-  await supabase
-    .from('care_episodes')
-    .update({ current_risk_level: triage.riskLevel })
-    .eq('id', episodeId)
-
-  if (triage.riskLevel !== 'green') {
-    await supabase.from('alerts').insert({
-      episode_id: episodeId,
-      hospital_id: hospitalId,
-      triage_id: assessment?.id ?? null,
-      type: triage.riskLevel === 'red' ? 'risk_red' : 'risk_yellow',
-      severity: triage.riskLevel === 'red' ? 'critical' : 'medium',
-    })
-  }
+  if (error) throw new Error(`triage_assessments insert failed: ${error.message}`)
 
   await reply(buildTriageReply({
     to: patient.to,

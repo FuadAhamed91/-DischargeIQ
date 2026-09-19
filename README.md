@@ -129,10 +129,11 @@ the model's discretion: a thank-you cannot page a nurse, a symptom report always
 
 Voice notes: `triageVoiceNote()` transcribes with Whisper and grades the transcript against the
 patient's own emergency symptoms. Text symptom reports use the same `classifyRisk()`. Both land in
-`recordTriage()` (webhook handler): `triage_assessments` row, episode `current_risk_level`, the
-yellow/red alert, a localised reply telling the patient what to do, and a `triage_completed`
-timeline event. If the model is unavailable the report is still acknowledged and escalated at
-medium — a symptom report is never dropped.
+`recordTriage()` (webhook handler): a `triage_assessments` row — DB triggers from 00003 then raise
+the yellow/red alert (assigned to the nurse) and bump the episode's `current_risk_level` — plus a
+localised reply telling the patient what to do and a `triage_completed` timeline event. If the
+model is unavailable the report is still acknowledged and escalated at medium — a symptom report
+is never dropped.
 
 Every outbound message — from any path — goes through `lib/whatsapp/outbound.ts` `sendAndLog()`,
 which sends via Twilio and records the exact delivered text on the conversation. The episode page's
