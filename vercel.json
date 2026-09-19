@@ -1,10 +1,6 @@
 {
   "crons": [
     {
-      "path": "/api/cron/reminders/dispatch",
-      "schedule": "0 6 * * *"
-    },
-    {
       "path": "/api/cron/reminders/generate",
       "schedule": "0 0 * * *"
     },
