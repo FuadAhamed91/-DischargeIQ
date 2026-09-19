@@ -1,8 +1,10 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { resolveAuthContext } from '@/lib/utils/api'
 import { apiSuccess, apiError } from '@/types/api'
 import { extractTextFromPdf, extractDischargeData } from '@/lib/ai/extraction'
+import { translateAndStoreSummary } from '@/lib/ai/translation'
+import type { LanguageCode } from '@/types/enums'
 
 export const maxDuration = 60
 
@@ -206,15 +208,15 @@ export async function POST(
     const patientLang = (episodeWithPatient?.patients as unknown as { preferred_language: string } | null)?.preferred_language
     const hospitalSettings = (episodeWithPatient?.hospitals as unknown as { settings: { languages?: string[] } } | null)?.settings
     const hospitalLangs: string[] = hospitalSettings?.languages ?? ['en']
-    const targetLanguages = [...new Set([patientLang, ...hospitalLangs].filter(Boolean))]
+    const targetLanguages = [
+      ...new Set([patientLang, ...hospitalLangs].filter(Boolean)),
+    ] as LanguageCode[]
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL
-    if (baseUrl && targetLanguages.length > 0) {
-      fetch(`${baseUrl}/api/internal/ai/translate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ summary_id: summaryId, target_languages: targetLanguages }),
-      }).catch(console.error)
+    // Translate after the response is sent so the nurse isn't blocked on it.
+    // Previously this was a fire-and-forget self-HTTP call to /api/internal/ai/translate,
+    // which the auth proxy redirected to /login — translations were never produced.
+    if (targetLanguages.length > 0) {
+      after(() => translateAndStoreSummary(serviceClient, summaryId, extracted, targetLanguages))
     }
 
     return NextResponse.json(apiSuccess({ summary_id: summaryId, extraction: extracted }))

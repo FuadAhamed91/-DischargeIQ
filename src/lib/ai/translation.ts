@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { LanguageCode } from '@/types/enums'
 import type { ExtractionResult } from './extraction'
 
@@ -100,6 +101,42 @@ Return the translated JSON now:`
   // Strip markdown code fences if present
   const json = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
   return JSON.parse(json) as TranslatedSummaryContent
+}
+
+/**
+ * Translates an extracted summary into each target language and upserts the
+ * results into discharge_summary_translations. Failures are per-language and
+ * logged, never thrown — a failed translation must not fail the extraction.
+ * Runs in-process (e.g. inside `after()`), not via a self-HTTP call, so it is
+ * not subject to the auth proxy.
+ */
+export async function translateAndStoreSummary(
+  supabase: SupabaseClient,
+  summaryId: string,
+  data: ExtractionResult,
+  targetLanguages: LanguageCode[],
+): Promise<Record<string, boolean>> {
+  const sourceLanguage = (data.source_language as LanguageCode) ?? 'en'
+  const results: Record<string, boolean> = {}
+
+  for (const lang of targetLanguages) {
+    try {
+      const translated = await translateSummary(data, lang, sourceLanguage)
+
+      const { error } = await supabase.from('discharge_summary_translations').upsert(
+        { summary_id: summaryId, language: lang, content: translated as never },
+        { onConflict: 'summary_id,language' },
+      )
+      if (error) throw error
+
+      results[lang] = true
+    } catch (err) {
+      console.error(`[AI Translate] Failed for summary ${summaryId} → ${lang}:`, err)
+      results[lang] = false
+    }
+  }
+
+  return results
 }
 
 /**
