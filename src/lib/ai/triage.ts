@@ -12,7 +12,13 @@ import OpenAI from 'openai'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import type { RiskLevel } from '@/types/enums'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+// Lazy: the OpenAI SDK throws at construction when OPENAI_API_KEY is unset,
+// which breaks `next build` (page-data collection) in envs without secrets.
+let _openai: OpenAI | null = null
+function getOpenAI(): OpenAI {
+  if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  return _openai
+}
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
 const gemini = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
@@ -48,7 +54,7 @@ export async function downloadTwilioMedia(mediaUrl: string): Promise<Buffer> {
 export async function transcribeAudio(audioBuffer: Buffer, mimeType = 'audio/ogg'): Promise<string> {
   const file = new File([audioBuffer.buffer as ArrayBuffer], 'audio.ogg', { type: mimeType })
 
-  const response = await openai.audio.transcriptions.create({
+  const response = await getOpenAI().audio.transcriptions.create({
     model: 'whisper-1',
     file,
     language: 'en',
