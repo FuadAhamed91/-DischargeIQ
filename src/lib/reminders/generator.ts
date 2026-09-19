@@ -6,7 +6,8 @@
  */
 
 import { createServiceClient } from '@/lib/supabase/server'
-import { toZonedTime } from 'date-fns-tz'
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
+import { addDays } from 'date-fns'
 
 interface GenerateResult {
   generated: number
@@ -61,23 +62,20 @@ export async function generateNextDayJobs(): Promise<GenerateResult> {
     const nowUtc = new Date()
     const tomorrowUtc = new Date(nowUtc.getTime() + 24 * 60 * 60 * 1000)
 
+    // The hospital's current and next calendar dates, as wall-clock dates in its timezone.
+    // Combining a wall-clock date + scheduled_time with fromZonedTime() yields the correct
+    // UTC instant regardless of the server's own timezone (the previous toZonedTime +
+    // setHours approach was only right on UTC machines and fired 4h early on a Dubai one).
+    const todayLocal = formatInTimeZone(nowUtc, tz, 'yyyy-MM-dd')
+    const tomorrowLocal = formatInTimeZone(addDays(nowUtc, 1), tz, 'yyyy-MM-dd')
+
     const jobs = schedules.map((schedule) => {
-      // Build a UTC fire_at by combining today's date (in hospital TZ) with the scheduled_time
-      const localNow = toZonedTime(nowUtc, tz)
-      const [hour, minute] = (schedule.scheduled_time as string).split(':').map(Number)
+      const time = (schedule.scheduled_time as string).slice(0, 5) // 'HH:MM' from 'HH:MM:SS'
 
-      // Create fire time today in local TZ
-      const localFireDate = new Date(localNow)
-      localFireDate.setHours(hour, minute, 0, 0)
-
-      // Convert back to UTC
-      const fireAtUtc = new Date(
-        localFireDate.getTime() - getTimezoneOffsetMs(tz, localFireDate),
-      )
-
-      // If the fire time has already passed today, schedule for tomorrow
+      // Next occurrence of this schedule: today in the hospital's tz, or tomorrow if already passed
+      let fireAtUtc = fromZonedTime(`${todayLocal}T${time}:00`, tz)
       if (fireAtUtc <= nowUtc) {
-        fireAtUtc.setDate(fireAtUtc.getDate() + 1)
+        fireAtUtc = fromZonedTime(`${tomorrowLocal}T${time}:00`, tz)
       }
 
       // Only generate if within the next 24h window
@@ -109,20 +107,4 @@ export async function generateNextDayJobs(): Promise<GenerateResult> {
   }
 
   return result
-}
-
-/**
- * Utility: get timezone offset in milliseconds for a given date and IANA tz.
- * This is a simplified implementation — in production use `date-fns-tz` `getTimezoneOffset`.
- */
-function getTimezoneOffsetMs(tz: string, date: Date): number {
-  try {
-    const utcStr = date.toLocaleString('en-US', { timeZone: 'UTC' })
-    const localStr = date.toLocaleString('en-US', { timeZone: tz })
-    const utcDate = new Date(utcStr)
-    const localDate = new Date(localStr)
-    return localDate.getTime() - utcDate.getTime()
-  } catch {
-    return 0
-  }
 }
