@@ -22,14 +22,27 @@ export async function POST(request: Request) {
     .lt('confirmation_requested_at', cutoff48h)
 
   for (const appt of unconfirmed ?? []) {
-    await supabase.from('alerts').insert({
+    // One open alert per episode is enough — this runs nightly and the same
+    // appointment stays unconfirmed until the patient or nurse acts on it.
+    const { count: existing } = await supabase
+      .from('alerts')
+      .select('id', { count: 'exact', head: true })
+      .eq('episode_id', appt.episode_id)
+      .eq('type', 'unconfirmed_appointment')
+      .eq('status', 'open')
+    if (existing && existing > 0) continue
+
+    const { error } = await supabase.from('alerts').insert({
       episode_id: appt.episode_id,
       hospital_id: appt.hospital_id,
       type: 'unconfirmed_appointment',
-      message: `Patient has not confirmed their ${appt.specialty} appointment scheduled for ${new Date(appt.scheduled_at).toLocaleDateString('en-GB')}`,
-      risk_level: 'yellow',
+      severity: 'medium',
       status: 'open',
     })
+    if (error) {
+      console.error(`[cron/appointments/escalate] alert insert failed for appointment ${appt.id}:`, error.message)
+      continue
+    }
     escalated++
   }
 
