@@ -27,10 +27,10 @@ export function AlertActivityChart({ data }: { data: AlertDay[] }) {
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 0 }} barSize={8}>
         <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-        <XAxis dataKey="date" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} interval={1} />
-        <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} allowDecimals={false} />
-        <Tooltip contentStyle={{ borderRadius: '8px', fontSize: 12 }} />
-        <Legend wrapperStyle={{ fontSize: 12 }} />
+        <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={false} interval={1} />
+        <YAxis tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={false} allowDecimals={false} />
+        <Tooltip contentStyle={{ background: 'var(--popover)', color: 'var(--popover-foreground)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: 'var(--popover-foreground)' }} itemStyle={{ color: 'var(--popover-foreground)' }} />
+        <Legend wrapperStyle={{ fontSize: 12, color: 'var(--muted-foreground)' }} />
         <Bar dataKey="critical" name="Critical" fill="var(--danger)" stackId="a" radius={[0, 0, 0, 0]} />
         <Bar dataKey="high" name="High" fill="var(--chart-4)" stackId="a" />
         <Bar dataKey="medium" name="Medium" fill="var(--warning)" stackId="a" />

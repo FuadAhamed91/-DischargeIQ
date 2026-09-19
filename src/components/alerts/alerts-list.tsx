@@ -111,7 +111,7 @@ export function AlertsList({ initialAlerts, hospitalId, tz }: AlertsListProps) {
               >
                 {f.label}
                 <span className={cn('rounded-full px-1.5 text-[11px] tnum', active ? 'bg-white/20' : 'bg-muted-foreground/10',
-                  f.value === 'open' && criticalOpen > 0 && !active && 'bg-danger text-white')}>
+                  f.value === 'open' && criticalOpen > 0 && !active && 'bg-danger text-danger-foreground')}>
                   {counts[f.value]}
                 </span>
               </button>

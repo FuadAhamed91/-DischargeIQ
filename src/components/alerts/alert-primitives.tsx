@@ -19,7 +19,7 @@ export const SEVERITY: Record<Severity, {
   accent: string      // left border on list rows
   soft_bg: string
 }> = {
-  critical: { label: 'Critical', icon: ShieldAlert,    badge: 'bg-danger text-white border-transparent',        icon_color: 'text-danger',  accent: 'border-l-danger',  soft_bg: 'bg-danger-soft/50' },
+  critical: { label: 'Critical', icon: ShieldAlert,    badge: 'bg-danger text-danger-foreground border-transparent',        icon_color: 'text-danger',  accent: 'border-l-danger',  soft_bg: 'bg-danger-soft/50' },
   high:     { label: 'High',     icon: AlertCircle,    badge: 'bg-danger-soft text-danger border-danger/20',    icon_color: 'text-danger',  accent: 'border-l-danger/70', soft_bg: 'bg-danger-soft/30' },
   medium:   { label: 'Medium',   icon: AlertTriangle,  badge: 'bg-warning-soft text-warning border-warning/30', icon_color: 'text-warning', accent: 'border-l-warning', soft_bg: 'bg-warning-soft/40' },
   low:      { label: 'Low',      icon: Info,           badge: 'bg-info-soft text-info border-info/20',          icon_color: 'text-info',    accent: 'border-l-info/60',  soft_bg: 'bg-info-soft/30' },

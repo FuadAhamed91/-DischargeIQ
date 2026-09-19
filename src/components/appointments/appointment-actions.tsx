@@ -137,7 +137,7 @@ export function AppointmentActions({ episodeId, appointment }: AppointmentAction
             <Button
               onClick={handleSendConfirmation}
               disabled={sending}
-              className="bg-success hover:bg-success/90 text-white"
+              className="bg-success hover:bg-success/90 text-success-foreground"
             >
               {sending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
               Send WhatsApp Confirmation

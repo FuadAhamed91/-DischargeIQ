@@ -204,7 +204,7 @@ export default async function EpisodeDetailPage({
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
           <TabsTrigger value="triage">
             Triage
-            {redTriages > 0 && <span className="ml-1.5 w-4 h-4 rounded-full bg-danger text-white text-xs flex items-center justify-center">{redTriages}</span>}
+            {redTriages > 0 && <span className="ml-1.5 w-4 h-4 rounded-full bg-danger text-danger-foreground text-xs flex items-center justify-center">{redTriages}</span>}
           </TabsTrigger>
           <TabsTrigger value="chat">AI Chat</TabsTrigger>
         </TabsList>
@@ -385,7 +385,7 @@ export default async function EpisodeDetailPage({
                   {triageAssessments.map((t) => (
                     <div key={t.id} className={`p-4 rounded-xl border-l-4 ${t.risk_level === 'red' ? 'border-l-danger bg-danger-soft' : t.risk_level === 'yellow' ? 'border-l-warning bg-warning-soft' : 'border-l-success bg-success-soft'}`}>
                       <div className="flex items-center justify-between mb-2">
-                        <Badge className={`text-xs uppercase ${t.risk_level === 'red' ? 'bg-danger' : t.risk_level === 'yellow' ? 'bg-warning text-black' : 'bg-success'}`}>
+                        <Badge className={`text-xs uppercase ${t.risk_level === 'red' ? 'bg-danger text-danger-foreground' : t.risk_level === 'yellow' ? 'bg-warning text-warning-foreground' : 'bg-success text-success-foreground'}`}>
                           {t.risk_level}
                         </Badge>
                         <span className="text-xs text-muted-foreground">{fmt(t.created_at, 'dd MMM yyyy HH:mm', tz)}</span>

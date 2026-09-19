@@ -38,9 +38,9 @@ export function RiskDonut({ data }: { data: RiskSlice[] }) {
           </Pie>
           <Tooltip
             formatter={(value, name) => [`${value} (${Math.round((Number(value) / total) * 100)}%)`, name]}
-            contentStyle={{ borderRadius: '8px', fontSize: 12 }}
+            contentStyle={{ background: 'var(--popover)', color: 'var(--popover-foreground)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} itemStyle={{ color: 'var(--popover-foreground)' }}
           />
-          <Legend wrapperStyle={{ fontSize: 12 }} />
+          <Legend wrapperStyle={{ fontSize: 12, color: 'var(--muted-foreground)' }} />
         </PieChart>
       </ResponsiveContainer>
       {/* centre label */}

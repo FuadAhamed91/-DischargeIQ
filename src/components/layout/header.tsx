@@ -15,6 +15,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { MobileNav } from '@/components/layout/mobile-nav'
 import { AlertBell } from '@/components/alerts/alert-bell'
+import { ThemeToggle } from '@/components/theme/theme-toggle'
 import type { Profile } from '@/types/database'
 import type { UserRole } from '@/types/enums'
 
@@ -51,14 +52,17 @@ export function Header({ profile, hospitalName, openAlerts, criticalAlerts }: He
     .join('')
     .toUpperCase()
 
+  // No backdrop-filter on the header: it would become the containing block and
+  // stacking context for the fixed mobile drawer, trapping it behind the page.
   return (
-    <header className="h-16 border-b flex items-center justify-between px-3 md:px-6 shrink-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <header className="h-16 border-b flex items-center justify-between px-3 md:px-6 shrink-0 bg-background">
       <div className="flex items-center gap-2 min-w-0">
         <MobileNav role={profile.role as UserRole} />
         <p className="hidden md:block text-sm text-muted-foreground truncate">{hospitalName}</p>
       </div>
 
       <div className="flex items-center gap-1.5 md:gap-3">
+        <ThemeToggle />
         <AlertBell hospitalId={profile.hospital_id} initialOpenCount={openAlerts} initialCriticalCount={criticalAlerts} />
 
         {/* User menu */}

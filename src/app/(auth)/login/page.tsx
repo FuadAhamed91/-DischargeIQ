@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react'
 import { siteConfig } from '@/config/site'
+import { ThemeToggle } from '@/components/theme/theme-toggle'
 
 // Map Supabase auth errors to messages that say what to do next
 function friendlyError(message: string): string {
@@ -51,7 +52,8 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-dvh flex items-center justify-center bg-brand-tint px-4 py-10">
+    <div className="relative min-h-dvh flex items-center justify-center bg-brand-tint px-4 py-10">
+      <div className="absolute right-3 top-3"><ThemeToggle /></div>
       <div className="w-full max-w-sm space-y-6">
         {/* Brand */}
         <div className="text-center space-y-3">

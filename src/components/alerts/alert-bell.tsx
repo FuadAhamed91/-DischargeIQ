@@ -53,7 +53,7 @@ export function AlertBell({ hospitalId, initialOpenCount, initialCriticalCount }
           aria-hidden="true"
           className={cn(
             'absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full text-[11px] font-semibold leading-[18px] text-center tnum',
-            critical ? 'bg-danger text-white' : 'bg-brand text-brand-foreground',
+            critical ? 'bg-danger text-danger-foreground' : 'bg-brand text-brand-foreground',
           )}
         >
           {open > 99 ? '99+' : open}

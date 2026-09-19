@@ -136,9 +136,9 @@ export default function NewEpisodePage() {
           <div key={s} className="flex items-center gap-2">
             <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium border-2 transition-colors ${
               step === s || (s === 'patient' && step === 'upload')
-                ? 'border-brand bg-brand text-white'
+                ? 'border-brand bg-brand text-brand-foreground'
                 : step === 'upload' && s === 'patient'
-                ? 'border-brand bg-brand text-white'
+                ? 'border-brand bg-brand text-brand-foreground'
                 : 'border-border text-muted-foreground'
             }`}>
               {i + 1}

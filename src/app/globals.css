@@ -22,12 +22,16 @@
   --color-teal-foreground: var(--teal-foreground);
   --color-teal-soft: var(--teal-soft);
   --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
   --color-success-soft: var(--success-soft);
   --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-warning-soft: var(--warning-soft);
   --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
   --color-danger-soft: var(--danger-soft);
   --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
   --color-info-soft: var(--info-soft);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -68,6 +72,7 @@
 }
 
 :root {
+  color-scheme: light;
   /* DischargeIQ light theme — brand indigo #1C0770, teal #30D5C8, cool neutrals.
      Dashboard canvas is a very light cool grey so white cards read as surfaces. */
   --background: oklch(0.985 0.003 285);
@@ -99,12 +104,16 @@
   --ring: oklch(0.55 0.16 276);                 /* brand-ish, visible focus ring */
 
   --success: oklch(0.55 0.15 150);
+  --success-foreground: oklch(1 0 0);
   --success-soft: oklch(0.96 0.04 150);
   --warning: oklch(0.7 0.16 70);
+  --warning-foreground: oklch(0.2 0.03 70);
   --warning-soft: oklch(0.97 0.05 85);
   --danger: oklch(0.577 0.245 27.3);
+  --danger-foreground: oklch(1 0 0);
   --danger-soft: oklch(0.96 0.03 20);
   --info: oklch(0.6 0.15 250);
+  --info-foreground: oklch(1 0 0);
   --info-soft: oklch(0.96 0.03 250);
 
   /* Charts: brand indigo, teal, amber, rose, slate — distinguishable and on-brand */
@@ -127,6 +136,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.16 0.02 285);
   --foreground: oklch(0.96 0.005 285);
   --card: oklch(0.21 0.02 285);
@@ -156,12 +166,16 @@
   --ring: oklch(0.72 0.13 280);
 
   --success: oklch(0.72 0.15 150);
+  --success-foreground: oklch(0.16 0.03 150);
   --success-soft: oklch(0.28 0.05 150);
   --warning: oklch(0.8 0.15 75);
+  --warning-foreground: oklch(0.2 0.03 70);
   --warning-soft: oklch(0.3 0.06 80);
   --danger: oklch(0.7 0.19 22);
+  --danger-foreground: oklch(0.14 0.03 20);
   --danger-soft: oklch(0.3 0.06 20);
   --info: oklch(0.72 0.13 250);
+  --info-foreground: oklch(0.16 0.03 250);
   --info-soft: oklch(0.28 0.05 250);
 
   --chart-1: oklch(0.72 0.13 280);

@@ -67,7 +67,7 @@ export default async function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-start justify-between">
-            <div className="w-12 h-12 rounded-full bg-brand text-white flex items-center justify-center text-lg font-bold">
+            <div className="w-12 h-12 rounded-full bg-brand text-brand-foreground flex items-center justify-center text-lg font-bold">
               {profile.full_name.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
             </div>
             <Badge variant="secondary">{ROLE_LABELS[profile.role] ?? profile.role}</Badge>

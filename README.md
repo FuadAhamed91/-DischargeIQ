@@ -133,6 +133,10 @@ appointments as missed. The scheduling adapter is currently `manual` — no hosp
 
 Realtime (`postgres_changes`) is enabled for `alerts`, `patient_timeline_events` and `whatsapp_messages`.
 
+Theme: light / dark / system toggle in the header (and on the login page), persisted by `next-themes`.
+All colours are semantic tokens in `src/app/globals.css` (`brand`, `teal`, `success|warning|danger|info` with
+`-soft` and `-foreground` variants, `chart-1…5`, `sidebar-*`) — components never use raw hex or palette classes.
+
 ---
 
 ## Repository layout
