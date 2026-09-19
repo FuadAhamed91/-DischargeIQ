@@ -5,6 +5,8 @@
  * Transitions happen when a patient replies to an interactive message.
  */
 
+import { containsEmergencyKeyword, isAcknowledgement } from '@/lib/ai/intent'
+
 export type ConversationState =
   | 'idle'
   | 'awaiting_appointment_confirm'
@@ -100,12 +102,18 @@ export function transition(
         return { nextState: 'idle', action: 'route_to_triage' }
       }
       // Plain text reply (Twilio) or text fallback
-      const body = (message.text ?? '').toUpperCase().trim()
-      if (body === 'TAKEN' || body === 'DONE' || body === 'YES' || body === '1') {
-        return { nextState: 'idle', action: 'log_reminder_response', reminderResponse: body }
+      const raw = message.text ?? ''
+      const body = raw.toUpperCase().trim()
+      // Anything alarming outranks the reminder context
+      if (containsEmergencyKeyword(raw)) {
+        return { nextState: 'idle', action: 'route_to_ai' }
       }
-      if (body === '2' || body === 'CONCERN' || body === 'NO') {
+      if (body === '2' || body === 'CONCERN' || body === 'NO' || body === 'NOT YET' || body === 'MISSED') {
         return { nextState: 'idle', action: 'route_to_triage' }
+      }
+      // "TAKEN", "done ✅", "ok", "ले लिया", "تم", 👍 … all count as the dose taken
+      if (body === '1' || isAcknowledgement(raw)) {
+        return { nextState: 'idle', action: 'log_reminder_response', reminderResponse: body || 'ACK' }
       }
       return { nextState: 'idle', action: 'route_to_ai' }
     }

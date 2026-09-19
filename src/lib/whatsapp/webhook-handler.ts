@@ -15,12 +15,16 @@ import { sendMessage, markAsRead } from './client'
 import {
   buildNotRegisteredMessage,
   buildEscalationAcknowledgement,
+  buildAcknowledgementReply,
+  buildGreetingReply,
+  buildEmergencyEscalationMessage,
 } from './templates'
 import { transition } from './fsm'
 import type { ParsedInbound, ConversationState } from './fsm'
 import type { LanguageCode } from '@/types/enums'
 import { triageVoiceNote } from '@/lib/ai/triage'
 import { answerPatientQuestion } from '@/lib/ai/chat'
+import { classifyPreIntent } from '@/lib/ai/intent'
 import type { DischargeSummary, Medication } from '@/types/database'
 
 // ------------------------------------
@@ -390,6 +394,37 @@ export async function handleInboundMessage(
 
     case 'route_to_ai': {
       const text = message.text ?? ''
+      const preIntent = classifyPreIntent(text)
+
+      // Emergency keyword: instant, deterministic, critical — no model in the loop.
+      if (preIntent === 'emergency') {
+        await sendMessage(phoneNumberId, buildEmergencyEscalationMessage({ to: message.from, patientName: patient.full_name }))
+        await supabase.from('alerts').insert({
+          episode_id: episode.id,
+          hospital_id: hospital.id,
+          type: 'escalation',
+          severity: 'critical',
+        })
+        await supabase.from('patient_timeline_events').insert({
+          episode_id: episode.id,
+          hospital_id: hospital.id,
+          event_type: 'escalation_created',
+          payload: { reason: 'Emergency keyword in patient message', intent: 'emergency', wa_message_id: message.waMessageId },
+          risk_level: 'red',
+        })
+        break
+      }
+
+      // Plain acknowledgement or greeting: reply instantly, no model, no alert.
+      // (These used to be sent to the model, which escalated them as "unanswerable".)
+      if (preIntent === 'acknowledgement' || preIntent === 'greeting') {
+        const reply = preIntent === 'greeting'
+          ? buildGreetingReply({ to: message.from, patientName: patient.full_name, language: lang })
+          : buildAcknowledgementReply({ to: message.from, patientName: patient.full_name, language: lang })
+        await sendMessage(phoneNumberId, reply)
+        break
+      }
+
       try {
         // Load discharge context
         const { data: summary } = await supabase
@@ -423,13 +458,28 @@ export async function handleInboundMessage(
           body: chatResult.answer,
         })
 
-        // Escalate to nurse if low confidence
+        // Escalation is derived from the classified intent (lib/ai/chat.ts):
+        // never for acknowledgements/greetings, low for out-of-scope questions,
+        // medium/high for reported concerns.
         if (chatResult.shouldEscalate) {
+          const severity = chatResult.severity ?? 'low'
           await supabase.from('alerts').insert({
             episode_id: episode.id,
             hospital_id: hospital.id,
             type: 'escalation',
-            severity: 'low',
+            severity,
+          })
+          await supabase.from('patient_timeline_events').insert({
+            episode_id: episode.id,
+            hospital_id: hospital.id,
+            event_type: 'escalation_created',
+            payload: {
+              reason: chatResult.escalationReason ?? null,
+              intent: chatResult.intent,
+              severity,
+              wa_message_id: message.waMessageId,
+            },
+            risk_level: severity === 'high' ? 'red' : severity === 'medium' ? 'yellow' : null,
           })
         }
 
@@ -442,6 +492,18 @@ export async function handleInboundMessage(
           output_text: chatResult.answer,
           confidence: chatResult.confidence === 'high' ? 0.9 : chatResult.confidence === 'medium' ? 0.6 : 0.3,
           escalated: chatResult.shouldEscalate,
+        })
+
+        await supabase.from('patient_timeline_events').insert({
+          episode_id: episode.id,
+          hospital_id: hospital.id,
+          event_type: 'ai_response',
+          payload: {
+            question: text,
+            intent: chatResult.intent,
+            escalated: chatResult.shouldEscalate,
+            wa_message_id: message.waMessageId,
+          },
         })
       } catch (err) {
         console.error('[AI chat] failed:', err)
@@ -456,14 +518,13 @@ export async function handleInboundMessage(
           type: 'escalation',
           severity: 'low',
         })
+        await supabase.from('patient_timeline_events').insert({
+          episode_id: episode.id,
+          hospital_id: hospital.id,
+          event_type: 'escalation_created',
+          payload: { reason: 'AI assistant unavailable', intent: 'unknown', severity: 'low', wa_message_id: message.waMessageId },
+        })
       }
-
-      await supabase.from('patient_timeline_events').insert({
-        episode_id: episode.id,
-        hospital_id: hospital.id,
-        event_type: 'ai_response',
-        payload: { question: text, wa_message_id: message.waMessageId },
-      })
       break
     }
 

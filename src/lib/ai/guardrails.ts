@@ -15,17 +15,30 @@ export const FORBIDDEN_INTENTS = [
   'second opinion',
 ] as const
 
+// Matched case-insensitively as substrings of the normalised message
+// (see intent.ts — apostrophe variants are folded before matching).
 export const EMERGENCY_KEYWORDS = [
   'chest pain',
+  'chest tightness',
   'can\'t breathe',
+  'cant breathe',
+  'cannot breathe',
+  'can not breathe',
   'difficulty breathing',
+  'trouble breathing',
+  'short of breath',
+  'shortness of breath',
   'unconscious',
   'collapsed',
   'not responding',
   'severe bleeding',
+  'heavy bleeding',
   'stroke',
   'heart attack',
   'seizure',
+  'fainted',
+  'passed out',
+  'suicid',
   // Arabic
   'ألم في الصدر',
   'صعوبة في التنفس',

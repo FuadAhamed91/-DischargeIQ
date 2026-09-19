@@ -246,6 +246,59 @@ export function buildNotRegisteredMessage(to: string): OutboundMessage {
   }
 }
 
+// ------------------------------------
+// Instant replies for messages that need no answer (see lib/ai/intent.ts)
+// ------------------------------------
+
+const ACK_REPLIES: Record<LanguageCode, (name: string) => string> = {
+  en: (n) => `Thank you, ${n}! 💙 If you have any questions about your recovery, just message me here.`,
+  ar: (n) => `شكراً لك، ${n}! 💙 إذا كان لديك أي سؤال عن تعافيك، راسلني هنا.`,
+  hi: (n) => `धन्यवाद, ${n}! 💙 अगर आपके स्वास्थ्य-लाभ के बारे में कोई सवाल हो, तो यहाँ संदेश भेजें।`,
+  ta: (n) => `நன்றி, ${n}! 💙 உங்கள் குணமடைதல் பற்றி ஏதேனும் கேள்வி இருந்தால், இங்கே செய்தி அனுப்புங்கள்.`,
+  tl: (n) => `Salamat, ${n}! 💙 Kung may tanong ka tungkol sa iyong paggaling, mag-message lang dito.`,
+}
+
+const GREETING_REPLIES: Record<LanguageCode, (name: string) => string> = {
+  en: (n) => `Hello ${n}! 👋 How can I help you with your recovery today?`,
+  ar: (n) => `مرحباً ${n}! 👋 كيف يمكنني مساعدتك في تعافيك اليوم؟`,
+  hi: (n) => `नमस्ते ${n}! 👋 आज मैं आपके स्वास्थ्य-लाभ में कैसे मदद कर सकता हूँ?`,
+  ta: (n) => `வணக்கம் ${n}! 👋 இன்று உங்கள் குணமடைதலில் நான் எப்படி உதவலாம்?`,
+  tl: (n) => `Kumusta ${n}! 👋 Paano kita matutulungan sa iyong paggaling ngayon?`,
+}
+
+export function buildAcknowledgementReply(params: {
+  to: string
+  patientName: string
+  language: LanguageCode
+}): OutboundMessage {
+  const build = ACK_REPLIES[params.language] ?? ACK_REPLIES.en
+  return { type: 'text', to: params.to, body: build(params.patientName) }
+}
+
+export function buildGreetingReply(params: {
+  to: string
+  patientName: string
+  language: LanguageCode
+}): OutboundMessage {
+  const build = GREETING_REPLIES[params.language] ?? GREETING_REPLIES.en
+  return { type: 'text', to: params.to, body: build(params.patientName) }
+}
+
+/**
+ * Sent when a message contains an emergency keyword. Deliberately not
+ * localised through the model: this path must be instant and deterministic.
+ */
+export function buildEmergencyEscalationMessage(params: {
+  to: string
+  patientName: string
+}): OutboundMessage {
+  return {
+    type: 'text',
+    to: params.to,
+    body: `${params.patientName}, if you are experiencing a *medical emergency*, please call emergency services *now* or go to the nearest emergency department. 🚨\n\nYour care team has been alerted and a nurse will contact you as soon as possible.`,
+  }
+}
+
 export function buildEscalationAcknowledgement(params: {
   to: string
   patientName: string
