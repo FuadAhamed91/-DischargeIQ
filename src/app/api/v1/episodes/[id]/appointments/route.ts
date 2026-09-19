@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { resolveAuthContext, apiSuccess, apiError, requireRole } from '@/lib/utils/api'
 
 export const dynamic = 'force-dynamic'
@@ -80,7 +80,7 @@ export async function POST(
   if (error) return NextResponse.json(apiError('Failed to create appointment', error.message), { status: 500 })
 
   // Timeline event
-  await supabase.from('patient_timeline_events').insert({
+  await (await createServiceClient()).from('patient_timeline_events').insert({
     episode_id: episodeId,
     hospital_id: episode.hospital_id,
     event_type: 'appointment_confirmed',

@@ -98,7 +98,7 @@ export async function POST(
     .eq('id', appointmentId)
 
   // Timeline
-  await supabase.from('patient_timeline_events').insert({
+  await (await createServiceClient()).from('patient_timeline_events').insert({
     episode_id: episodeId,
     hospital_id: episode.hospital_id,
     event_type: 'whatsapp_outbound',

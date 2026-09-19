@@ -189,6 +189,30 @@ async function recordTriage(params: RecordTriageParams): Promise<void> {
   })
 }
 
+/** Model unavailable: hand the message to a nurse at medium rather than lose it. */
+async function escalateUntriaged(
+  supabase: ServiceClient,
+  episodeId: string,
+  hospitalId: string,
+  reason: string,
+  waMessageId: string,
+  text?: string,
+): Promise<void> {
+  await supabase.from('alerts').insert({
+    episode_id: episodeId,
+    hospital_id: hospitalId,
+    type: 'escalation',
+    severity: 'medium',
+  })
+  await supabase.from('patient_timeline_events').insert({
+    episode_id: episodeId,
+    hospital_id: hospitalId,
+    event_type: 'escalation_created',
+    payload: { reason, intent: 'untriaged_symptom_report', severity: 'medium', text: text ?? null, wa_message_id: waMessageId },
+    risk_level: 'yellow',
+  })
+}
+
 // ------------------------------------
 // Main handler
 // ------------------------------------
@@ -450,8 +474,10 @@ export async function handleInboundMessage(
             voiceArtifactId,
           })
         } catch (err) {
+          // Acknowledged already; make sure a nurse still sees that a voice
+          // note came in and could not be assessed automatically.
           console.error('[Triage] failed:', err)
-          // Already sent acknowledgement above — no further action needed
+          await escalateUntriaged(supabase, episode.id, hospital.id, 'Voice note could not be transcribed or triaged automatically', message.waMessageId)
         }
       }
       break
@@ -488,19 +514,7 @@ export async function handleInboundMessage(
         // on the floor. Acknowledge, and hand it to a nurse at medium.
         console.error('[Triage text] failed:', err)
         await reply(buildEscalationAcknowledgement({ to: message.from, patientName: patient.full_name }))
-        await supabase.from('alerts').insert({
-          episode_id: episode.id,
-          hospital_id: hospital.id,
-          type: 'escalation',
-          severity: 'medium',
-        })
-        await supabase.from('patient_timeline_events').insert({
-          episode_id: episode.id,
-          hospital_id: hospital.id,
-          event_type: 'escalation_created',
-          payload: { reason: 'Symptom report could not be triaged automatically', text, wa_message_id: message.waMessageId },
-          risk_level: 'yellow',
-        })
+        await escalateUntriaged(supabase, episode.id, hospital.id, 'Symptom report could not be triaged automatically', message.waMessageId, text)
       }
       break
     }

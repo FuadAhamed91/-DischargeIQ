@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { resolveAuthContext } from '@/lib/utils/api'
 import { apiSuccess, apiError } from '@/types/api'
 
@@ -74,7 +74,7 @@ export async function POST(
   }
 
   // Log timeline event
-  await supabase.from('patient_timeline_events').insert({
+  await (await createServiceClient()).from('patient_timeline_events').insert({
     episode_id: episodeId,
     hospital_id: summary.hospital_id,
     event_type: 'summary_approved',

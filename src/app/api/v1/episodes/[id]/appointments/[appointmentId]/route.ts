@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { resolveAuthContext, apiSuccess, apiError, requireRole } from '@/lib/utils/api'
 
 export const dynamic = 'force-dynamic'
@@ -53,7 +53,7 @@ export async function PATCH(request: Request, { params }: Params) {
 
   if (error) return NextResponse.json(apiError('Failed to update appointment', error.message), { status: 500 })
 
-  await supabase.from('patient_timeline_events').insert({
+  await (await createServiceClient()).from('patient_timeline_events').insert({
     episode_id: episodeId,
     hospital_id: data.hospital_id,
     event_type: 'appointment_rescheduled',

@@ -3,7 +3,9 @@
  *
  * Pipeline:
  *  1. Download audio from Twilio media URL → Buffer
- *  2. Transcribe with OpenAI Whisper
+ *  2. Transcribe with Gemini 2.5 Flash (audio in, text out); Whisper only as a
+ *     fallback when OPENAI_API_KEY is configured — the OpenAI account ran out
+ *     of credits on 2026-09-19 and silently took voice triage down with it
  *  3. Classify risk with Gemini 2.5 Flash against patient's known emergency symptoms
  *  4. Return structured triage result
  */
@@ -48,19 +50,48 @@ export async function downloadTwilioMedia(mediaUrl: string): Promise<Buffer> {
   return Buffer.from(arrayBuffer)
 }
 
+const TRANSCRIBE_PROMPT = `Transcribe this voice message from a patient word for word, in the language spoken (it may be English, Arabic, Hindi, Tamil or Tagalog, or a mix). Return ONLY the transcript text — no quotes, labels, translation or commentary. If nothing intelligible is said, return an empty string.`
+
+async function transcribeWithGemini(audioBuffer: Buffer, mimeType: string): Promise<string> {
+  const result = await gemini.generateContent([
+    // Twilio sends e.g. "audio/ogg; codecs=opus" — Gemini wants the bare type.
+    { inlineData: { mimeType: mimeType.split(';')[0].trim() || 'audio/ogg', data: audioBuffer.toString('base64') } },
+    { text: TRANSCRIBE_PROMPT },
+  ])
+  return result.response.text().trim()
+}
+
+async function transcribeWithWhisper(audioBuffer: Buffer, mimeType: string): Promise<string> {
+  const file = new File([audioBuffer.buffer as ArrayBuffer], 'audio.ogg', { type: mimeType })
+  const response = await getOpenAI().audio.transcriptions.create({ model: 'whisper-1', file })
+  return response.text.trim()
+}
+
 /**
- * Transcribes an audio Buffer using OpenAI Whisper.
+ * Transcribes a voice note. Gemini first; Whisper only if a key is set and
+ * Gemini failed. Throws when neither produced a transcript so the caller can
+ * escalate the message to a nurse instead of losing it.
  */
 export async function transcribeAudio(audioBuffer: Buffer, mimeType = 'audio/ogg'): Promise<string> {
-  const file = new File([audioBuffer.buffer as ArrayBuffer], 'audio.ogg', { type: mimeType })
+  let geminiError: unknown
+  try {
+    const text = await transcribeWithGemini(audioBuffer, mimeType)
+    if (text) return text
+    geminiError = new Error('Gemini returned an empty transcript')
+  } catch (err) {
+    geminiError = err
+  }
 
-  const response = await getOpenAI().audio.transcriptions.create({
-    model: 'whisper-1',
-    file,
-    language: 'en',
-  })
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      const text = await transcribeWithWhisper(audioBuffer, mimeType)
+      if (text) return text
+    } catch (err) {
+      console.error('[Triage] Whisper fallback failed:', err)
+    }
+  }
 
-  return response.text
+  throw geminiError instanceof Error ? geminiError : new Error('Transcription failed')
 }
 
 /**
