@@ -6,8 +6,8 @@ export default function NotFound() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="text-center space-y-5 max-w-sm mx-auto px-6">
-        <div className="w-16 h-16 rounded-2xl bg-[#F0EDFF] flex items-center justify-center mx-auto">
-          <FileQuestion className="w-8 h-8 text-[#1C0770]" />
+        <div className="w-16 h-16 rounded-2xl bg-brand-soft flex items-center justify-center mx-auto">
+          <FileQuestion className="w-8 h-8 text-brand" />
         </div>
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Page not found</h1>
@@ -17,7 +17,7 @@ export default function NotFound() {
         </div>
         <div className="flex gap-3 justify-center">
           <Link href="/">
-            <Button style={{ backgroundColor: '#1C0770' }}>Go to dashboard</Button>
+            <Button style={{ backgroundColor: 'var(--brand)' }}>Go to dashboard</Button>
           </Link>
           <Link href="/patients">
             <Button variant="outline">View patients</Button>

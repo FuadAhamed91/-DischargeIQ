@@ -19,8 +19,8 @@ interface TimelineEvent {
 const EVENT_CONFIG: Record<string, { icon: typeof FileText; color: string; bg: string; label: string }> = {
   discharge_uploaded:    { icon: Upload,        color: 'text-blue-600',   bg: 'bg-blue-100',   label: 'Discharge PDF uploaded' },
   extraction_completed:  { icon: FileText,      color: 'text-blue-600',   bg: 'bg-blue-100',   label: 'AI extraction completed' },
-  summary_approved:      { icon: ClipboardCheck,color: 'text-[#1C0770]',  bg: 'bg-[#F0EDFF]',  label: 'Summary approved' },
-  summary_sent:          { icon: Send,          color: 'text-[#30D5C8]',  bg: 'bg-teal-50',    label: 'Summary sent to patient' },
+  summary_approved:      { icon: ClipboardCheck,color: 'text-brand',  bg: 'bg-brand-soft',  label: 'Summary approved' },
+  summary_sent:          { icon: Send,          color: 'text-teal',  bg: 'bg-teal-50',    label: 'Summary sent to patient' },
   whatsapp_inbound:      { icon: MessageCircle, color: 'text-gray-600',   bg: 'bg-gray-100',   label: 'Patient message received' },
   whatsapp_outbound:     { icon: Send,          color: 'text-gray-600',   bg: 'bg-gray-100',   label: 'Message sent to patient' },
   reminder_sent:         { icon: Bell,          color: 'text-amber-600',  bg: 'bg-amber-50',   label: 'Reminder sent' },
@@ -28,7 +28,7 @@ const EVENT_CONFIG: Record<string, { icon: typeof FileText; color: string; bg: s
   appointment_confirmed: { icon: Calendar,      color: 'text-green-600',  bg: 'bg-green-50',   label: 'Appointment confirmed' },
   appointment_rescheduled:{ icon: Calendar,     color: 'text-amber-600',  bg: 'bg-amber-50',   label: 'Appointment rescheduled' },
   triage_completed:      { icon: Mic,           color: 'text-purple-600', bg: 'bg-purple-50',  label: 'Voice triage completed' },
-  ai_response:           { icon: Bot,           color: 'text-[#1C0770]',  bg: 'bg-[#F0EDFF]',  label: 'AI answered patient question' },
+  ai_response:           { icon: Bot,           color: 'text-brand',  bg: 'bg-brand-soft',  label: 'AI answered patient question' },
   escalation_created:    { icon: AlertTriangle, color: 'text-red-600',    bg: 'bg-red-50',     label: 'Escalation created' },
   alert_acknowledged:    { icon: CheckCircle,   color: 'text-green-600',  bg: 'bg-green-50',   label: 'Alert acknowledged' },
 }

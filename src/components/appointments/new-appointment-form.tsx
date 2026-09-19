@@ -100,7 +100,7 @@ export function NewAppointmentForm({ episodeId, defaultSpecialty, defaultFollowU
           />
         </div>
         <div className="flex gap-2">
-          <Button size="sm" onClick={handleCreate} disabled={saving} style={{ backgroundColor: '#1C0770' }}>
+          <Button size="sm" onClick={handleCreate} disabled={saving} style={{ backgroundColor: 'var(--brand)' }}>
             {saving ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Plus className="w-3.5 h-3.5 mr-1.5" />}
             Create
           </Button>

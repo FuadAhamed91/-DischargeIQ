@@ -14,7 +14,7 @@ export function AppointmentFunnel({ total, confirmed, missed, pending }: FunnelP
   const missedRate = total > 0 ? Math.round((missed / total) * 100) : 0
 
   const steps = [
-    { label: 'Total scheduled', value: total, icon: Calendar, color: 'text-[#1C0770]', bg: 'bg-[#F0EDFF]' },
+    { label: 'Total scheduled', value: total, icon: Calendar, color: 'text-brand', bg: 'bg-brand-soft' },
     { label: 'Confirmed', value: confirmed, icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50' },
     { label: 'Pending confirmation', value: pending, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
     { label: 'Missed', value: missed, icon: XCircle, color: 'text-red-600', bg: 'bg-red-50' },
@@ -38,7 +38,7 @@ export function AppointmentFunnel({ total, confirmed, missed, pending }: FunnelP
             </div>
             <div className="h-1.5 bg-muted rounded-full overflow-hidden">
               <div
-                className={`h-full rounded-full transition-all ${step.bg.replace('bg-', 'bg-').replace('-50', '-400').replace('[#F0EDFF]', '[#1C0770]')}`}
+                className={`h-full rounded-full transition-all ${step.bg.replace('bg-', 'bg-').replace('-50', '-400').replace('brand-soft', 'brand')}`}
                 style={{ width: `${width}%` }}
               />
             </div>

@@ -136,9 +136,9 @@ export default function NewEpisodePage() {
           <div key={s} className="flex items-center gap-2">
             <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium border-2 transition-colors ${
               step === s || (s === 'patient' && step === 'upload')
-                ? 'border-[#1C0770] bg-[#1C0770] text-white'
+                ? 'border-brand bg-brand text-white'
                 : step === 'upload' && s === 'patient'
-                ? 'border-[#1C0770] bg-[#1C0770] text-white'
+                ? 'border-brand bg-brand text-white'
                 : 'border-border text-muted-foreground'
             }`}>
               {i + 1}
@@ -211,7 +211,7 @@ export default function NewEpisodePage() {
               onClick={handleCreatePatientAndEpisode}
               disabled={loading}
               className="w-full"
-              style={{ backgroundColor: '#1C0770' }}
+              style={{ backgroundColor: 'var(--brand)' }}
             >
               {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
               Continue to PDF upload

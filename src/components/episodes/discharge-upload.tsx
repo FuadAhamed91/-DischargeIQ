@@ -102,7 +102,7 @@ export function DischargeUpload({ episodeId, onUploadComplete }: DischargeUpload
       <div
         className={cn(
           'border-2 border-dashed rounded-xl p-10 text-center transition-colors cursor-pointer',
-          dragOver ? 'border-[#1C0770] bg-[#F0EDFF]' : 'border-border hover:border-[#1C0770]/40',
+          dragOver ? 'border-brand bg-brand-soft' : 'border-border hover:border-brand/40',
           (state === 'uploading' || state === 'extracting') && 'pointer-events-none opacity-60',
         )}
         onClick={() => inputRef.current?.click()}
@@ -131,13 +131,13 @@ export function DischargeUpload({ episodeId, onUploadComplete }: DischargeUpload
           </div>
         ) : (state === 'uploading' || state === 'extracting') ? (
           <div className="flex flex-col items-center gap-2">
-            <Loader2 className="w-10 h-10 text-[#1C0770] animate-spin" />
+            <Loader2 className="w-10 h-10 text-brand animate-spin" />
             <p className="font-medium">{stateLabel[state]}</p>
             <p className="text-sm text-muted-foreground">Please wait, this may take up to 30 seconds</p>
           </div>
         ) : file ? (
           <div className="flex flex-col items-center gap-2">
-            <FileText className="w-10 h-10 text-[#1C0770]" />
+            <FileText className="w-10 h-10 text-brand" />
             <p className="font-medium text-sm">{file.name}</p>
             <p className="text-xs text-muted-foreground">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
           </div>
@@ -156,7 +156,7 @@ export function DischargeUpload({ episodeId, onUploadComplete }: DischargeUpload
           <Button
             onClick={handleUpload}
             className="flex-1"
-            style={{ backgroundColor: '#1C0770' }}
+            style={{ backgroundColor: 'var(--brand)' }}
           >
             Extract discharge data
           </Button>

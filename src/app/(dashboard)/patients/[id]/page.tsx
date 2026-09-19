@@ -74,7 +74,7 @@ export default async function PatientDetailPage({
           </div>
         </div>
         <Link href="/episodes/new">
-          <Button style={{ backgroundColor: '#1C0770' }} size="sm">
+          <Button style={{ backgroundColor: 'var(--brand)' }} size="sm">
             <Plus className="w-3.5 h-3.5 mr-1.5" />
             New episode
           </Button>

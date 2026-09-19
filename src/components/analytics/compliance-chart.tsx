@@ -27,8 +27,8 @@ export function ComplianceChart({ data }: { data: DataPoint[] }) {
         <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
         <Tooltip formatter={(value) => [`${value}%`]} contentStyle={{ borderRadius: '8px', fontSize: 12 }} />
         <Legend wrapperStyle={{ fontSize: 12 }} />
-        <Line type="monotone" dataKey="adherence" name="Medication adherence" stroke="#1C0770" strokeWidth={2} dot={false} />
-        <Line type="monotone" dataKey="responseRate" name="Reminder response" stroke="#30D5C8" strokeWidth={2} dot={false} />
+        <Line type="monotone" dataKey="adherence" name="Medication adherence" stroke="var(--brand)" strokeWidth={2} dot={false} />
+        <Line type="monotone" dataKey="responseRate" name="Reminder response" stroke="var(--teal)" strokeWidth={2} dot={false} />
       </LineChart>
     </ResponsiveContainer>
   )

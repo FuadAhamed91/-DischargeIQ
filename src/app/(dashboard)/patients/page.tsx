@@ -4,7 +4,8 @@ export const metadata = { title: 'Patients' }
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { requireSession } from '@/lib/auth/session'
-import { Button } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
@@ -13,7 +14,7 @@ import { RiskBadge } from '@/components/shared/risk-badge'
 import { StatusBadge } from '@/components/shared/status-badge'
 import { LanguageBadge } from '@/components/shared/language-badge'
 import { EmptyState } from '@/components/shared/empty-state'
-import { Plus, Users, ChevronRight } from 'lucide-react'
+import { Plus, Users, ChevronRight, Search } from 'lucide-react'
 import type { RiskLevel, EpisodeStatus, LanguageCode } from '@/types/enums'
 
 export default async function PatientsPage({
@@ -57,47 +58,48 @@ export default async function PatientsPage({
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Patients</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {count ?? 0} total patients
+          <h1 className="text-2xl font-semibold tracking-tight">Patients</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {count ?? 0} total patient{count === 1 ? '' : 's'}
           </p>
         </div>
-        <Link href="/episodes/new">
-          <Button style={{ backgroundColor: '#1C0770' }}>
-            <Plus className="w-4 h-4 mr-2" />
-            New episode
-          </Button>
+        <Link href="/episodes/new" className={cn(buttonVariants())}>
+          <Plus className="w-4 h-4 mr-1.5" aria-hidden="true" />
+          New episode
         </Link>
       </div>
 
       {/* Search */}
-      <form method="GET">
+      <form method="GET" role="search" className="relative max-w-sm">
+        <label htmlFor="patient-search" className="sr-only">Search patients by name or MRN</label>
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
         <Input
+          id="patient-search"
           name="search"
+          type="search"
           defaultValue={search}
           placeholder="Search by name or MRN…"
-          className="max-w-sm"
+          className="pl-9"
         />
       </form>
 
       {/* Table */}
-      <Card>
+      <Card className="overflow-hidden">
         {!patients?.length ? (
           <EmptyState
             icon={Users}
             title="No patients yet"
             description="Create a new discharge episode to add your first patient."
             action={
-              <Link href="/episodes/new">
-                <Button style={{ backgroundColor: '#1C0770' }}>
-                  <Plus className="w-4 h-4 mr-2" /> New episode
-                </Button>
+              <Link href="/episodes/new" className={cn(buttonVariants({ size: 'sm' }))}>
+                <Plus className="w-4 h-4 mr-1.5" aria-hidden="true" /> New episode
               </Link>
             }
           />
         ) : (
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -106,7 +108,7 @@ export default async function PatientsPage({
                 <TableHead>Language</TableHead>
                 <TableHead>Episode status</TableHead>
                 <TableHead>Risk</TableHead>
-                <TableHead />
+                <TableHead><span className="sr-only">Open</span></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -116,12 +118,13 @@ export default async function PatientsPage({
                 ) ?? patient.care_episodes?.[0]
 
                 return (
-                  <TableRow key={patient.id} className="group">
+                  <TableRow key={patient.id} className="group relative hover:bg-muted/50 transition-colors">
                     <TableCell>
-                      <div>
-                        <p className="font-medium">{patient.full_name}</p>
-                        <p className="text-xs text-muted-foreground">{patient.phone_e164}</p>
-                      </div>
+                      {/* Whole row is the link (stretched pseudo-element); the name stays a real anchor for keyboard + screen readers */}
+                      <Link href={`/patients/${patient.id}`} className="font-medium hover:underline focus-visible:underline after:absolute after:inset-0" aria-label={`Open ${patient.full_name}`}>
+                        {patient.full_name}
+                      </Link>
+                      <p className="text-xs text-muted-foreground tnum">{patient.phone_e164}</p>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="font-mono text-xs">
@@ -146,17 +149,14 @@ export default async function PatientsPage({
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Link href={`/patients/${patient.id}`}>
-                        <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100">
-                          View <ChevronRight className="w-3.5 h-3.5 ml-1" />
-                        </Button>
-                      </Link>
+                      <ChevronRight className="inline h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
                     </TableCell>
                   </TableRow>
                 )
               })}
             </TableBody>
           </Table>
+          </div>
         )}
       </Card>
 
@@ -166,14 +166,10 @@ export default async function PatientsPage({
           <span>Page {pageNum} of {totalPages}</span>
           <div className="flex gap-2">
             {pageNum > 1 && (
-              <Link href={`?page=${pageNum - 1}&search=${search}`}>
-                <Button variant="outline" size="sm">Previous</Button>
-              </Link>
+              <Link className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))} href={`?page=${pageNum - 1}&search=${encodeURIComponent(search)}`}>Previous</Link>
             )}
             {pageNum < totalPages && (
-              <Link href={`?page=${pageNum + 1}&search=${search}`}>
-                <Button variant="outline" size="sm">Next</Button>
-              </Link>
+              <Link className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))} href={`?page=${pageNum + 1}&search=${encodeURIComponent(search)}`}>Next</Link>
             )}
           </div>
         </div>

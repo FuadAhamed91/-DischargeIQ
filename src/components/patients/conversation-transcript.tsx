@@ -116,7 +116,7 @@ export function ConversationTranscript({
                     className={[
                       'max-w-[80%] md:max-w-[65%] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm',
                       outbound
-                        ? 'bg-[#F0EDFF] text-[#1C0770] rounded-br-md'
+                        ? 'bg-brand-soft text-brand rounded-br-md'
                         : 'bg-muted text-foreground rounded-bl-md',
                       failed ? 'ring-1 ring-red-300' : '',
                     ].join(' ')}
@@ -128,7 +128,7 @@ export function ConversationTranscript({
                     ) : (
                       <p className="whitespace-pre-wrap break-words">{m.content || <span className="italic opacity-70">(empty message)</span>}</p>
                     )}
-                    <div className={`mt-1 flex items-center gap-2 text-[11px] ${outbound ? 'text-[#1C0770]/60 justify-end' : 'text-muted-foreground'}`}>
+                    <div className={`mt-1 flex items-center gap-2 text-[11px] ${outbound ? 'text-brand/60 justify-end' : 'text-muted-foreground'}`}>
                       <span>{outbound ? 'DischargeIQ' : patientName.split(' ')[0]}</span>
                       <span>·</span>
                       <span>{format(date, 'HH:mm')}</span>

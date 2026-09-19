@@ -45,10 +45,10 @@ export function Sidebar({ role }: SidebarProps) {
   )
 
   return (
-    <aside className="hidden md:flex flex-col w-60 shrink-0 border-r bg-[#1C0770] text-white">
+    <aside className="hidden md:flex flex-col w-60 shrink-0 bg-sidebar text-sidebar-foreground" aria-label="Primary">
       {/* Logo */}
-      <div className="flex items-center gap-3 px-5 h-16 border-b border-white/10">
-        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-[#30D5C8] text-[#1C0770] font-bold text-sm">
+      <div className="flex items-center gap-3 px-5 h-16 border-b border-sidebar-border">
+        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-sidebar-primary text-sidebar-primary-foreground font-bold text-sm" aria-hidden="true">
           D
         </div>
         <span className="font-semibold tracking-tight">{siteConfig.name}</span>
@@ -65,14 +65,18 @@ export function Sidebar({ role }: SidebarProps) {
             <Link
               key={item.href}
               href={item.href}
+              aria-current={isActive ? 'page' : undefined}
               className={cn(
-                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                'relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors duration-200',
+                'focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar',
                 isActive
-                  ? 'bg-white/15 text-white'
-                  : 'text-white/70 hover:bg-white/10 hover:text-white',
+                  ? 'bg-sidebar-accent text-sidebar-foreground'
+                  : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
               )}
             >
-              <Icon className="w-4 h-4 shrink-0" />
+              {/* Active indicator (teal bar) — location is not conveyed by colour alone: aria-current + weight */}
+              {isActive && <span aria-hidden="true" className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-sidebar-primary" />}
+              <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
               {item.label}
             </Link>
           )
@@ -80,9 +84,9 @@ export function Sidebar({ role }: SidebarProps) {
       </nav>
 
       {/* Footer */}
-      <div className="px-5 py-4 border-t border-white/10">
-        <div className="flex items-center gap-2 text-xs text-white/40">
-          <Activity className="w-3 h-3" />
+      <div className="px-5 py-4 border-t border-sidebar-border">
+        <div className="flex items-center gap-2 text-xs text-sidebar-foreground/50">
+          <Activity className="w-3 h-3" aria-hidden="true" />
           <span>DischargeIQ v0.1</span>
         </div>
       </div>

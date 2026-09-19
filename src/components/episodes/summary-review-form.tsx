@@ -322,7 +322,7 @@ export function SummaryReviewForm({ episodeId, summary }: SummaryReviewFormProps
           <Button
             onClick={handleApprove}
             disabled={saving || approving || sending}
-            style={{ backgroundColor: '#1C0770' }}
+            style={{ backgroundColor: 'var(--brand)' }}
           >
             {approving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
             Approve summary

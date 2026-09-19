@@ -120,7 +120,7 @@ export function AppointmentActions({ episodeId, appointment }: AppointmentAction
               <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Clinic / room" className="h-8 text-sm" />
             </div>
             <div className="flex gap-2 pt-1">
-              <Button size="sm" onClick={handleSave} disabled={saving} style={{ backgroundColor: '#1C0770' }}>
+              <Button size="sm" onClick={handleSave} disabled={saving} style={{ backgroundColor: 'var(--brand)' }}>
                 {saving ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Check className="w-3.5 h-3.5 mr-1.5" />}
                 Save
               </Button>

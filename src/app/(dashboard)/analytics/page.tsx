@@ -107,8 +107,8 @@ export default async function AnalyticsPage() {
       value: totalPatients ?? 0,
       sub: `${activeEpisodes ?? 0} currently active`,
       icon: Users,
-      color: 'text-[#1C0770]',
-      bg: 'bg-[#F0EDFF]',
+      color: 'text-brand',
+      bg: 'bg-brand-soft',
     },
     {
       label: 'Medication Adherence',
@@ -163,8 +163,8 @@ export default async function AnalyticsPage() {
       value: completedEpisodes ?? 0,
       sub: 'Fully discharged patients',
       icon: TrendingUp,
-      color: 'text-[#1C0770]',
-      bg: 'bg-[#F0EDFF]',
+      color: 'text-brand',
+      bg: 'bg-brand-soft',
     },
   ]
 

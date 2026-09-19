@@ -134,7 +134,7 @@ export default async function EpisodeDetailPage({
         </div>
         {summary && summary.status !== 'sent' && (
           <Link href={`/episodes/${id}/review`}>
-            <Button style={{ backgroundColor: '#1C0770' }} size="sm">
+            <Button style={{ backgroundColor: 'var(--brand)' }} size="sm">
               <Pencil className="w-3.5 h-3.5 mr-1.5" />
               {summary.status === 'approved' ? 'View summary' : 'Review summary'}
             </Button>
@@ -273,7 +273,7 @@ export default async function EpisodeDetailPage({
                     <Pill className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
                     <p className="font-medium">No discharge summary yet</p>
                     <p className="text-sm text-muted-foreground mb-4">Upload the discharge PDF to extract the summary</p>
-                    <Link href={`/episodes/${id}/review`}><Button style={{ backgroundColor: '#1C0770' }} size="sm">Upload PDF</Button></Link>
+                    <Link href={`/episodes/${id}/review`}><Button style={{ backgroundColor: 'var(--brand)' }} size="sm">Upload PDF</Button></Link>
                   </CardContent>
                 </Card>
               ) : (
@@ -452,7 +452,7 @@ export default async function EpisodeDetailPage({
                       {ai.output_text && (
                         <div className="space-y-1 border-t pt-2">
                           <p className="text-xs text-muted-foreground font-medium">AI responded:</p>
-                          <p className="text-sm text-[#1C0770]">{ai.output_text}</p>
+                          <p className="text-sm text-brand">{ai.output_text}</p>
                         </div>
                       )}
                     </div>
@@ -469,7 +469,7 @@ export default async function EpisodeDetailPage({
         <Card className="border shadow-sm">
           <CardHeader className="pb-3 flex flex-row items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2"><Calendar className="w-4 h-4" /> Appointments</CardTitle>
-            <Link href={`/episodes/${id}/appointments`} className="text-xs text-[#1C0770] hover:underline flex items-center gap-0.5">
+            <Link href={`/episodes/${id}/appointments`} className="text-xs text-brand hover:underline flex items-center gap-0.5">
               Manage <ChevronRight className="w-3 h-3" />
             </Link>
           </CardHeader>

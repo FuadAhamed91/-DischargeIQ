@@ -141,7 +141,7 @@ export function AlertsList({ initialAlerts, hospitalId }: AlertsListProps) {
         <div className="flex gap-1">
           {(['open', 'acknowledged', 'all'] as const).map((f) => (
             <Button key={f} size="sm" variant={filter === f ? 'default' : 'ghost'}
-              onClick={() => setFilter(f)} className={filter === f ? 'bg-[#1C0770]' : ''}>
+              onClick={() => setFilter(f)} className={filter === f ? 'bg-brand' : ''}>
               {f.charAt(0).toUpperCase() + f.slice(1)}
               {f === 'open' && openCount > 0 && (
                 <Badge className={`ml-1.5 text-xs ${criticalCount > 0 ? 'bg-red-500' : 'bg-yellow-500'}`}>

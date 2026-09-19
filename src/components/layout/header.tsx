@@ -1,10 +1,9 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { Bell, LogOut, User } from 'lucide-react'
+import { LogOut, User } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Badge } from '@/components/ui/badge'
 import { MobileNav } from '@/components/layout/mobile-nav'
+import { AlertBell } from '@/components/alerts/alert-bell'
 import type { Profile } from '@/types/database'
 import type { UserRole } from '@/types/enums'
 
@@ -29,9 +29,12 @@ const ROLE_LABELS: Record<string, string> = {
 
 interface HeaderProps {
   profile: Profile
+  hospitalName: string
+  openAlerts: number
+  criticalAlerts: number
 }
 
-export function Header({ profile }: HeaderProps) {
+export function Header({ profile, hospitalName, openAlerts, criticalAlerts }: HeaderProps) {
   const router = useRouter()
   const supabase = createClient()
 
@@ -49,21 +52,21 @@ export function Header({ profile }: HeaderProps) {
     .toUpperCase()
 
   return (
-    <header className="h-16 border-b flex items-center justify-between px-4 md:px-6 shrink-0 bg-background">
-      <MobileNav role={profile.role as UserRole} />
+    <header className="h-16 border-b flex items-center justify-between px-3 md:px-6 shrink-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+      <div className="flex items-center gap-2 min-w-0">
+        <MobileNav role={profile.role as UserRole} />
+        <p className="hidden md:block text-sm text-muted-foreground truncate">{hospitalName}</p>
+      </div>
 
-      <div className="flex items-center gap-3">
-        {/* Alert bell — will be wired to realtime in Phase 4 */}
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="w-4 h-4" />
-        </Button>
+      <div className="flex items-center gap-1.5 md:gap-3">
+        <AlertBell hospitalId={profile.hospital_id} initialOpenCount={openAlerts} initialCriticalCount={criticalAlerts} />
 
         {/* User menu */}
         <DropdownMenu>
-          <DropdownMenuTrigger className="flex items-center gap-2 h-auto p-1.5 rounded-lg hover:bg-accent transition-colors outline-none">
+          <DropdownMenuTrigger aria-label="Account menu" className="flex items-center gap-2 h-11 p-1.5 rounded-lg hover:bg-accent transition-colors duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <Avatar className="w-8 h-8">
-              <AvatarImage src={profile.avatar_url ?? undefined} />
-              <AvatarFallback className="text-xs bg-[#1C0770] text-white">
+              <AvatarImage src={profile.avatar_url ?? undefined} alt="" />
+              <AvatarFallback className="text-xs bg-brand text-brand-foreground">
                 {initials}
               </AvatarFallback>
             </Avatar>
@@ -85,7 +88,7 @@ export function Header({ profile }: HeaderProps) {
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onClick={() => { window.location.href = '/settings' }}
+              onClick={() => router.push('/settings')}
               className="cursor-pointer"
             >
               <User className="w-4 h-4 mr-2" />
