@@ -375,6 +375,20 @@ Immutable audit log of all patient interactions.
 | conversation_state | jsonb | FSM state for multi-step flows |
 | created_at | timestamptz | |
 
+#### `whatsapp_number_sessions`
+| Column | Type | Notes |
+|--------|------|-------|
+| hospital_id | uuid FK | PK part |
+| wa_phone | text | PK part — the sender's number |
+| active_patient_id | uuid FK NULL | the patient this number's messages are currently about |
+| active_until | timestamptz NULL | that memory lapses after 24 h |
+| pending_choice | jsonb NULL | `{ options: [patient ids as listed], held: message to replay, askedAt, repeated }` |
+| created_at / updated_at | timestamptz | |
+
+One row per sender number that is linked to more than one open episode (a shared family phone, a
+relative writing for two patients). Written only by the webhook handler; staff read it on the
+episode page. A number with a single open episode never gets a row.
+
 #### `whatsapp_messages`
 | Column | Type | Notes |
 |--------|------|-------|
@@ -687,14 +701,27 @@ patient data    → no direct patient auth; WhatsApp handlers use service role
 
 Patients **do not authenticate** to DischargeIQ.
 
-**Identity resolution on inbound WhatsApp message:**
+**Identity resolution on inbound WhatsApp message** (`lib/whatsapp/recipient.ts`, `routing.ts`):
 
-1. Verify webhook signature (Meta).
-2. Extract `from` phone number (E.164).
-3. Lookup `patients` by `(hospital_id, phone_e164)` — hospital inferred from WhatsApp `phone_number_id`.
-4. Find active `care_episodes` where `status = 'active'`.
-5. If no match → send templated "not registered" response; log attempt.
-6. If multiple active (edge case) → prefer most recent discharge; alert staff.
+1. Verify webhook signature (Twilio HMAC).
+2. Drop a redelivered message: the MessageSid is `whatsapp_messages.wa_message_id` (UNIQUE), and
+   the inbound insert is the atomic claim — a retry or double-tap is handled once.
+3. Extract `from` (E.164); hospital from the `To` number (`hospitals.whatsapp_phone_number_id`).
+4. Every open episode (`active` or `pending_review`) whose patient has that `phone_e164` at that
+   hospital is a candidate. A number is **not unique to one patient**: a family shares a phone, a
+   daughter writes for both parents, a tester registers several demo patients on their own number.
+5. No candidate → "not registered" (or "no active episode" for a known number). No row is written.
+6. One candidate → that patient, exactly as before.
+7. Several → `routeInbound()` picks the conversation, first match wins: a pending "who is this
+   about?" answer · a patient's name at the start of the message · `switch` · the remembered patient
+   when a question is waiting on their conversation · the only conversation waiting for a reply ·
+   the patient written about in the last 24 h · an emergency keyword (best guess, never held) ·
+   otherwise the sender is asked and the message is held until they answer, then replayed.
+8. Each patient keeps their own `whatsapp_conversations` row, FSM state and transcript. The routing
+   reason is stored on the inbound row (`metadata.routing.via`) and shown on the dashboard.
+
+Messages from one sender are processed in order, one at a time (`sender-queue.ts`, per process);
+different senders are independent — the one hospital number serves everyone concurrently.
 
 ### 8.3 Service Accounts
 
@@ -879,9 +906,15 @@ sequenceDiagram
 flowchart TD
     A[Inbound WhatsApp Webhook] --> B{Verify Signature}
     B -->|Invalid| Z[Reject 401]
-    B -->|Valid| C[Resolve Patient + Episode]
-    C -->|Not found| D[Send unregistered template]
-    C -->|Found| E{Message Type}
+    B -->|Valid| B2{Seen this MessageSid?}
+    B2 -->|Yes| B3[Drop — already handled]
+    B2 -->|No| C[Open episodes behind the sender's number]
+    C -->|None| D[Send unregistered template]
+    C -->|One| E{Message Type}
+    C -->|Several| R{routing.ts}
+    R -->|pending answer · name prefix · waiting conversation · remembered patient| E
+    R -->|unclear| R2[Ask who it is about, hold the message]
+    R2 -->|answer| E
 
     E -->|Interactive Button| F[FSM Handler]
     E -->|Text| G[AI Chat Pipeline]
@@ -911,6 +944,13 @@ Stored in `whatsapp_conversations.conversation_state`:
 | `awaiting_appointment_confirm` | After appointment details sent | `yes` → confirmed; `no` → fetch slots |
 | `awaiting_slot_selection` | Patient declined appointment | List message → book slot |
 | `awaiting_reminder_response` | After reminder sent | Parse yes/no/text/voice |
+| `awaiting_checkin_meds` | Nightly check-in Q1 sent | 1/2/3 → log, ask Q2; free text → triage |
+| `awaiting_checkin_symptoms` | Nightly check-in Q2 sent | OK → good night; symptoms → triage |
+| `nurse_attending` | A nurse wrote from the dashboard | replies logged only, 30 min or hand-back |
+
+A conversation in any `awaiting_*` or `nurse_attending` state counts as *waiting* for shared-number
+routing: an unaddressed reply from a number linked to several patients goes to the one conversation
+that is waiting.
 
 ### 10.5 WhatsApp Compliance
 
@@ -1446,7 +1486,9 @@ Webhook → Ack 200 immediately (< 500ms)
        → Process AI / send reply
 ```
 
-**Phase 1:** In-process async with `waitUntil` (Vercel).  
+**Phase 1 (current):** Next `after()` keeps the function alive; the inbound insert on the UNIQUE
+MessageSid makes handling idempotent across Twilio retries, and `sender-queue.ts` serialises a
+sender's messages within a process while different senders run concurrently.  
 **Phase 2:** Dedicated job queue (Inngest or Trigger.dev) for retries and observability.
 
 ### 17.4 WhatsApp Throughput
