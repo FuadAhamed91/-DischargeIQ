@@ -226,14 +226,14 @@ export interface WhatsappConversation {
   updated_at: string
 }
 
-export type ConversationStateName =
-  | 'idle'
-  | 'awaiting_appointment_confirm'
-  | 'awaiting_slot_selection'
-  | 'awaiting_reminder_response'
+/** The FSM owns the list of states (lib/whatsapp/fsm.ts); this is the same type, not a copy that drifts. */
+export type ConversationStateName = import('@/lib/whatsapp/fsm').ConversationState
 
 export interface ConversationState {
   state: ConversationStateName
+  /** nurse_attending: ISO expiry (`until`) and the nurse (`by`); older rows may carry `context`. */
+  until?: string
+  by?: string
   context?: Record<string, unknown>
 }
 
