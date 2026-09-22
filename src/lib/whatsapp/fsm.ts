@@ -74,6 +74,8 @@ export type InboundMessageType =
 export interface ParsedInbound {
   waMessageId: string
   from: string               // E.164 phone number
+  /** The sender's WhatsApp profile name (Twilio ProfileName) — who is actually typing on a shared phone */
+  senderName?: string
   type: InboundMessageType
   text?: string
   interactiveId?: string     // button/list reply ID (Meta only)

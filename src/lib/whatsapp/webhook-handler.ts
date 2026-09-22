@@ -63,6 +63,7 @@ import type { DischargeSummary, Medication } from '@/types/database'
  *   NumMedia      = number of attached media files
  *   MediaUrl0     = URL to media (requires Twilio Basic Auth to download)
  *   MediaContentType0 = e.g. audio/ogg, image/jpeg
+ *   ProfileName   = the sender's WhatsApp display name (not verified; useful on a shared phone)
  */
 export function parseWebhookPayload(params: Record<string, string>): ParsedInbound[] {
   const from = (params.From ?? '').replace('whatsapp:', '')
@@ -72,9 +73,11 @@ export function parseWebhookPayload(params: Record<string, string>): ParsedInbou
   const mediaUrl = params.MediaUrl0 ?? ''
   const mediaContentType = params.MediaContentType0 ?? ''
 
+  const senderName = (params.ProfileName ?? '').trim().slice(0, 80)
   const parsed: ParsedInbound = {
     waMessageId: sid,
     from,
+    ...(senderName ? { senderName } : {}),
     type: 'unknown',
     timestamp: Math.floor(Date.now() / 1000),
   }

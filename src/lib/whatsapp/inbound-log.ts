@@ -41,7 +41,10 @@ export async function logInbound(params: {
   message: ParsedInbound
   metadata?: Record<string, unknown>
 }): Promise<LogInboundResult> {
-  const { supabase, conversationId, hospitalId, message, metadata } = params
+  const { supabase, conversationId, hospitalId, message } = params
+  // The WhatsApp profile name says who actually typed — on a shared phone
+  // that is the relative, not necessarily the patient.
+  const metadata = { ...(params.metadata ?? {}), ...(message.senderName ? { sender_name: message.senderName } : {}) }
   const { data, error } = await supabase
     .from('whatsapp_messages')
     .insert({
@@ -52,7 +55,7 @@ export async function logInbound(params: {
       message_type: inboundMessageType(message),
       content: message.text ?? message.interactiveTitle ?? '',
       status: 'delivered',
-      ...(metadata ? { metadata } : {}),
+      ...(Object.keys(metadata).length ? { metadata } : {}),
     })
     .select('id')
     .single()

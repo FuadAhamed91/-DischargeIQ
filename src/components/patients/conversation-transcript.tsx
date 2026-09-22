@@ -82,6 +82,16 @@ function dayLabel(date: Date): string {
   return format(date, 'EEEE, d MMMM yyyy')
 }
 
+/** The WhatsApp profile name of whoever typed an inbound message, when it is not simply the patient. */
+function typedBy(m: TranscriptMessage, patientName: string): string | null {
+  const name = m.metadata?.sender_name
+  if (typeof name !== 'string' || !name.trim()) return null
+  const norm = (v: string) => v.trim().toLowerCase()
+  const first = norm(patientName).split(' ')[0]
+  if (norm(name) === norm(patientName) || norm(name) === first || norm(name).startsWith(first + ' ')) return null
+  return name.trim()
+}
+
 function senderOf(m: TranscriptMessage): { kind: 'patient' | 'nurse' | 'assistant'; name: string | null } {
   if (m.direction === 'inbound') return { kind: 'patient', name: null }
   const meta = m.metadata ?? {}
@@ -269,6 +279,7 @@ export function ConversationTranscript({
             const error = typeof m.metadata?.error === 'string' ? (m.metadata.error as string) : null
             const sender = senderOf(m)
             const routed = shared ? routingLabel(m) : null
+            const typist = m.direction === 'inbound' ? typedBy(m, patientName) : null
 
             return (
               <div key={m.id}>
@@ -303,6 +314,7 @@ export function ConversationTranscript({
                       sender.kind === 'patient' && 'text-muted-foreground',
                     )}>
                       <span>{sender.kind === 'patient' ? patientName.split(' ')[0] : sender.name}</span>
+                      {typist && <span title="WhatsApp profile name of the phone that sent this">(typed by {typist})</span>}
                       <span>·</span>
                       <span>{format(date, 'HH:mm')}</span>
                       {routed && (
