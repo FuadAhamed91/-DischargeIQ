@@ -175,7 +175,16 @@ in any language without sending: `npx --yes tsx scripts/preview-shared-number.ts
 Two more things the handler does for many senders on one number: a redelivered Twilio message
 (retry, double-tap) is handled once — the UNIQUE `wa_message_id` insert is the claim — and messages
 from the same sender are handled in order, one at a time, while different senders run side by side
-(`lib/whatsapp/sender-queue.ts`).
+(`lib/whatsapp/sender-queue.ts`). A number nobody is registered on hears "not registered" once an
+hour, not once per message. Every inbound row also records who typed it (Twilio's `ProfileName`,
+shown as "typed by …" when it is not the patient's own name), and a picture or document with no
+caption is answered with "I cannot look at pictures yet" instead of being sent to the model.
+
+**Delivery receipts.** Every send asks Twilio to report back to the webhook (`StatusCallback`, when
+`NEXT_PUBLIC_APP_URL` is `https`). Transcript rows move sent → delivered → read (one tick, two, two
+in blue) or to failed with Twilio's reason — 63016 "not joined to the sandbox" is the one you will
+see most. Nurses can also press **Forget** on the shared-number notice to reset who a number is
+currently taken to be writing about.
 
 **Nurse chat.** Clinical staff can write to the patient from that tab (`POST /api/v1/episodes/[id]/messages`).
 The message is sent as the nurse (logged with `metadata.sender = 'nurse'`, shown in a solid bubble
@@ -475,7 +484,7 @@ functions callable by `authenticated` (required — policies evaluate them as th
 ## Testing
 
 ```bash
-npm run lint           # eslint (a few pre-existing react/no-unescaped-entities warnings in JSX)
+npm run lint           # eslint — clean; CI runs it with --max-warnings=0
 npx tsc --noEmit       # typecheck
 npm run build          # production build (needs NEXT_PUBLIC_SUPABASE_* set; placeholders are fine)
 npm run check          # all four below
@@ -498,6 +507,11 @@ check the alert. For the shared-number flow, register a second patient on the sa
 ## Known limitations
 
 - **Twilio sandbox**, not a WhatsApp Business number: text only, per-number opt-in, 72-hour expiry.
+- **Shared numbers**: the who-is-this-about question is answered by number or name; a held message is
+  dropped if nobody answers within an hour (an emergency keyword or a voice note is never held). The
+  per-sender ordering and the unknown-number cooldown live in process memory — one `next dev` or one
+  warm Vercel instance — so across instances they rely on Twilio delivering in order.
+- Delivery receipts need a public `https` app URL; on a localhost tunnel they do not arrive.
 - **Free tiers**: Supabase (auto-pause) and Vercel Hobby (daily crons; dispatch runs from pg_cron instead).
 - **Scheduling adapter is `manual`** — reschedule slots are not pulled from a hospital system.
 - **No staff invite/onboarding flow** (`/invite` is reserved in the proxy but not built).

@@ -805,6 +805,10 @@ All dashboard endpoints are under `/api/v1/`. Responses use `{ data, error, meta
 |--------|----------|-------------|-------|
 | GET | `/api/v1/episodes/:id/timeline` | Patient timeline events | clinical+ |
 | GET | `/api/v1/episodes/:id/messages` | WhatsApp message history | clinical+ |
+| POST | `/api/v1/episodes/:id/messages` | Nurse writes to the patient (conversation → `nurse_attending`) | clinical+ |
+| PATCH | `/api/v1/episodes/:id/messages` | `{ attending: false }` hands the conversation back to the assistant | clinical+ |
+| DELETE | `/api/v1/episodes/:id/number-session` | Forget who the patient's (shared) number is currently writing about | clinical+ |
+| GET | `/api/v1/intake/number-in-use?phone=` | Other patients with an open episode on a WhatsApp number (intake hint) | intake roles |
 | GET | `/api/v1/episodes/:id/voice-artifacts` | Voice notes + transcripts | clinical+ |
 
 ### 9.6 Appointments
@@ -876,8 +880,10 @@ All dashboard endpoints are under `/api/v1/`. Responses use `{ data, error, meta
 | Template messages | Initial opt-in, discharge summary delivery (Meta-approved templates) |
 | Interactive buttons | Yes/No, appointment confirmation, menu navigation |
 | Interactive lists | Appointment slot selection |
-| Text | AI responses, reminders |
+| Text | AI responses, reminders, the who-is-this-about question on a shared number |
 | Audio | Inbound voice notes; outbound TTS care plan playback |
+| Image / document (inbound) | Not read: the patient is told so and asked to describe it or send a voice note |
+| Delivery receipts | Twilio `StatusCallback` to the same webhook: sent → delivered → read, or failed with the reason |
 
 ### 10.2 Outbound Flow — Discharge Delivery
 
@@ -1165,6 +1171,8 @@ sequenceDiagram
 | `episode:{id}:timeline` | Postgres Changes | Patient profile page | INSERT on `patient_timeline_events` |
 | `episode:{id}:appointment` | Broadcast | Patient profile | Appointment status changes |
 | `nurse:{id}:assignments` | Postgres Changes | Nurse home view | Episodes assigned to nurse |
+| `transcript-{conversationId}` | Postgres Changes | Conversation tab | INSERT + UPDATE on `whatsapp_messages` (new messages, delivery receipts) |
+| `number-session-{phone}` | Postgres Changes | Conversation tab (shared number) | `whatsapp_number_sessions` — who the number is writing about, pending question |
 
 ### 13.2 Dashboard Integration
 
