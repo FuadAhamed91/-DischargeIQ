@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "gen:types": "supabase gen types typescript --project-id $SUPABASE_PROJECT_ID --schema public > src/types/database.generated.ts",
-    "check:intent": "npx --yes tsx scripts/check-intent.ts"
+    "check:intent": "npx --yes tsx scripts/check-intent.ts",
+    "check:routing": "npx --yes tsx scripts/check-routing.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
