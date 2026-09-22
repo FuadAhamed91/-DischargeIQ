@@ -15,7 +15,8 @@ import { StatusBadge } from '@/components/shared/status-badge'
 import { LanguageBadge } from '@/components/shared/language-badge'
 import { EpisodeTimeline } from '@/components/patients/episode-timeline'
 import { MedicationAdherence } from '@/components/patients/medication-adherence'
-import { ConversationTranscript, type TranscriptMessage } from '@/components/patients/conversation-transcript'
+import { ConversationTranscript, type TranscriptMessage, type SharedNumberPatient } from '@/components/patients/conversation-transcript'
+import { summariseNumberSession } from '@/lib/whatsapp/number-session'
 import { ArrowLeft, Pencil, User, Calendar, Pill, AlertTriangle, ChevronRight, Mic, Bot, Activity, MessageCircle } from 'lucide-react'
 import { fmt } from '@/lib/format'
 import { readConversationState } from '@/lib/whatsapp/fsm'
@@ -95,6 +96,30 @@ export default async function EpisodeDetailPage({
   const conversationState = readConversationState(conversation?.conversation_state)
 
   const patient = episode.patients as { id: string; full_name: string; phone_e164: string; preferred_language: string; mrn: string; date_of_birth: string | null }
+
+  // Shared WhatsApp number: other patients with an open episode on the same
+  // number, and what the number's routing session currently remembers. Both
+  // key off the patient's phone, so they wait for the episode row.
+  const [{ data: sharedRows }, { data: numberSessionRow }] = await Promise.all([
+    supabase
+      .from('care_episodes')
+      .select('id, patients!inner(id, full_name, phone_e164)')
+      .eq('hospital_id', hospital.id)
+      .eq('patients.phone_e164', patient.phone_e164)
+      .in('status', ['active', 'pending_review'])
+      .neq('id', id),
+    supabase
+      .from('whatsapp_number_sessions')
+      .select('active_patient_id, active_until, pending_choice')
+      .eq('hospital_id', hospital.id)
+      .eq('wa_phone', patient.phone_e164)
+      .maybeSingle(),
+  ])
+  const sharedWith: SharedNumberPatient[] = (sharedRows ?? []).map((row) => {
+    const p = (Array.isArray(row.patients) ? row.patients[0] : row.patients) as { id: string; full_name: string }
+    return { episodeId: row.id as string, patientId: p.id, patientName: p.full_name }
+  })
+  const numberSession = summariseNumberSession(numberSessionRow as Parameters<typeof summariseNumberSession>[0])
   const nurse = episode.profiles as { id: string; full_name: string } | null
   // discharge_summaries.episode_id is UNIQUE, so PostgREST embeds ONE object (not an array).
   // Accept either shape so the Summary tab renders regardless of the relationship cardinality.
@@ -426,9 +451,12 @@ export default async function EpisodeDetailPage({
                 episodeId={id}
                 initialMessages={(transcript ?? []) as TranscriptMessage[]}
                 conversationId={conversation?.id ?? null}
+                patientId={patient.id}
                 patientName={patient.full_name}
                 patientPhone={patient.phone_e164}
                 conversationState={conversationState}
+                sharedWith={sharedWith}
+                numberSession={numberSession}
                 canSend={canMessage && ['pending_review', 'active'].includes(episode.status)}
                 currentUserId={profile.id}
               />

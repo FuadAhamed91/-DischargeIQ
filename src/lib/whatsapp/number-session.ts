@@ -8,7 +8,7 @@
  */
 
 import type { NumberSession, PendingChoice } from './routing'
-import { EMPTY_SESSION } from './routing'
+import { EMPTY_SESSION, CHOICE_TTL_MS } from './routing'
 import type { ServiceClient } from './recipient'
 
 interface SessionRow {
@@ -69,4 +69,22 @@ function isPendingChoice(value: unknown): value is PendingChoice {
   if (!value || typeof value !== 'object') return false
   const v = value as Partial<PendingChoice>
   return Array.isArray(v.options) && typeof v.askedAt === 'string'
+}
+
+/** What the dashboard shows for a number: the remembered patient (expiry applied) and whether a question is open. */
+export interface NumberSessionSummary {
+  activePatientId: string | null
+  choicePending: boolean
+}
+
+export function summariseNumberSession(
+  row: { active_patient_id: string | null; active_until: string | null; pending_choice: unknown } | null,
+  now: Date = new Date(),
+): NumberSessionSummary | null {
+  if (!row) return null
+  const live = Boolean(row.active_until && Date.parse(row.active_until) > now.getTime())
+  return {
+    activePatientId: live ? row.active_patient_id : null,
+    choicePending: isPendingChoice(row.pending_choice) && Date.parse(row.pending_choice.askedAt) + CHOICE_TTL_MS > now.getTime(),
+  }
 }

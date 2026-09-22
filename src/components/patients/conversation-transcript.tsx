@@ -5,11 +5,13 @@ import { createClient } from '@/lib/supabase/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Mic, AlertCircle, MessageCircle, Send, Loader2, Bot, UserRound } from 'lucide-react'
+import Link from 'next/link'
+import { Mic, AlertCircle, MessageCircle, Send, Loader2, Bot, UserRound, Users } from 'lucide-react'
 import { format, isSameDay, isToday, isYesterday } from 'date-fns'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { ConversationStateRecord } from '@/lib/whatsapp/fsm'
+import type { NumberSessionSummary } from '@/lib/whatsapp/number-session'
 
 export interface TranscriptMessage {
   id: string
@@ -21,13 +23,26 @@ export interface TranscriptMessage {
   created_at: string
 }
 
+/** Another patient with an open episode on the same WhatsApp number. */
+export interface SharedNumberPatient {
+  episodeId: string
+  patientId: string
+  patientName: string
+}
+
+export type { NumberSessionSummary } from '@/lib/whatsapp/number-session'
+
 interface ConversationTranscriptProps {
   episodeId: string
   initialMessages: TranscriptMessage[]
   conversationId: string | null
+  patientId: string
   patientName: string
   patientPhone: string
   conversationState: ConversationStateRecord
+  /** Other patients whose open episode uses the same number (empty when the number is theirs alone). */
+  sharedWith?: SharedNumberPatient[]
+  numberSession?: NumberSessionSummary | null
   /** Clinical role on an open episode: shows the composer. */
   canSend: boolean
   currentUserId: string
@@ -43,6 +58,24 @@ const STATE_LABELS: Record<string, string> = {
   nurse_attending: 'You are chatting — assistant paused',
 }
 
+/** How an inbound message on a shared number was matched to this patient (metadata.routing.via). */
+const ROUTING_LABELS: Record<string, string> = {
+  choice: 'sender chose this patient',
+  name: 'named in the message',
+  reply: 'reply to the pending question',
+  recent: 'last patient written about',
+  emergency: 'emergency — best guess',
+  fallback: 'best guess — sender did not say',
+}
+
+function routingLabel(m: TranscriptMessage): string | null {
+  const meta = m.metadata ?? {}
+  if (meta.answer === true) return 'answered “who is this about?”'
+  const routing = meta.routing as { via?: string } | undefined
+  if (!routing?.via || routing.via === 'only') return null
+  return ROUTING_LABELS[routing.via] ?? routing.via
+}
+
 function dayLabel(date: Date): string {
   if (isToday(date)) return 'Today'
   if (isYesterday(date)) return 'Yesterday'
@@ -53,6 +86,7 @@ function senderOf(m: TranscriptMessage): { kind: 'patient' | 'nurse' | 'assistan
   if (m.direction === 'inbound') return { kind: 'patient', name: null }
   const meta = m.metadata ?? {}
   if (meta.sender === 'nurse') return { kind: 'nurse', name: typeof meta.sender_name === 'string' ? meta.sender_name : 'Nurse' }
+  if (meta.kind === 'routing_prompt') return { kind: 'assistant', name: 'DischargeIQ · asked who the message is about' }
   return { kind: 'assistant', name: 'DischargeIQ' }
 }
 
@@ -60,9 +94,12 @@ export function ConversationTranscript({
   episodeId,
   initialMessages,
   conversationId,
+  patientId,
   patientName,
   patientPhone,
   conversationState,
+  sharedWith = [],
+  numberSession = null,
   canSend,
   currentUserId,
 }: ConversationTranscriptProps) {
@@ -157,6 +194,11 @@ export function ConversationTranscript({
   const attendingByMe = attending && state.by === currentUserId
   const stateLabel = attending && !attendingByMe ? 'A colleague is chatting — assistant paused' : (STATE_LABELS[state.state] ?? state.state)
 
+  // Shared number: who the sender is currently taken to be writing about.
+  const shared = sharedWith.length > 0
+  const activeIsThisPatient = numberSession?.activePatientId === patientId
+  const activeOther = sharedWith.find((p) => p.patientId === numberSession?.activePatientId) ?? null
+
   return (
     <div className="flex flex-col">
       {/* Header */}
@@ -179,6 +221,34 @@ export function ConversationTranscript({
         </div>
       </div>
 
+      {/* Shared number */}
+      {shared && (
+        <div className="mt-3 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-xs text-foreground" role="note">
+          <p className="flex items-start gap-2">
+            <Users className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+            <span>
+              <span className="font-medium">Shared number.</span> {patientPhone} is also linked to{' '}
+              {sharedWith.map((p, i) => (
+                <span key={p.episodeId}>
+                  {i > 0 && (i === sharedWith.length - 1 ? ' and ' : ', ')}
+                  <Link href={`/episodes/${p.episodeId}`} className="underline underline-offset-2 hover:text-brand">{p.patientName}</Link>
+                </span>
+              ))}
+              . A message that does not say who it is about goes to the conversation waiting for a reply, else to the patient written about most recently; when that is unclear the sender is asked.
+            </span>
+          </p>
+          <p className="mt-1 pl-[22px] text-muted-foreground">
+            {numberSession?.choicePending
+              ? 'Waiting for the sender to say who their last message is about — it is held until they answer.'
+              : activeIsThisPatient
+                ? `Messages from this number are currently taken to be about ${patientName.split(' ')[0]}.`
+                : activeOther
+                  ? `Messages from this number are currently taken to be about ${activeOther.patientName.split(' ')[0]}.`
+                  : 'The next message without a name will be asked about, unless one conversation is waiting for a reply.'}
+          </p>
+        </div>
+      )}
+
       {/* Thread */}
       {messages.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
@@ -198,6 +268,7 @@ export function ConversationTranscript({
             const failed = m.status === 'failed'
             const error = typeof m.metadata?.error === 'string' ? (m.metadata.error as string) : null
             const sender = senderOf(m)
+            const routed = shared ? routingLabel(m) : null
 
             return (
               <div key={m.id}>
@@ -234,6 +305,11 @@ export function ConversationTranscript({
                       <span>{sender.kind === 'patient' ? patientName.split(' ')[0] : sender.name}</span>
                       <span>·</span>
                       <span>{format(date, 'HH:mm')}</span>
+                      {routed && (
+                        <span className="inline-flex items-center gap-1" title="How this message was matched to this patient on the shared number">
+                          <Users className="h-3 w-3" aria-hidden="true" /> {routed}
+                        </span>
+                      )}
                       {failed && (
                         <span className="inline-flex items-center gap-1 text-danger" title={error ?? 'Delivery failed'}>
                           <AlertCircle className="h-3 w-3" aria-hidden="true" /> Not delivered
