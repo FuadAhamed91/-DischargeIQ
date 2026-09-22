@@ -1,0 +1,221 @@
+/**
+ * End-to-end checks for the inbound WhatsApp handler against an in-memory
+ * database (scripts/lib/fake-supabase.ts) and a captured Twilio API.
+ *
+ * Covers what the unit tables cannot: that the handler actually asks a
+ * shared number who a message is about, holds and replays the message,
+ * keeps each patient's conversation and transcript apart, routes replies to
+ * the conversation that is waiting, drops a redelivered SID, and leaves a
+ * single-patient number exactly as it was. Only deterministic paths are
+ * exercised (greetings, acknowledgements, the check-in, emergencies) — no
+ * model call, no network, no API keys.
+ *
+ * Run with:  npm run check:webhook
+ */
+
+process.env.TWILIO_ACCOUNT_SID ??= 'ACtest'
+process.env.TWILIO_AUTH_TOKEN ??= 'token'
+process.env.TWILIO_WHATSAPP_NUMBER ??= 'whatsapp:+14155238886'
+process.env.WHATSAPP_USE_TEXT_FALLBACK ??= 'true'
+process.env.NEXT_PUBLIC_SUPABASE_URL ??= 'https://fake.supabase.co'
+process.env.SUPABASE_SERVICE_ROLE_KEY ??= 'fake'
+
+import { FakeDb } from './lib/fake-supabase'
+import { handleInboundMessage } from '@/lib/whatsapp/webhook-handler'
+import type { ServiceClient } from '@/lib/whatsapp/recipient'
+import type { ParsedInbound } from '@/lib/whatsapp/fsm'
+
+// ------------------------------------
+// Captured Twilio
+// ------------------------------------
+
+interface Sent { to: string; body: string }
+const outbox: Sent[] = []
+let sidCounter = 0
+globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+  const url = String(input instanceof Request ? input.url : input)
+  if (!url.includes('api.twilio.com')) throw new Error(`unexpected fetch: ${url}`)
+  const params = new URLSearchParams(String(init?.body ?? ''))
+  outbox.push({ to: params.get('To') ?? '', body: params.get('Body') ?? '' })
+  return new Response(JSON.stringify({ sid: `SMout${++sidCounter}` }), { status: 201, headers: { 'Content-Type': 'application/json' } })
+}) as typeof fetch
+
+/** Everything sent since the last call. */
+function drain(): Sent[] {
+  return outbox.splice(0, outbox.length)
+}
+
+// ------------------------------------
+// Seed: one hospital number, a shared family phone, a patient of her own
+// ------------------------------------
+
+const HOSPITAL_NUMBER = '+14155238886'
+const FAMILY_PHONE = '+971500000001'
+const SOLO_PHONE = '+971500000002'
+
+function seed(): FakeDb {
+  return new FakeDb({
+    hospitals: [{ id: 'h1', name: 'Demo Hospital', timezone: 'Asia/Dubai', settings: {}, whatsapp_phone_number_id: HOSPITAL_NUMBER }],
+    patients: [
+      { id: 'p-farzana', hospital_id: 'h1', mrn: 'MRN-1', full_name: 'Farzana Arif', phone_e164: FAMILY_PHONE, preferred_language: 'en' },
+      { id: 'p-umar', hospital_id: 'h1', mrn: 'MRN-2', full_name: 'Umar Siddiqui', phone_e164: FAMILY_PHONE, preferred_language: 'en' },
+      { id: 'p-solo', hospital_id: 'h1', mrn: 'MRN-3', full_name: 'Priya Nair', phone_e164: SOLO_PHONE, preferred_language: 'hi' },
+    ],
+    care_episodes: [
+      { id: 'ep-farzana', hospital_id: 'h1', patient_id: 'p-farzana', status: 'active', created_at: '2026-09-10T08:00:00Z' },
+      { id: 'ep-umar', hospital_id: 'h1', patient_id: 'p-umar', status: 'active', created_at: '2026-09-15T08:00:00Z' },
+      { id: 'ep-solo', hospital_id: 'h1', patient_id: 'p-solo', status: 'active', created_at: '2026-09-16T08:00:00Z' },
+    ],
+    whatsapp_conversations: [
+      { id: 'c-farzana', episode_id: 'ep-farzana', hospital_id: 'h1', patient_id: 'p-farzana', wa_phone: FAMILY_PHONE, conversation_state: { state: 'idle' } },
+      { id: 'c-umar', episode_id: 'ep-umar', hospital_id: 'h1', patient_id: 'p-umar', wa_phone: FAMILY_PHONE, conversation_state: { state: 'idle' } },
+    ],
+  })
+}
+
+// ------------------------------------
+// Harness
+// ------------------------------------
+
+let fails = 0
+const eq = (label: string, got: unknown, want: unknown) => {
+  const ok = JSON.stringify(got) === JSON.stringify(want)
+  if (!ok) fails++
+  console.log(`${ok ? 'ok  ' : 'FAIL'} ${label} → ${JSON.stringify(got)}${ok ? '' : `  (want ${JSON.stringify(want)})`}`)
+}
+const includes = (label: string, haystack: string, needle: string) => {
+  const ok = haystack.includes(needle)
+  if (!ok) fails++
+  console.log(`${ok ? 'ok  ' : 'FAIL'} ${label}${ok ? '' : `  (wanted "${needle}" in ${JSON.stringify(haystack)})`}`)
+}
+
+let sidIn = 0
+const inbound = (from: string, text?: string, type: ParsedInbound['type'] = 'text', extra: Partial<ParsedInbound> = {}): ParsedInbound =>
+  ({ waMessageId: `SMin${++sidIn}`, from, type, text, timestamp: 0, ...extra })
+
+const db = seed()
+const client = db as unknown as ServiceClient
+const send = (msg: ParsedInbound) => handleInboundMessage(HOSPITAL_NUMBER, msg, { supabase: client })
+
+const messagesOf = (conversationId: string) =>
+  db.rows('whatsapp_messages').filter((m) => m.conversation_id === conversationId)
+const inboundOf = (conversationId: string) => messagesOf(conversationId).filter((m) => m.direction === 'inbound')
+const routingOf = (m: Record<string, unknown>) => ((m.metadata as Record<string, unknown> | undefined)?.routing as Record<string, unknown> | undefined)?.via ?? null
+const stateOf = (conversationId: string) => {
+  const raw = db.rows('whatsapp_conversations').find((c) => c.id === conversationId)?.conversation_state
+  return typeof raw === 'string' ? raw : (raw as { state?: string } | null)?.state
+}
+const session = () => db.rows('whatsapp_number_sessions').find((s) => s.wa_phone === FAMILY_PHONE) ?? null
+
+async function main() {
+  console.log('— a number with one open episode: nothing changes —')
+  await send(inbound(SOLO_PHONE, 'namaste'))
+  let sent = drain()
+  eq('one reply, to that number', sent.map((s) => s.to), [`whatsapp:${SOLO_PHONE}`])
+  includes('greeting in her language', sent[0]?.body ?? '', 'नमस्ते Priya Nair')
+  const soloConversation = db.rows('whatsapp_conversations').find((c) => c.episode_id === 'ep-solo')
+  eq('conversation created on first message', Boolean(soloConversation), true)
+  eq('inbound logged without routing metadata', inboundOf(String(soloConversation?.id)).map(routingOf), [null])
+  eq('no number session for a single patient', db.rows('whatsapp_number_sessions').length, 0)
+
+  console.log('— an unknown number —')
+  await send(inbound('+971500009999', 'hello?'))
+  sent = drain()
+  includes('not-registered reply', sent[0]?.body ?? '', 'could not find an active care record')
+  eq('nothing logged', db.rows('whatsapp_messages').filter((m) => m.direction === 'inbound').length, 1)
+
+  console.log('— a shared number, first contact: the assistant has to ask —')
+  const hi = inbound(FAMILY_PHONE, 'hi')
+  await send(hi)
+  sent = drain()
+  eq('one prompt sent', sent.length, 1)
+  includes('newest episode listed first', sent[0].body, '1. Umar Siddiqui\n2. Farzana Arif')
+  includes('promises to pass the message on', sent[0].body, 'pass your message on')
+  eq('question logged on both transcripts', [messagesOf('c-farzana').length, messagesOf('c-umar').length], [1, 1])
+  eq('session holds the message', (session()?.pending_choice as { held?: { text?: string } } | null)?.held?.text, 'hi')
+  eq('no reply to "hi" itself yet', inboundOf('c-umar').length + inboundOf('c-farzana').length, 0)
+
+  console.log('— the same webhook again (Twilio retry) while held —')
+  await send({ ...hi })
+  eq('ignored: nothing sent', drain().length, 0)
+
+  console.log('— the sender answers "2" —')
+  await send(inbound(FAMILY_PHONE, '2'))
+  sent = drain()
+  eq('one reply', sent.length, 1)
+  includes('the held "hi" is answered for Farzana', sent[0].body, 'Hello Farzana Arif')
+  eq('"2" then "hi" on Farzana\'s transcript, both marked as routed by choice', inboundOf('c-farzana').map((m) => [m.content, routingOf(m)]), [['2', 'choice'], ['hi', 'choice']])
+  eq('nothing inbound on Umar\'s transcript', inboundOf('c-umar').length, 0)
+  eq('session: Farzana remembered, nothing pending', [session()?.active_patient_id, session()?.pending_choice], ['p-farzana', null])
+
+  console.log('— follow-up without a name goes to the remembered patient —')
+  await send(inbound(FAMILY_PHONE, 'thanks'))
+  sent = drain()
+  includes('acknowledgement for Farzana', sent[0]?.body ?? '', 'Thank you, Farzana Arif')
+  eq('routed as recent', routingOf(inboundOf('c-farzana').at(-1)!), 'recent')
+
+  console.log('— a name at the start switches patient —')
+  await send(inbound(FAMILY_PHONE, 'Umar: hello'))
+  sent = drain()
+  includes('greeting for Umar', sent[0]?.body ?? '', 'Hello Umar Siddiqui')
+  eq('logged for Umar without the name, routed by name', inboundOf('c-umar').map((m) => [m.content, routingOf(m)]), [['hello', 'name']])
+  eq('session now remembers Umar', session()?.active_patient_id, 'p-umar')
+
+  console.log('— a bare name just switches —')
+  await send(inbound(FAMILY_PHONE, 'Farzana'))
+  sent = drain()
+  includes('confirmation', sent[0]?.body ?? '', 'about *Farzana Arif*')
+  eq('session remembers Farzana', session()?.active_patient_id, 'p-farzana')
+
+  console.log('— the nightly check-in fires for Umar: replies go to the conversation that is waiting —')
+  const umar = db.rows('whatsapp_conversations').find((c) => c.id === 'c-umar')!
+  umar.conversation_state = 'awaiting_checkin_meds'
+  await send(inbound(FAMILY_PHONE, '1'))
+  sent = drain()
+  includes('Q2 asked of Umar', sent[0]?.body ?? '', 'Well done, Umar Siddiqui')
+  eq('"1" landed on Umar, routed as a reply', [inboundOf('c-umar').at(-1)?.content, routingOf(inboundOf('c-umar').at(-1)!)], ['1', 'reply'])
+  eq('Umar now awaiting symptoms; Farzana untouched', [stateOf('c-umar'), stateOf('c-farzana')], ['awaiting_checkin_symptoms', 'idle'])
+  eq('adherence recorded on Umar\'s episode', db.rows('patient_timeline_events').filter((e) => e.event_type === 'reminder_response').map((e) => e.episode_id), ['ep-umar'])
+  await send(inbound(FAMILY_PHONE, 'ok'))
+  sent = drain()
+  includes('good night to Umar', sent[0]?.body ?? '', 'Umar Siddiqui. Sleep well')
+  eq('Umar back to idle', stateOf('c-umar'), 'idle')
+  eq('Umar is now the remembered patient', session()?.active_patient_id, 'p-umar')
+
+  console.log('— both check-ins pending: the sender is asked, the answer replays —')
+  db.rows('whatsapp_conversations').find((c) => c.id === 'c-umar')!.conversation_state = 'awaiting_checkin_meds'
+  db.rows('whatsapp_conversations').find((c) => c.id === 'c-farzana')!.conversation_state = 'awaiting_checkin_meds'
+  session()!.active_until = '2000-01-01T00:00:00Z'   // memory expired
+  await send(inbound(FAMILY_PHONE, '3'))
+  sent = drain()
+  includes('asked who "3" is for', sent[0]?.body ?? '', 'Who is this message about?')
+  await send(inbound(FAMILY_PHONE, 'Farzana'))
+  sent = drain()
+  includes('"none taken" handled for Farzana', sent[0]?.body ?? '', 'Thank you for telling us, Farzana Arif')
+  eq('missed-medication alert on Farzana\'s episode only', db.rows('alerts').filter((a) => a.type === 'missed_medication').map((a) => a.episode_id), ['ep-farzana'])
+  eq('Umar still waiting for his own answer', stateOf('c-umar'), 'awaiting_checkin_meds')
+
+  console.log('— an emergency is never held —')
+  session()!.active_until = '2000-01-01T00:00:00Z'
+  db.rows('whatsapp_conversations').find((c) => c.id === 'c-farzana')!.conversation_state = 'idle'
+  db.rows('whatsapp_conversations').find((c) => c.id === 'c-umar')!.conversation_state = 'idle'
+  await send(inbound(FAMILY_PHONE, 'he has chest pain'))
+  sent = drain()
+  includes('emergency reply went out immediately', sent[0]?.body ?? '', 'medical emergency')
+  eq('critical alert raised', db.rows('alerts').filter((a) => a.severity === 'critical').length, 1)
+
+  console.log('— a redelivered SID after handling is dropped —')
+  const again = inbound(FAMILY_PHONE, 'thanks')
+  await send(again)
+  drain()
+  await send({ ...again })
+  eq('second delivery sends nothing', drain().length, 0)
+
+  console.log(fails === 0 ? '\nALL PASSED' : `\n${fails} FAILED`)
+  process.exit(fails ? 1 : 0)
+}
+
+main().catch((err) => {
+  console.error(err)
+  process.exit(1)
+})

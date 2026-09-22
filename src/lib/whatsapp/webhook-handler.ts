@@ -212,11 +212,17 @@ async function escalateUntriaged(
 // Main handler
 // ------------------------------------
 
+export interface HandlerDeps {
+  /** Injected by scripts/check-webhook.ts (in-memory fake); production uses the service client. */
+  supabase?: ServiceClient
+}
+
 export async function handleInboundMessage(
   phoneNumberId: string,
   message: ParsedInbound,
+  deps: HandlerDeps = {},
 ): Promise<void> {
-  const supabase = await createServiceClient()
+  const supabase = deps.supabase ?? (await createServiceClient())
 
   // 0. A redelivered webhook carries a SID we have already answered.
   if (await alreadyHandled(supabase, message.waMessageId)) {
