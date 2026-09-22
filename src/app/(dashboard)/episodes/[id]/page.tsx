@@ -21,7 +21,7 @@ import { ArrowLeft, Pencil, User, Calendar, Pill, AlertTriangle, ChevronRight, M
 import { fmt } from '@/lib/format'
 import { readConversationState } from '@/lib/whatsapp/fsm'
 import { LiveRefresh } from '@/components/shared/live-refresh'
-import { CarePlanDeliveryBanner } from '@/components/episodes/care-plan-delivery'
+import { CarePlanDeliveryBanner, CarePlanResendButton } from '@/components/episodes/care-plan-delivery'
 import { CARE_PLAN_KIND, summariseCarePlanMessage } from '@/lib/whatsapp/care-plan'
 import type { RiskLevel, EpisodeStatus, SummaryStatus, LanguageCode } from '@/types/enums'
 import type { Medication, FollowUpRequirement } from '@/types/database'
@@ -323,12 +323,18 @@ export default async function EpisodeDetailPage({
                 </Card>
               ) : (
                 <>
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <StatusBadge status={summary.status} />
                       {summary.approved_at && <span className="text-xs text-muted-foreground">Approved {fmt(summary.approved_at, 'dd MMM yyyy', tz)}</span>}
                     </div>
-                    <Link href={`/episodes/${id}/review`}><Button variant="outline" size="sm"><Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit</Button></Link>
+                    <div className="flex items-center gap-2">
+                      {/* Sent, but WhatsApp never confirmed it reached the patient (old message, or no receipt yet) */}
+                      {summary.status === 'sent' && carePlanDelivery?.status !== 'delivered' && carePlanDelivery?.status !== 'read' && carePlanDelivery?.status !== 'failed' && (
+                        <CarePlanResendButton episodeId={id} />
+                      )}
+                      <Link href={`/episodes/${id}/review`}><Button variant="outline" size="sm"><Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit</Button></Link>
+                    </div>
                   </div>
 
                   <Card>

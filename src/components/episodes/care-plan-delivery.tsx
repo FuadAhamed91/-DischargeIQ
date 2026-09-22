@@ -8,22 +8,10 @@ import { formatInTimeZone } from 'date-fns-tz'
 import { Button } from '@/components/ui/button'
 import type { CarePlanDelivery } from '@/lib/whatsapp/care-plan'
 
-interface CarePlanDeliveryBannerProps {
-  episodeId: string
-  delivery: CarePlanDelivery
-  patientName: string
-  timezone: string
-}
-
-/**
- * Shown when Twilio reported that the care plan never reached the patient.
- * The nurse can resend now; and if the patient messages first, the plan goes
- * out again on its own (see redeliverFailedCarePlan).
- */
-export function CarePlanDeliveryBanner({ episodeId, delivery, patientName, timezone }: CarePlanDeliveryBannerProps) {
+/** POST the resend and report it; used by both the banner and the quiet button. */
+function useResend(episodeId: string) {
   const router = useRouter()
   const [sending, setSending] = useState(false)
-  const firstName = patientName.split(' ')[0]
 
   async function resend() {
     setSending(true)
@@ -44,6 +32,25 @@ export function CarePlanDeliveryBanner({ episodeId, delivery, patientName, timez
     }
   }
 
+  return { resend, sending }
+}
+
+interface CarePlanDeliveryBannerProps {
+  episodeId: string
+  delivery: CarePlanDelivery
+  patientName: string
+  timezone: string
+}
+
+/**
+ * Shown when Twilio reported that the care plan never reached the patient.
+ * The nurse can resend now; and if the patient messages first, the plan goes
+ * out again on its own (see redeliverFailedCarePlan).
+ */
+export function CarePlanDeliveryBanner({ episodeId, delivery, patientName, timezone }: CarePlanDeliveryBannerProps) {
+  const { resend, sending } = useResend(episodeId)
+  const firstName = patientName.split(' ')[0]
+
   return (
     <div role="alert" className="flex flex-wrap items-start gap-3 rounded-lg border border-danger/30 bg-danger-soft p-4">
       <MessageSquareWarning className="mt-0.5 h-5 w-5 shrink-0 text-danger" aria-hidden="true" />
@@ -62,5 +69,26 @@ export function CarePlanDeliveryBanner({ episodeId, delivery, patientName, timez
         Resend now
       </Button>
     </div>
+  )
+}
+
+/**
+ * For a care plan whose delivery was never confirmed — sent before delivery
+ * receipts existed, or Twilio has not reported back. Not a failure, so no
+ * banner; just a way to send it again when the patient says nothing arrived.
+ */
+export function CarePlanResendButton({ episodeId }: { episodeId: string }) {
+  const { resend, sending } = useResend(episodeId)
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={resend}
+      disabled={sending}
+      title="Send the care plan to the patient again — use it when they say nothing arrived"
+    >
+      {sending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />}
+      Resend care plan
+    </Button>
   )
 }
