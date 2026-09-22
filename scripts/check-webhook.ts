@@ -25,7 +25,7 @@ import { handleInboundMessage } from '@/lib/whatsapp/webhook-handler'
 import { withSenderLock, senderKey, pendingSenders } from '@/lib/whatsapp/sender-queue'
 import { parseStatusCallback, applyStatusCallback, nextRowStatus } from '@/lib/whatsapp/status-callback'
 import { rememberPatientIfShared, pruneStaleNumberSessions, summariseNumberSession, STALE_SESSION_MS } from '@/lib/whatsapp/number-session'
-import { parseWebhookPayload } from '@/lib/whatsapp/webhook-handler'
+import { parseWebhookPayload } from '@/lib/whatsapp/twilio-payload'
 import type { ServiceClient } from '@/lib/whatsapp/recipient'
 import type { ParsedInbound } from '@/lib/whatsapp/fsm'
 

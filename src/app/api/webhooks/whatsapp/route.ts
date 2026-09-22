@@ -1,10 +1,7 @@
 import { NextResponse, after } from 'next/server'
 import { verifyTwilioSignature } from '@/lib/whatsapp/client'
-import {
-  parseWebhookPayload,
-  extractPhoneNumberId,
-  handleInboundMessage,
-} from '@/lib/whatsapp/webhook-handler'
+import { handleInboundMessage } from '@/lib/whatsapp/webhook-handler'
+import { parseWebhookPayload, extractPhoneNumberId } from '@/lib/whatsapp/twilio-payload'
 import { withSenderLock, senderKey } from '@/lib/whatsapp/sender-queue'
 import { parseStatusCallback, applyStatusCallback } from '@/lib/whatsapp/status-callback'
 import { createServiceClient } from '@/lib/supabase/server'
