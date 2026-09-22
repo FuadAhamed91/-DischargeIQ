@@ -12,7 +12,7 @@ export async function POST(request: Request) {
   try {
     const result = await dispatchDueReminders()
 
-    console.log(`[cron/reminders/dispatch] sent=${result.sent} failed=${result.failed}`)
+    console.log(`[cron/reminders/dispatch] sent=${result.sent} failed=${result.failed} held=${result.held}`)
     if (result.errors.length > 0) {
       console.error('[cron/reminders/dispatch] errors:', result.errors)
     }

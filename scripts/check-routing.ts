@@ -18,6 +18,7 @@ import {
 } from '@/lib/whatsapp/routing'
 import type { RoutingCandidate, NumberSession, RoutingDecision } from '@/lib/whatsapp/routing'
 import type { ParsedInbound, ConversationState } from '@/lib/whatsapp/fsm'
+import { holdReason } from '@/lib/reminders/stagger'
 
 let fails = 0
 const eq = (label: string, got: unknown, want: unknown) => {
@@ -150,6 +151,20 @@ const asking = sessionWhileAsking(sticky('p-umar'), two, msg('hi'), false, now)
 eq('asking keeps the memory and records the options', [asking.activePatientId, asking.pendingChoice?.options, asking.pendingChoice?.held?.text, asking.pendingChoice?.repeated], ['p-umar', ['p-farzana', 'p-umar'], 'hi', false])
 eq('prompt language: shared', promptLanguage([cand('a', 'A', 'idle', 'ar'), cand('b', 'B', 'idle', 'ar')]), 'ar')
 eq('prompt language: mixed → en', promptLanguage([cand('a', 'A', 'idle', 'ar'), cand('b', 'B', 'idle', 'hi')]), 'en')
+
+console.log('— dispatcher: one open question per phone (lib/reminders/stagger.ts) —')
+const conv = (episode_id: string, wa_phone: string, state: string, until?: string) => ({ episode_id, wa_phone, conversation_state: { state, until } })
+const job = (episodeId: string, phone: string, minutesAgo = 0) => ({ episodeId, phone, fireAt: iso(-minutesAgo * 60000) })
+const hold = (j: ReturnType<typeof job>, convs: ReturnType<typeof conv>[], sent: string[] = []) => holdReason(j, convs, new Set(sent), now)
+eq('nobody else on the phone → send', hold(job('ep-a', '+1'), [conv('ep-a', '+1', 'idle')]), null)
+eq('other patient idle → send', hold(job('ep-a', '+1'), [conv('ep-b', '+1', 'idle')]), null)
+eq('other patient mid check-in → hold', hold(job('ep-a', '+1'), [conv('ep-b', '+1', 'awaiting_checkin_meds')]), 'another_waiting')
+eq('own conversation waiting does not hold', hold(job('ep-a', '+1'), [conv('ep-a', '+1', 'awaiting_checkin_meds')]), null)
+eq('waiting patient on a different phone → send', hold(job('ep-a', '+1'), [conv('ep-b', '+2', 'awaiting_checkin_meds')]), null)
+eq('already wrote to this phone in the run → hold', hold(job('ep-a', '+1'), [], ['+1']), 'sent_this_run')
+eq('an hour late → send regardless', hold(job('ep-a', '+1', 61), [conv('ep-b', '+1', 'awaiting_checkin_meds')], ['+1']), null)
+eq('expired nurse_attending counts as idle → send', hold(job('ep-a', '+1'), [conv('ep-b', '+1', 'nurse_attending', iso(-1000))]), null)
+eq('live nurse_attending → hold', hold(job('ep-a', '+1'), [conv('ep-b', '+1', 'nurse_attending', iso(600000))]), 'another_waiting')
 
 console.log(fails === 0 ? '\nALL PASSED' : `\n${fails} FAILED`)
 process.exit(fails ? 1 : 0)

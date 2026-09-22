@@ -14,16 +14,20 @@ import {
 import { buildNightlyCheckinMessage } from '@/lib/whatsapp/checkin-templates'
 import type { ConversationState } from '@/lib/whatsapp/fsm'
 import type { LanguageCode } from '@/types/enums'
+import { holdReason } from './stagger'
+import type { PhoneConversation } from './stagger'
 
 interface DispatchResult {
   sent: number
   failed: number
+  /** Left pending for a later tick: another patient on the same number is still being asked something. */
+  held: number
   errors: string[]
 }
 
 export async function dispatchDueReminders(): Promise<DispatchResult> {
   const supabase = await createServiceClient()
-  const result: DispatchResult = { sent: 0, failed: 0, errors: [] }
+  const result: DispatchResult = { sent: 0, failed: 0, held: 0, errors: [] }
 
   // Fetch all pending jobs that are due
   const { data: jobs, error } = await supabase
@@ -57,6 +61,17 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
 
   if (!jobs || jobs.length === 0) return result
 
+  // Shared numbers: one open question per phone. Every conversation on the
+  // numbers in this batch, in one query, so a job can be held while another
+  // patient on the same phone is still answering (see stagger.ts).
+  const phones = [...new Set(jobs.map((j) => (j.care_episodes as unknown as { patients: { phone_e164: string } }).patients.phone_e164))]
+  const { data: phoneConversations } = await supabase
+    .from('whatsapp_conversations')
+    .select('episode_id, wa_phone, conversation_state')
+    .in('wa_phone', phones)
+  const conversations = (phoneConversations ?? []) as PhoneConversation[]
+  const sentThisRun = new Set<string>()
+
   for (const job of jobs) {
     try {
       const episode = job.care_episodes as unknown as {
@@ -88,6 +103,13 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
       if (!hospital.whatsapp_phone_number_id) {
         result.errors.push(`Job ${job.id}: hospital missing WhatsApp phone_number_id`)
         result.failed++
+        continue
+      }
+
+      // Another patient on this phone is mid-question: send this one next tick.
+      const hold = holdReason({ episodeId: job.episode_id, phone: patient.phone_e164, fireAt: job.fire_at as string }, conversations, sentThisRun)
+      if (hold) {
+        result.held++
         continue
       }
 
@@ -154,6 +176,8 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
         result.failed++
         continue
       }
+
+      sentThisRun.add(patient.phone_e164)
 
       // Mark job as sent
       await supabase
