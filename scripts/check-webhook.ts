@@ -22,6 +22,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY ??= 'fake'
 
 import { FakeDb } from './lib/fake-supabase'
 import { handleInboundMessage } from '@/lib/whatsapp/webhook-handler'
+import { withSenderLock, senderKey, pendingSenders } from '@/lib/whatsapp/sender-queue'
 import type { ServiceClient } from '@/lib/whatsapp/recipient'
 import type { ParsedInbound } from '@/lib/whatsapp/fsm'
 
@@ -213,6 +214,34 @@ async function main() {
   drain()
   await send({ ...again })
   eq('second delivery sends nothing', drain().length, 0)
+
+  console.log('— sender queue: one number in order, different numbers side by side —')
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const order: string[] = []
+  await Promise.all([
+    withSenderLock('A', async () => { order.push('a1 start'); await sleep(30); order.push('a1 end') }),
+    withSenderLock('A', async () => { order.push('a2') }),
+    withSenderLock('B', async () => { order.push('b1') }),
+    withSenderLock('A', async () => { throw new Error('boom') }).catch(() => order.push('a3 failed')),
+    withSenderLock('A', async () => { order.push('a4') }),
+  ])
+  eq('a2 waits for a1, b1 does not; a failure does not block a4', order, ['a1 start', 'b1', 'a1 end', 'a2', 'a3 failed', 'a4'])
+  eq('queue is empty afterwards', pendingSenders(), 0)
+
+  // Through the real handler: two check-in answers from the family phone at
+  // once. Serialised, "1" answers Q1 and "ok" answers Q2; unserialised both
+  // would have read the same state.
+  db.rows('whatsapp_conversations').find((c) => c.id === 'c-umar')!.conversation_state = 'awaiting_checkin_meds'
+  session()!.active_patient_id = 'p-umar'
+  session()!.active_until = new Date(Date.now() + 3600_000).toISOString()
+  const key = senderKey(HOSPITAL_NUMBER, FAMILY_PHONE)
+  await Promise.all([
+    withSenderLock(key, () => send(inbound(FAMILY_PHONE, '1'))),
+    withSenderLock(key, () => send(inbound(FAMILY_PHONE, 'ok'))),
+  ])
+  sent = drain()
+  eq('two replies, in order: Q2 then good night', sent.map((m) => (m.body.includes('Sleep well') ? 'goodnight' : m.body.includes('feeling tonight') ? 'q2' : 'other')), ['q2', 'goodnight'])
+  eq('conversation idle again', stateOf('c-umar'), 'idle')
 
   console.log(fails === 0 ? '\nALL PASSED' : `\n${fails} FAILED`)
   process.exit(fails ? 1 : 0)
