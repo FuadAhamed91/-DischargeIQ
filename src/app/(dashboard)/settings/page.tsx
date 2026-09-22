@@ -5,7 +5,8 @@ import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { Building2, User, Globe, Phone, Shield, Bell } from 'lucide-react'
+import Link from 'next/link'
+import { Building2, User, Globe, Phone, Shield, Bell, Users } from 'lucide-react'
 import { LanguageBadge } from '@/components/shared/language-badge'
 import type { LanguageCode } from '@/types/enums'
 
@@ -26,7 +27,7 @@ export default async function SettingsPage() {
   const { profile } = await requireSession()
   const supabase = await createClient()
 
-  const [{ data: hospital }, { data: department }, { count: staffCount }] = await Promise.all([
+  const [{ data: hospital }, { data: department }, { count: staffCount }, { data: openEpisodes }] = await Promise.all([
     supabase
       .from('hospitals')
       .select('name, slug, timezone, whatsapp_phone_number_id, settings, is_active, created_at')
@@ -40,7 +41,24 @@ export default async function SettingsPage() {
       .select('*', { count: 'exact', head: true })
       .eq('hospital_id', profile.hospital_id)
       .eq('is_active', true),
+    // Every open episode with its patient's number: numbers that appear more
+    // than once are shared (a family phone) and route by context.
+    supabase
+      .from('care_episodes')
+      .select('id, patients!inner(id, full_name, phone_e164)')
+      .eq('hospital_id', profile.hospital_id)
+      .in('status', ['active', 'pending_review']),
   ])
+
+  const byPhone = new Map<string, Array<{ episodeId: string; name: string }>>()
+  for (const row of openEpisodes ?? []) {
+    const p = (Array.isArray(row.patients) ? row.patients[0] : row.patients) as { id: string; full_name: string; phone_e164: string } | null
+    if (!p) continue
+    const list = byPhone.get(p.phone_e164) ?? []
+    list.push({ episodeId: row.id as string, name: p.full_name })
+    byPhone.set(p.phone_e164, list)
+  }
+  const sharedNumbers = [...byPhone.entries()].filter(([, list]) => list.length > 1).sort((a, b) => a[0].localeCompare(b[0]))
 
   const hospitalSettings = (hospital?.settings ?? {}) as {
     languages?: string[]
@@ -141,6 +159,31 @@ export default async function SettingsPage() {
                   <Badge variant="outline" className="text-xs font-mono">
                     ID: {hospital.whatsapp_phone_number_id.slice(0, 8)}…
                   </Badge>
+                )}
+              </div>
+              <div className="mt-3 text-sm">
+                <p className="flex items-center gap-1.5 text-muted-foreground">
+                  <Users className="w-3.5 h-3.5" aria-hidden="true" />
+                  {sharedNumbers.length === 0
+                    ? 'No number is shared by more than one open episode.'
+                    : `${sharedNumbers.length} ${sharedNumbers.length === 1 ? 'number is' : 'numbers are'} shared by more than one open episode — messages from them are routed by context, and the sender is asked when it is unclear.`}
+                </p>
+                {sharedNumbers.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {sharedNumbers.map(([phone, list]) => (
+                      <li key={phone} className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="font-mono text-xs text-muted-foreground">{phone}</span>
+                        <span>
+                          {list.map((p, i) => (
+                            <span key={p.episodeId}>
+                              {i > 0 && ', '}
+                              <Link href={`/episodes/${p.episodeId}`} className="underline underline-offset-2 hover:text-brand">{p.name}</Link>
+                            </span>
+                          ))}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
             </div>
