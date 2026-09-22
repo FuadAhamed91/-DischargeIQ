@@ -159,13 +159,13 @@ export async function sendMessage(
 }
 
 /**
- * Mark as read — not supported in Twilio WhatsApp; this is a no-op.
+ * Mark as read — not supported in Twilio WhatsApp; this is a no-op. The
+ * parameters are kept so the handler reads the same as with the Meta API.
  */
-export async function markAsRead(
-  _phoneNumberId: string,
-  _messageId: string,
-): Promise<void> {
+export async function markAsRead(phoneNumberId: string, messageId: string): Promise<void> {
   // Twilio does not expose read-receipt control via API
+  void phoneNumberId
+  void messageId
 }
 
 /**

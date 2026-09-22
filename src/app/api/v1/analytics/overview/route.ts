@@ -10,7 +10,7 @@
  */
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { resolveAuthContext, apiSuccess, apiError } from '@/lib/utils/api'
+import { resolveAuthContext, apiSuccess } from '@/lib/utils/api'
 import { subDays, format } from 'date-fns'
 
 export const dynamic = 'force-dynamic'

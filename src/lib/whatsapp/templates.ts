@@ -10,12 +10,11 @@
 
 import type {
   OutboundMessage,
-  InteractiveButtonMessage,
   InteractiveListMessage,
 } from './client'
 import { formatInTimeZone } from 'date-fns-tz'
 import type { LanguageCode } from '@/types/enums'
-import type { DischargeSummary, Medication, Appointment } from '@/types/database'
+import type { DischargeSummary, Medication } from '@/types/database'
 
 // Set to true to send plain text instead of template messages while Meta reviews them.
 const USE_TEXT_FALLBACK = process.env.WHATSAPP_USE_TEXT_FALLBACK === 'true'

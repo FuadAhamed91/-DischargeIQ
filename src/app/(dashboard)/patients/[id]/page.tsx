@@ -7,7 +7,6 @@ import { requireSession } from '@/lib/auth/session'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
 import { RiskBadge } from '@/components/shared/risk-badge'
 import { StatusBadge } from '@/components/shared/status-badge'
 import { LanguageBadge } from '@/components/shared/language-badge'
@@ -15,7 +14,7 @@ import { ArrowLeft, Plus, Phone, Calendar, FileText, Users } from 'lucide-react'
 import { fmt } from '@/lib/format'
 import type { RiskLevel, EpisodeStatus, LanguageCode } from '@/types/enums'
 
-export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
+export async function generateMetadata() {
   return { title: 'Patient Profile' }
 }
 

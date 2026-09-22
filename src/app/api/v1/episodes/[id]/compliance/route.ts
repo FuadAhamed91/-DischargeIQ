@@ -43,9 +43,6 @@ export async function GET(_req: Request, { params }: Params) {
     .eq('episode_id', episodeId)
 
   const totalJobs = reminderJobs?.length ?? 0
-  const respondedJobs = reminderJobs?.filter(
-    (j) => j.status === 'sent',  // sent + no failure = delivered, response tracked in timeline
-  ).length ?? 0
 
   // Count positive reminder responses from timeline
   const { count: positiveResponses } = await supabase
