@@ -11,7 +11,7 @@ import { Separator } from '@/components/ui/separator'
 import { RiskBadge } from '@/components/shared/risk-badge'
 import { StatusBadge } from '@/components/shared/status-badge'
 import { LanguageBadge } from '@/components/shared/language-badge'
-import { ArrowLeft, Plus, Phone, Calendar, FileText } from 'lucide-react'
+import { ArrowLeft, Plus, Phone, Calendar, FileText, Users } from 'lucide-react'
 import { fmt } from '@/lib/format'
 import type { RiskLevel, EpisodeStatus, LanguageCode } from '@/types/enums'
 
@@ -53,6 +53,17 @@ export default async function PatientDetailPage({
 
   const nurse = patient.profiles as { id: string; full_name: string } | null
 
+  // Other patients registered on the same WhatsApp number (RLS-scoped: a nurse
+  // sees those they are allowed to see; the webhook itself routes on all).
+  const { data: sameNumber } = await supabase
+    .from('patients')
+    .select('id, full_name')
+    .eq('hospital_id', hospital.id)
+    .eq('phone_e164', patient.phone_e164)
+    .neq('id', id)
+    .order('full_name')
+  const sharesNumberWith = (sameNumber ?? []) as { id: string; full_name: string }[]
+
   return (
     <div className="space-y-5 max-w-4xl">
       {/* Back */}
@@ -71,6 +82,20 @@ export default async function PatientDetailPage({
               <Phone className="w-3 h-3" />
               {patient.phone_e164}
             </div>
+            {sharesNumberWith.length > 0 && (
+              <div className="flex items-center gap-1 text-sm text-muted-foreground" title="Registered on the same WhatsApp number">
+                <Users className="w-3 h-3" aria-hidden="true" />
+                <span>
+                  shared with{' '}
+                  {sharesNumberWith.map((p, i) => (
+                    <span key={p.id}>
+                      {i > 0 && ', '}
+                      <Link href={`/patients/${p.id}`} className="underline underline-offset-2 hover:text-foreground">{p.full_name}</Link>
+                    </span>
+                  ))}
+                </span>
+              </div>
+            )}
           </div>
         </div>
         <Link href="/episodes/new">
