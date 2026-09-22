@@ -299,6 +299,15 @@ export function buildNotRegisteredMessage(to: string): OutboundMessage {
   }
 }
 
+/** A registered number whose every episode is closed; addressed by name when the number is one patient's. */
+export function buildNoOpenEpisodeMessage(to: string, patientName: string | null): OutboundMessage {
+  return {
+    type: 'text',
+    to,
+    body: `${patientName ? `Hi ${patientName}` : 'Hello'} 👋\n\nYour care episode with us has ended, so the assistant is no longer following up on this number. If you need help, please contact the hospital directly.\n\n_If this is a medical emergency, call emergency services now._`,
+  }
+}
+
 // ------------------------------------
 // Instant replies for messages that need no answer (see lib/ai/intent.ts)
 // ------------------------------------

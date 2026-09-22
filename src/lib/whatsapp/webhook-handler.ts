@@ -11,7 +11,7 @@
  */
 
 import { createServiceClient } from '@/lib/supabase/server'
-import { resolveHospital, isKnownNumber, findOpenEpisodesByPhone, getOrCreateConversation } from './recipient'
+import { resolveHospital, patientsOnNumber, findOpenEpisodesByPhone, getOrCreateConversation } from './recipient'
 import type { ServiceClient, InboundHospital, InboundPatient, InboundEpisode } from './recipient'
 import { alreadyHandled, logInbound } from './inbound-log'
 import { loadNumberSession, saveNumberSession } from './number-session'
@@ -25,6 +25,7 @@ import type { OutboundMessage } from './client'
 import { sendAndLog } from './outbound'
 import {
   buildNotRegisteredMessage,
+  buildNoOpenEpisodeMessage,
   buildEscalationAcknowledgement,
   buildAcknowledgementReply,
   buildGreetingReply,
@@ -256,13 +257,10 @@ export async function handleInboundMessage(
   if (candidates.length === 0) {
     // Once an hour per number: a stranger's fourth message gets no fourth reply.
     if (!shouldReplyToUnknown(`${phoneNumberId}|${message.from}`)) return
-    if (await isKnownNumber(supabase, hospital.id, message.from)) {
-      // Registered, but every episode is closed.
-      await sendMessage(phoneNumberId, {
-        type: 'text',
-        to: message.from,
-        body: `Hello,\n\nWe do not have an active care episode for this number at this time. Please contact the hospital if you have questions.`,
-      })
+    const known = await patientsOnNumber(supabase, hospital.id, message.from)
+    if (known.length > 0) {
+      // Registered, but every episode is closed — by name when the number is one patient's.
+      await sendMessage(phoneNumberId, buildNoOpenEpisodeMessage(message.from, known.length === 1 ? known[0] : null))
     } else {
       await sendMessage(phoneNumberId, buildNotRegisteredMessage(message.from))
     }

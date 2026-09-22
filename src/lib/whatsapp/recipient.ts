@@ -52,18 +52,19 @@ export async function resolveHospital(
   return (data as InboundHospital | null) ?? null
 }
 
-/** True when at least one patient at this hospital is registered with the number. */
-export async function isKnownNumber(
+/** Names of the patients registered with this number at this hospital (empty: an unknown number). */
+export async function patientsOnNumber(
   supabase: ServiceClient,
   hospitalId: string,
   phone: string,
-): Promise<boolean> {
-  const { count } = await supabase
+): Promise<string[]> {
+  const { data } = await supabase
     .from('patients')
-    .select('id', { count: 'exact', head: true })
+    .select('full_name')
     .eq('hospital_id', hospitalId)
     .eq('phone_e164', phone)
-  return (count ?? 0) > 0
+    .order('full_name')
+  return ((data ?? []) as Array<{ full_name: string }>).map((p) => p.full_name)
 }
 
 interface OpenEpisodeRow {

@@ -144,6 +144,13 @@ async function main() {
   await send(inbound('+971500009999', 'hello??'))
   eq('a second message within the hour gets no second reply', drain().length, 0)
 
+  console.log('— a registered number whose episode has closed —')
+  db.rows('care_episodes').find((e) => e.id === 'ep-solo')!.status = 'completed'
+  await send(inbound(SOLO_PHONE, 'hello again'))
+  sent = drain()
+  includes('told by name that the episode has ended', sent[0]?.body ?? '', 'Hi Priya Nair')
+  db.rows('care_episodes').find((e) => e.id === 'ep-solo')!.status = 'active'
+
   console.log('— a shared number, first contact: the assistant has to ask —')
   const hi = inbound(FAMILY_PHONE, 'hi')
   await send(hi)
