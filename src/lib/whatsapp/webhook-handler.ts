@@ -11,7 +11,7 @@
  */
 
 import { createServiceClient } from '@/lib/supabase/server'
-import { resolveHospital, isKnownNumber, findOpenEpisodesByPhone } from './recipient'
+import { resolveHospital, isKnownNumber, findOpenEpisodesByPhone, getOrCreateConversation } from './recipient'
 import { alreadyHandled, logInbound } from './inbound-log'
 import type { ServiceClient } from './recipient'
 import { sendMessage, markAsRead } from './client'
@@ -250,30 +250,13 @@ export async function handleInboundMessage(
   const { patient, episode } = candidates[0]
 
   // 4. Get or create the conversation record (messages hang off it)
-  let { data: conversation } = await supabase
-    .from('whatsapp_conversations')
-    .select('id, conversation_state')
-    .eq('episode_id', episode.id)
-    .maybeSingle()
-
-  if (!conversation) {
-    const { data: created, error: convErr } = await supabase
-      .from('whatsapp_conversations')
-      .insert({
-        episode_id: episode.id,
-        hospital_id: hospital.id,
-        patient_id: patient.id,
-        wa_phone: message.from,
-        conversation_state: 'idle',
-      })
-      .select('id, conversation_state')
-      .single()
-    if (convErr || !created) {
-      console.error('[WhatsApp] could not create conversation:', convErr?.message)
-      return
-    }
-    conversation = created
-  }
+  const conversation = await getOrCreateConversation(supabase, {
+    episodeId: episode.id,
+    hospitalId: hospital.id,
+    patientId: patient.id,
+    phone: message.from,
+  })
+  if (!conversation) return
 
   const state = readConversationState(conversation.conversation_state).state
 

@@ -107,3 +107,40 @@ export async function findOpenEpisodesByPhone(
   }
   return candidates
 }
+
+export interface InboundConversation {
+  id: string
+  conversation_state: unknown
+}
+
+/**
+ * The conversation a message lands on — one per episode (UNIQUE). A single
+ * upsert on episode_id replaces the old select-then-insert, which two
+ * simultaneous first messages could both fail (the second insert hit the
+ * unique index and the message was dropped). Only the identity columns are
+ * written, so an existing row keeps its conversation_state; wa_phone is
+ * refreshed to the number the patient is actually writing from.
+ */
+export async function getOrCreateConversation(
+  supabase: ServiceClient,
+  params: { episodeId: string; hospitalId: string; patientId: string; phone: string },
+): Promise<InboundConversation | null> {
+  const { data, error } = await supabase
+    .from('whatsapp_conversations')
+    .upsert(
+      {
+        episode_id: params.episodeId,
+        hospital_id: params.hospitalId,
+        patient_id: params.patientId,
+        wa_phone: params.phone,
+      },
+      { onConflict: 'episode_id' },
+    )
+    .select('id, conversation_state')
+    .single()
+  if (error || !data) {
+    console.error('[WhatsApp] could not get or create conversation:', error?.message)
+    return null
+  }
+  return data as InboundConversation
+}
