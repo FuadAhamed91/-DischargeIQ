@@ -17,7 +17,8 @@ import type { LanguageCode } from '@/types/enums'
 import type { DischargeSummary, Medication } from '@/types/database'
 
 // Set to true to send plain text instead of template messages while Meta reviews them.
-const USE_TEXT_FALLBACK = process.env.WHATSAPP_USE_TEXT_FALLBACK === 'true'
+// Read per call, not at load: scripts and checks set the flag after this module is imported.
+const textFallbackEnabled = () => process.env.WHATSAPP_USE_TEXT_FALLBACK === 'true'
 
 // ------------------------------------
 // Language helpers
@@ -136,7 +137,7 @@ export function buildDischargeSummaryMessage(params: {
   const appointments = params.appointments ?? []
   const timezone = params.timezone ?? 'Asia/Dubai'
 
-  if (USE_TEXT_FALLBACK) {
+  if (textFallbackEnabled()) {
     const t = CARE_PLAN_STRINGS[language] ?? CARE_PLAN_STRINGS.en
 
     const medRows = translation?.medications?.length === medications.length && translation.medications.length > 0
@@ -240,7 +241,7 @@ export function buildMedicationReminder(params: {
 }): OutboundMessage {
   const { to, patientName, medication } = params
 
-  if (USE_TEXT_FALLBACK) {
+  if (textFallbackEnabled()) {
     return {
       type: 'text',
       to,

@@ -32,6 +32,7 @@ export const ALERT_TYPE_LABELS: Record<string, string> = {
   missed_appointment: 'Missed appointment',
   unconfirmed_appointment: 'Appointment not confirmed',
   missed_medication: 'Missed medication',
+  delivery_failed: 'WhatsApp message not delivered',
 }
 
 export const ALERT_STATUS_LABELS: Record<string, string> = {

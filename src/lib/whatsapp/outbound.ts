@@ -11,6 +11,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { sendMessage, renderMessageBody } from './client'
+import { explainDeliveryError } from './delivery'
 import type { OutboundMessage, SendResult } from './client'
 import type { ConversationState } from './fsm'
 
@@ -82,7 +83,9 @@ export async function sendAndLog(params: SendAndLogParams): Promise<SendAndLogRe
       message_type: messageTypeForLog(message),
       content: renderMessageBody(message),
       status: result.status === 'success' ? 'sent' : 'failed',
-      metadata: result.status === 'success' ? { ...metadata } : { ...metadata, error: result.error ?? 'send failed' },
+      metadata: result.status === 'success'
+        ? { ...metadata }
+        : { ...metadata, error: explainDeliveryError(result.errorCode, result.error), error_code: result.errorCode ?? null },
     })
     .select('id')
     .single()

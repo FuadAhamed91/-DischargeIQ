@@ -309,7 +309,8 @@ async function main() {
   eq('late delivered receipt does not roll back', firstOutbound.status, 'read')
   const secondOutbound = db.rows('whatsapp_messages').find((m) => m.wa_message_id === 'SMout2')!
   await applyStatusCallback(client, { ...receipt('failed', { ErrorCode: '63016', ErrorMessage: 'Failed to send freeform message' })!, messageSid: 'SMout2' })
-  eq('failure with the Twilio reason', [secondOutbound.status, (secondOutbound.metadata as Record<string, unknown>).error], ['failed', 'Failed to send freeform message (63016)'])
+  eq('failure explained in plain language', [secondOutbound.status, String((secondOutbound.metadata as Record<string, unknown>).error).includes('24-hour window'), (secondOutbound.metadata as Record<string, unknown>).error_code], ['failed', true, 63016])
+  eq('…and the nurse is alerted once', db.rows('alerts').filter((a) => a.type === 'delivery_failed').length, 1)
   await applyStatusCallback(client, { ...receipt('delivered')!, messageSid: 'SM-not-ours' })
   eq('unknown SID ignored', db.log.filter((l) => l.op === 'update' && l.table === 'whatsapp_messages').length, 3)
 
@@ -340,6 +341,35 @@ async function main() {
   sent = drain()
   eq('two replies, in order: Q2 then good night', sent.map((m) => (m.body.includes('Sleep well') ? 'goodnight' : m.body.includes('feeling tonight') ? 'q2' : 'other')), ['q2', 'goodnight'])
   eq('conversation idle again', stateOf('c-umar'), 'idle')
+
+  console.log('— a care plan that never arrived goes out again when the patient writes —')
+  // Priya's plan was sent outside WhatsApp's 24-hour window: Twilio accepted it, then reported 63016.
+  db.rows('discharge_summaries').push({
+    id: 'sum-solo', episode_id: 'ep-solo', hospital_id: 'h1', status: 'sent', source_language: 'en',
+    emergency_symptoms: ['Chest pain'], lifestyle_instructions: [], restrictions: [], activities: [],
+  })
+  db.rows('medications').push({ id: 'med-1', summary_id: 'sum-solo', hospital_id: 'h1', name: 'Aspirin', dosage: '75 mg', frequency: 'once daily', instructions: '', reminder_times: [], sort_order: 0 })
+  await send(inbound(SOLO_PHONE, 'hello'))
+  drain()
+  const priyaConversation = db.rows('whatsapp_conversations').find((c) => c.episode_id === 'ep-solo')!
+  db.rows('whatsapp_messages').push({
+    id: 'm-plan-1', conversation_id: priyaConversation.id, hospital_id: 'h1', direction: 'outbound', message_type: 'text',
+    wa_message_id: 'SMplan1', content: '(care plan)', status: 'failed',
+    metadata: { kind: 'care_plan', summary_id: 'sum-solo', error_code: 63016, error: 'outside the 24-hour window' },
+    created_at: '2026-09-22T10:26:19Z',
+  })
+  await send(inbound(SOLO_PHONE, 'Hi'))
+  sent = drain()
+  includes('care plan re-sent first (in her language)', sent[0]?.body ?? '', 'डिस्चार्ज निर्देश')
+  includes('…with her medicines', sent[0]?.body ?? '', 'Aspirin')
+  const planMeta = (m: Record<string, unknown>) => m.metadata as Record<string, unknown>
+  const resent = db.rows('whatsapp_messages').filter((m) => m.conversation_id === priyaConversation.id && planMeta(m)?.kind === 'care_plan')
+  eq('logged as a re-send triggered by her message', resent.map((m) => [planMeta(m).resend ?? null, planMeta(m).trigger ?? null]), [[null, null], [true, 'patient_message']])
+  eq('timeline: summary_sent again, marked resend', db.rows('patient_timeline_events').filter((e) => e.episode_id === 'ep-solo' && e.event_type === 'summary_sent').map((e) => (e.payload as Record<string, unknown>).resend), [true])
+  await send(inbound(SOLO_PHONE, 'thanks'))
+  sent = drain()
+  eq('not sent a third time once it went through', sent.filter((m) => m.body.includes('💊')).length, 0)
+
 
   console.log(fails === 0 ? '\nALL PASSED' : `\n${fails} FAILED`)
   process.exit(fails ? 1 : 0)

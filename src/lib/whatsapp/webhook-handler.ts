@@ -15,6 +15,7 @@ import { resolveHospital, patientsOnNumber, findOpenEpisodesByPhone, getOrCreate
 import type { ServiceClient, InboundHospital, InboundPatient, InboundEpisode } from './recipient'
 import { alreadyHandled, logInbound } from './inbound-log'
 import { loadNumberSession, saveNumberSession } from './number-session'
+import { redeliverFailedCarePlan } from './care-plan'
 import { loadRoutingCandidates, askWhoIsThisAbout } from './shared-number'
 import { routeInbound, sessionAfterDelivery, EMPTY_SESSION } from './routing'
 import type { RoutedVia, RoutingDecision } from './routing'
@@ -406,6 +407,17 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
     return
   }
   const savedMsg = logged.status === 'logged' ? { id: logged.messageId } : null
+
+  // 6b. A care plan that never reached this patient (sent outside WhatsApp's
+  // 24-hour window, sandbox not joined) can go out now: their message just
+  // opened the window. Independent of what the message says.
+  await redeliverFailedCarePlan({
+    supabase,
+    conversationId: conversation.id,
+    episodeId: episode.id,
+    hospital: { id: hospital.id, name: hospital.name, whatsapp_phone_number_id: phoneNumberId, timezone: hospital.timezone },
+    patient: { id: patient.id, full_name: patient.full_name, phone: message.from, preferred_language: patient.preferred_language },
+  })
 
   // 7. Run FSM
   const result = transition(state, message)

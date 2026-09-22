@@ -2,17 +2,24 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { resolveAuthContext, apiSuccess, apiError } from '@/lib/utils/api'
-import { sendAndLog } from '@/lib/whatsapp/outbound'
-import { buildDischargeSummaryMessage } from '@/lib/whatsapp/templates'
-import type { CarePlanAppointment, CarePlanTranslation } from '@/lib/whatsapp/templates'
+import { sendCarePlan, latestCarePlanMessage } from '@/lib/whatsapp/care-plan'
+import { explainDeliveryError } from '@/lib/whatsapp/delivery'
 import { nightlyCheckinSchedule } from '@/lib/reminders/checkin'
 import { rememberPatientIfShared } from '@/lib/whatsapp/number-session'
-import type { LanguageCode } from '@/types/enums'
 
 export const dynamic = 'force-dynamic'
 
+/**
+ * Sends the care plan to the patient on WhatsApp.
+ *
+ * First send: the summary must be approved; it becomes "sent", the episode
+ * becomes active and the nightly check-in is scheduled.
+ * Resend (body {"resend": true}): allowed once the summary is "sent" only
+ * when the last care-plan message did not reach the patient — the dashboard
+ * offers it next to the delivery failure. Nothing else changes.
+ */
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const auth = await resolveAuthContext()
@@ -24,6 +31,9 @@ export async function POST(
   }
 
   const { id: episodeId } = await params
+  const body = await request.json().catch(() => ({})) as { resend?: boolean }
+  const wantsResend = body?.resend === true
+
   const supabase = await createClient()
   const serviceClient = await createServiceClient()
 
@@ -50,15 +60,28 @@ export async function POST(
     .single()
 
   if (!summary) return NextResponse.json(apiError('Discharge summary not found'), { status: 404 })
+
+  const { data: conversation } = await serviceClient
+    .from('whatsapp_conversations')
+    .select('id')
+    .eq('episode_id', episodeId)
+    .maybeSingle()
+  const lastCarePlan = conversation ? await latestCarePlanMessage(serviceClient, conversation.id) : null
+
   if (summary.status === 'sent') {
-    return NextResponse.json(apiError('Summary has already been sent to the patient'), { status: 409 })
-  }
-  if (summary.status !== 'approved') {
+    if (!wantsResend) {
+      return NextResponse.json(apiError('Summary has already been sent to the patient'), { status: 409 })
+    }
+    if (lastCarePlan && lastCarePlan.status !== 'failed') {
+      return NextResponse.json(apiError('The care plan reached the patient — there is nothing to resend'), { status: 409 })
+    }
+  } else if (summary.status !== 'approved') {
     return NextResponse.json(
       apiError('Summary must be approved before sending'),
       { status: 409 },
     )
   }
+  const isResend = summary.status === 'sent'
 
   // Load patient
   const { data: patient } = await serviceClient
@@ -86,50 +109,25 @@ export async function POST(
     )
   }
 
-  const patientLanguage = (patient.preferred_language as LanguageCode) ?? 'en'
-
-  // Medications, the follow-up appointments (booked or provisional from the
-  // letter) and, when the patient reads another language, the stored translation.
-  const [{ data: medications }, { data: appointments }, { data: translation }] = await Promise.all([
-    supabase.from('medications').select('*').eq('summary_id', summary.id).order('sort_order'),
-    serviceClient
-      .from('appointments')
-      .select('specialty, scheduled_at, location, time_tbc, status')
-      .eq('episode_id', episodeId)
-      .in('status', ['scheduled', 'confirmation_pending', 'confirmed'])
-      .order('scheduled_at', { ascending: true }),
-    patientLanguage !== summary.source_language
-      ? serviceClient.from('discharge_summary_translations').select('content').eq('summary_id', summary.id).eq('language', patientLanguage).maybeSingle()
-      : Promise.resolve({ data: null }),
-  ])
-
-  // Build and send the WhatsApp message
-  const msgPayload = buildDischargeSummaryMessage({
-    to: patient.phone_e164,
-    patientName: patient.full_name,
-    hospitalName: hospital.name,
-    language: patientLanguage,
-    summary: summary as Parameters<typeof buildDischargeSummaryMessage>[0]['summary'],
-    medications: (medications ?? []) as Parameters<typeof buildDischargeSummaryMessage>[0]['medications'],
-    appointments: (appointments ?? []) as CarePlanAppointment[],
-    timezone: (hospital.timezone as string | null) ?? 'Asia/Dubai',
-    translation: (translation?.content as CarePlanTranslation | null) ?? null,
-  })
-
-  // Send and record on the patient's conversation (transcript on the dashboard).
-  // The summary asks nothing of the patient, so the conversation stays idle.
-  const result = await sendAndLog({
-    supabase: serviceClient,
-    phoneNumberId: hospital.whatsapp_phone_number_id,
-    message: msgPayload,
+  // Build, send and record on the patient's conversation (transcript on the dashboard).
+  const result = await sendCarePlan({
+    serviceClient,
     episodeId,
-    hospitalId: episode.hospital_id,
-    patientId: patient.id,
+    summary,
+    patient: { id: patient.id, full_name: patient.full_name, phone: patient.phone_e164, preferred_language: patient.preferred_language },
+    hospital: {
+      id: hospital.id,
+      name: hospital.name,
+      whatsapp_phone_number_id: hospital.whatsapp_phone_number_id,
+      timezone: (hospital.timezone as string | null) ?? 'Asia/Dubai',
+    },
+    resend: isResend,
+    trigger: 'nurse',
   })
 
   if (result.status === 'failed') {
     return NextResponse.json(
-      apiError('WhatsApp send failed', result.error),
+      apiError('WhatsApp did not accept the message', explainDeliveryError(result.errorCode, result.error)),
       { status: 502 },
     )
   }
@@ -144,6 +142,31 @@ export async function POST(
     episodeId,
   })
 
+  // Timeline event (service client: the user role can only read this table)
+  await serviceClient.from('patient_timeline_events').insert({
+    episode_id: episodeId,
+    hospital_id: episode.hospital_id,
+    event_type: 'summary_sent',
+    payload: {
+      summary_id: summary.id,
+      wa_message_id: result.messageId,
+      sent_by: profile.id,
+      ...(isResend ? { resend: true, trigger: 'nurse', previous_message_id: lastCarePlan?.messageId ?? null } : {}),
+    },
+    created_by: profile.id,
+  })
+
+  if (isResend) {
+    // Delivery is only known once Twilio reports back; the nurse's own alert is cleared now.
+    await serviceClient
+      .from('alerts')
+      .update({ status: 'resolved', resolved_at: new Date().toISOString() })
+      .eq('episode_id', episodeId)
+      .eq('status', 'open')
+      .eq('type', 'delivery_failed')
+    return NextResponse.json(apiSuccess({ waMessageId: result.messageId, resend: true }))
+  }
+
   // Update summary status + episode
   await supabase
     .from('discharge_summaries')
@@ -154,19 +177,6 @@ export async function POST(
     .from('care_episodes')
     .update({ status: 'active', started_at: new Date().toISOString() })
     .eq('id', episodeId)
-
-  // Timeline event
-  await (await createServiceClient()).from('patient_timeline_events').insert({
-    episode_id: episodeId,
-    hospital_id: episode.hospital_id,
-    event_type: 'summary_sent',
-    payload: {
-      summary_id: summary.id,
-      wa_message_id: result.messageId,
-      sent_by: profile.id,
-    },
-    created_by: profile.id,
-  })
 
   // Schedule the nightly check-in (one per episode). Dose times stay on the
   // medications as instructions in the summary; they are not messaged.

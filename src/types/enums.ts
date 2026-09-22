@@ -45,6 +45,7 @@ export type AlertType =
   | 'missed_appointment'
   | 'unconfirmed_appointment'
   | 'missed_medication'
+  | 'delivery_failed'
 
 export type AlertStatus = 'open' | 'acknowledged' | 'resolved'
 

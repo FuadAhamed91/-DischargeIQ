@@ -388,6 +388,9 @@ export function ConversationTranscript({
                         <CheckCheck className="h-3 w-3 text-info" aria-label="Read" />
                       )}
                     </div>
+                    {failed && error && (
+                      <p className="mt-1.5 rounded-md bg-danger-soft px-2 py-1 text-[11px] leading-snug text-danger">{error}</p>
+                    )}
                   </div>
                 </div>
               </div>

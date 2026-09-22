@@ -9,7 +9,8 @@
  *
  * Embeds in select strings ("patients!inner(id, full_name)") follow the
  * relations declared in RELATIONS; a filter on "patients.phone_e164" applies
- * to the embedded row. UNIQUE columns raise 23505 like Postgres does.
+ * to the embedded row and "metadata->>kind" reads a JSON key as text.
+ * UNIQUE columns raise 23505 like Postgres does.
  *
  * Deliberately not a general PostgREST clone — it covers what the handler
  * and its helpers use, and throws on anything else so a new query pattern
@@ -141,8 +142,14 @@ class FakeQuery implements PromiseLike<QueryResult> {
     })
   }
 
-  /** "patients.phone_e164" reaches into the embedded relation. */
+  /** "patients.phone_e164" reaches into the embedded relation; "metadata->>kind" into a JSON column (as text, like PostgREST). */
   private resolveColumn(row: Row, col: string): unknown {
+    if (col.includes('->>')) {
+      const [jsonCol, key] = col.split('->>')
+      const inner = row[jsonCol]
+      const value = inner && typeof inner === 'object' ? (inner as Row)[key] : undefined
+      return value === undefined || value === null ? undefined : typeof value === 'string' ? value : JSON.stringify(value)
+    }
     if (!col.includes('.')) return row[col]
     const [relName, ...rest] = col.split('.')
     const related = this.embed(row, relName)

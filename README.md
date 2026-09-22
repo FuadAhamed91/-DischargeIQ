@@ -78,6 +78,15 @@ patient's language and the content uses the stored `discharge_summary_translatio
 patient's language differs from the document's. Preview it without sending:
 `npx --yes tsx scripts/preview-care-plan.ts hi`.
 
+**Did it arrive?** Every outbound message names the webhook as its Twilio `StatusCallback`, so the
+row in `whatsapp_messages` moves `sent → delivered → read` (ticks on the Conversation tab) or becomes
+`failed` with the reason in plain language in `metadata.error` (`lib/whatsapp/delivery.ts`).
+"Accepted by Twilio" is not "reached the patient": WhatsApp only allows free-text messages within
+**24 hours of the patient's last message** (Twilio error 63016), and the sandbox only reaches numbers
+that have joined it (63015). A failed care plan raises a `delivery_failed` alert and a banner on the
+episode page with **Resend now**; and the moment the patient sends *anything* to the hospital
+number, `redeliverFailedCarePlan` sends the plan again on its own (`lib/whatsapp/care-plan.ts`).
+
 ### 2. Nightly check-in (automatic)
 
 One scheduled conversation per patient per day, at **21:00 hospital-local** (override:
@@ -190,9 +199,10 @@ caption is answered with "I cannot look at pictures yet" instead of being sent t
 
 **Delivery receipts.** Every send asks Twilio to report back to the webhook (`StatusCallback`, when
 `NEXT_PUBLIC_APP_URL` is `https`). Transcript rows move sent → delivered → read (one tick, two, two
-in blue) or to failed with Twilio's reason — 63016 "not joined to the sandbox" is the one you will
-see most. Nurses can also press **Forget** on the shared-number notice to reset who a number is
-currently taken to be writing about.
+in blue) or to failed with the reason in plain language — 63016 "sent outside WhatsApp's 24-hour
+window" is the one you will see most; a failed care plan is re-sent on its own when the patient next
+writes (section 1). Nurses can also press **Forget** on the shared-number notice to reset who a
+number is currently taken to be writing about.
 
 **Nurse chat.** Clinical staff can write to the patient from that tab (`POST /api/v1/episodes/[id]/messages`).
 The message is sent as the nurse (logged with `metadata.sender = 'nurse'`, shown in a solid bubble
@@ -263,7 +273,7 @@ src/
   components/  alerts/  analytics/  appointments/  episodes/  patients/ (timeline, transcript, adherence)  ui/ (shadcn)
   types/       database.ts  enums.ts  api.ts
 supabase/
-  migrations/  00001 … 00012 (see Database)
+  migrations/  00001 … 00013 (see Database)
   seed.sql     demo hospital, department, approved guidance
   demo_seed.sql evergreen demo dataset (7 patients incl. a shared family number; all dates relative to today)
 scripts/
@@ -340,6 +350,7 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/appo
 | 00010 | `follow_up_appointments` | `appointments.time_tbc`; backfills provisional appointments for dated follow-ups on open episodes and links existing appointments to their follow-up |
 | 00011 | `whatsapp_number_sessions` | Per (hospital, sender number): the patient a shared number is currently writing about and any pending "who is this about?" question with its held message; hospital-scoped SELECT |
 | 00012 | `realtime_number_sessions` | Realtime for the shared-number notice on the Conversation tab |
+| 00013 | `delivery_failed_alert` | `alert_type += delivery_failed` for undelivered WhatsApp messages (the code falls back to `escalation` until applied) |
 
 Applying to a project:
 
@@ -415,7 +426,7 @@ build cache.
 
 **Supabase** — one project per environment. New project checklist:
 
-1. `supabase db push` (migrations 00001–00012), then `seed.sql` and, if wanted, `demo_seed.sql`.
+1. `supabase db push` (migrations 00001–00013), then `seed.sql` and, if wanted, `demo_seed.sql`.
 2. Create staff auth users + `profiles` rows.
 3. Set the hospital's `whatsapp_phone_number_id`.
 4. Configure pg_cron dispatch (service role, via SQL editor or REST `rpc/configure_cron_dispatch`):
@@ -469,10 +480,13 @@ messages with the name (`Umar: …`). A best-guess delivery also raised a low al
 same time. The dispatcher staggers nightly check-ins on a shared number so this should be rare; a
 name at the start of the reply answers it for good, and `switch` lists the patients again.
 
-**Reminders failing to send** — `reminder_jobs.status = 'failed'` plus the Twilio error in the
-transcript ("Not delivered"). Common causes: recipient not joined to the sandbox (63016), sandbox
-session expired (63015), or missing Twilio env vars. Demo patients have fake numbers, so their daily
-reminders are *expected* to fail while Twilio is configured.
+**A message shows "Not delivered"** — the reason is on the bubble (Conversation tab) and on the
+timeline. 63016: sent more than 24 hours after the patient's last message (WhatsApp's window) — the
+patient sends any message and the care plan goes out again automatically; other messages the nurse
+resends by hand. 63015: the number has not joined the Twilio sandbox (`join <keyword>`; sandbox
+sessions lapse after 72 hours). No receipt at all: `NEXT_PUBLIC_APP_URL` must be the public https
+URL, or Twilio has nowhere to post the status. Demo patients have fake numbers, so their messages
+are *expected* to fail while Twilio is configured.
 
 **Supabase project paused** (free tier pauses after a week idle) — Dashboard → Resume. The 5-minute
 pg_cron job normally keeps it active.
@@ -508,11 +522,12 @@ functions callable by `authenticated` (required — policies evaluate them as th
 npm run lint           # eslint — clean; CI runs it with --max-warnings=0
 npx tsc --noEmit       # typecheck
 npm run build          # production build (needs NEXT_PUBLIC_SUPABASE_* set; placeholders are fine)
-npm run check          # all four below
+npm run check          # all five below
 npm run check:intent   # table-driven checks: pre-intent classifier, escalation derivation, FSM (check-in, nurse chat, media), state parsing
 npm run check:routing  # shared-number routing: name prefixes, answers to "who is this about?", the decision order, expiries
 npm run check:webhook  # the inbound handler end to end against an in-memory Supabase and a captured Twilio (no keys, no network)
 npm run check:gemini   # 11 checks on the Gemini wrapper: retry on 429/503/network, model fallback, 403 fails fast, budget respected
+npm run check:delivery # Twilio status callbacks: sent → delivered → read ordering, failure reasons, one alert per message
 ```
 
 `scripts/lib/fake-supabase.ts` is the in-memory stand-in the webhook check runs on: enough of the
@@ -528,6 +543,10 @@ check the alert. For the shared-number flow, register a second patient on the sa
 ## Known limitations
 
 - **Twilio sandbox**, not a WhatsApp Business number: text only, per-number opt-in, 72-hour expiry.
+- **WhatsApp's 24-hour window** applies to every business-initiated message (care plan, nightly
+  check-in, appointment requests): outside it only approved templates are delivered, and the sandbox
+  has none of ours. Today the failure is reported and the care plan self-heals when the patient
+  writes; a production number needs Meta-approved templates for these openers.
 - **Shared numbers**: the who-is-this-about question is answered by number or name; a held message is
   dropped if nobody answers within an hour (an emergency keyword or a voice note is never held). The
   per-sender ordering and the unknown-number cooldown live in process memory — one `next dev` or one

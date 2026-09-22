@@ -21,6 +21,8 @@ import { ArrowLeft, Pencil, User, Calendar, Pill, AlertTriangle, ChevronRight, M
 import { fmt } from '@/lib/format'
 import { readConversationState } from '@/lib/whatsapp/fsm'
 import { LiveRefresh } from '@/components/shared/live-refresh'
+import { CarePlanDeliveryBanner } from '@/components/episodes/care-plan-delivery'
+import { CARE_PLAN_KIND, summariseCarePlanMessage } from '@/lib/whatsapp/care-plan'
 import type { RiskLevel, EpisodeStatus, SummaryStatus, LanguageCode } from '@/types/enums'
 import type { Medication, FollowUpRequirement } from '@/types/database'
 
@@ -94,6 +96,9 @@ export default async function EpisodeDetailPage({
     return m as TranscriptMessage
   })
   const conversationState = readConversationState(conversation?.conversation_state)
+  // Whether the care plan actually reached the patient (Twilio delivery receipts land on the message row).
+  const lastCarePlanRow = [...transcript].reverse().find((m) => m.direction === 'outbound' && m.metadata?.kind === CARE_PLAN_KIND)
+  const carePlanDelivery = lastCarePlanRow ? summariseCarePlanMessage(lastCarePlanRow) : null
 
   const patient = episode.patients as { id: string; full_name: string; phone_e164: string; preferred_language: string; mrn: string; date_of_birth: string | null }
 
@@ -176,6 +181,11 @@ export default async function EpisodeDetailPage({
           </Link>
         )}
       </div>
+
+      {/* The care plan was accepted by WhatsApp but never reached the patient */}
+      {carePlanDelivery?.status === 'failed' && (
+        <CarePlanDeliveryBanner episodeId={id} delivery={carePlanDelivery} patientName={patient.full_name} timezone={tz} />
+      )}
 
       {/* Open alerts banner */}
       {openAlerts.length > 0 && (

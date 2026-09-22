@@ -3,8 +3,9 @@
  *
  * Every send asks Twilio to report back to the same webhook (StatusCallback,
  * set in client.ts), so the transcript can show whether a message was
- * delivered or read — or failed, with the reason: 63016 "not joined to the
- * sandbox", 63015 "sandbox session expired", and so on.
+ * delivered or read — or failed, with the reason in plain language (63016:
+ * outside WhatsApp's 24-hour window, 63015: not joined to the sandbox, …;
+ * see lib/whatsapp/delivery.ts, which also raises the nurse's alert).
  *
  * A receipt is a POST with MessageStatus and no message body. Statuses can
  * arrive out of order, so a row only ever moves forward:
@@ -12,6 +13,7 @@
  */
 
 import type { ServiceClient } from './recipient'
+import { applyDeliveryStatus } from './delivery'
 
 export interface StatusCallback {
   messageSid: string
@@ -53,30 +55,21 @@ export function nextRowStatus(current: RowStatus, receipt: StatusCallback['statu
   return target
 }
 
-/** Applies a receipt to the logged message. Unknown SIDs (older rows, other senders) are ignored. */
+/**
+ * Applies a receipt to the logged message: status, plain-language reason,
+ * and — on a failure — the nurse's alert. Unknown SIDs (older rows, other
+ * senders) are ignored.
+ */
 export async function applyStatusCallback(supabase: ServiceClient, receipt: StatusCallback): Promise<void> {
-  const { data: row } = await supabase
-    .from('whatsapp_messages')
-    .select('id, status, metadata')
-    .eq('wa_message_id', receipt.messageSid)
-    .maybeSingle()
-  if (!row) return
-
-  const next = nextRowStatus(row.status as RowStatus, receipt.status)
-  if (!next) return
-
-  const metadata = { ...((row.metadata as Record<string, unknown> | null) ?? {}) }
-  if (next === 'failed') {
-    metadata.error = receipt.errorMessage
-      ? `${receipt.errorMessage}${receipt.errorCode ? ` (${receipt.errorCode})` : ''}`
-      : `Twilio ${receipt.status}${receipt.errorCode ? ` (${receipt.errorCode})` : ''}`
-  } else {
-    metadata[`${next}_at`] = new Date().toISOString()
+  const code = receipt.errorCode ? Number(receipt.errorCode) : null
+  const result = await applyDeliveryStatus({
+    supabase,
+    messageSid: receipt.messageSid,
+    twilioStatus: receipt.status,
+    errorCode: Number.isFinite(code) ? code : null,
+    errorMessage: receipt.errorMessage,
+  })
+  if (result.outcome === 'updated' && result.status === 'failed') {
+    console.warn(`[WhatsApp] ${receipt.messageSid} ${receipt.status} error=${receipt.errorCode ?? '-'} alerted=${result.alerted}`)
   }
-
-  const { error } = await supabase
-    .from('whatsapp_messages')
-    .update({ status: next, metadata })
-    .eq('id', row.id)
-  if (error) console.error('[WhatsApp] could not apply status callback:', error.message)
 }

@@ -64,6 +64,8 @@ export interface SendResult {
   messageId: string
   status: 'success' | 'failed'
   error?: string
+  /** Twilio error code when the API refused the message outright (e.g. 63015 not in sandbox). */
+  errorCode?: number
 }
 
 // ------------------------------------
@@ -153,6 +155,7 @@ export async function sendMessage(
         messageId: '',
         status: 'failed',
         error: json.message ?? `HTTP ${res.status}`,
+        errorCode: typeof json.code === 'number' ? json.code : undefined,
       }
     }
 
