@@ -366,6 +366,9 @@ export function ConversationTranscript({
           </div>
           <p className="mt-1.5 text-xs text-muted-foreground">
             Sent as you, in the language you type. The assistant stays quiet for 30 minutes after your last message; emergencies still escalate. Enter to send, Shift+Enter for a new line.
+            {shared && (
+              <> This number is shared with {sharedWith.map((p) => p.patientName.split(' ')[0]).join(' and ')} — say who you are writing about; replies come back to {patientName.split(' ')[0]} while you are chatting.</>
+            )}
           </p>
         </form>
       )}
