@@ -6,6 +6,8 @@ import {
   handleInboundMessage,
 } from '@/lib/whatsapp/webhook-handler'
 import { withSenderLock, senderKey } from '@/lib/whatsapp/sender-queue'
+import { parseStatusCallback, applyStatusCallback } from '@/lib/whatsapp/status-callback'
+import { createServiceClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
 // Inbound handling can include a Twilio reply and AI triage (Whisper + Gemini).
@@ -43,6 +45,20 @@ export async function POST(request: Request) {
       return new NextResponse('Forbidden', { status: 403 })
     }
     console.warn('[Twilio webhook] Invalid signature — allowed in dev mode')
+  }
+
+  // A delivery receipt for something we sent (StatusCallback): update the
+  // transcript row and stop — there is no message to handle.
+  const receipt = parseStatusCallback(formParams)
+  if (receipt) {
+    after(async () => {
+      try {
+        await applyStatusCallback(await createServiceClient(), receipt)
+      } catch (err) {
+        console.error('[Twilio webhook] status callback error:', err)
+      }
+    })
+    return NextResponse.json({ ok: true })
   }
 
   // Extract the Twilio sandbox number ("To" field → identifies the hospital)

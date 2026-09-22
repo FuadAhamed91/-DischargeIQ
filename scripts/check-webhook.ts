@@ -23,6 +23,8 @@ process.env.SUPABASE_SERVICE_ROLE_KEY ??= 'fake'
 import { FakeDb } from './lib/fake-supabase'
 import { handleInboundMessage } from '@/lib/whatsapp/webhook-handler'
 import { withSenderLock, senderKey, pendingSenders } from '@/lib/whatsapp/sender-queue'
+import { parseStatusCallback, applyStatusCallback, nextRowStatus } from '@/lib/whatsapp/status-callback'
+import { parseWebhookPayload } from '@/lib/whatsapp/webhook-handler'
 import type { ServiceClient } from '@/lib/whatsapp/recipient'
 import type { ParsedInbound } from '@/lib/whatsapp/fsm'
 
@@ -240,6 +242,31 @@ async function main() {
   drain()
   await send({ ...again })
   eq('second delivery sends nothing', drain().length, 0)
+
+  console.log('— delivery receipts (Twilio StatusCallback) —')
+  const receipt = (MessageStatus: string, extra: Record<string, string> = {}) =>
+    parseStatusCallback({ MessageSid: 'SMout1', MessageStatus, SmsStatus: MessageStatus, To: `whatsapp:${SOLO_PHONE}`, From: `whatsapp:${HOSPITAL_NUMBER}`, AccountSid: 'AC', ...extra })
+  eq('a receipt is recognised', receipt('delivered')?.status, 'delivered')
+  eq('an inbound message is not a receipt', parseStatusCallback({ MessageSid: 'SMin99', SmsStatus: 'received', Body: 'hi', NumMedia: '0', From: 'whatsapp:+1', To: 'whatsapp:+2' }), null)
+  eq('an inbound message parses as a message', parseWebhookPayload({ MessageSid: 'SMin99', SmsStatus: 'received', Body: 'hi', NumMedia: '0', From: 'whatsapp:+1', To: 'whatsapp:+2' })[0].type, 'text')
+  eq('sent → delivered', nextRowStatus('sent', 'delivered'), 'delivered')
+  eq('delivered → read', nextRowStatus('delivered', 'read'), 'read')
+  eq('read then a late "delivered" is ignored', nextRowStatus('read', 'delivered'), null)
+  eq('queued / sending change nothing', [nextRowStatus('sent', 'queued'), nextRowStatus('sent', 'sending')], [null, null])
+  eq('undelivered → failed', nextRowStatus('delivered', 'undelivered'), 'failed')
+  eq('failed is final', nextRowStatus('failed', 'delivered'), null)
+  const firstOutbound = db.rows('whatsapp_messages').find((m) => m.wa_message_id === 'SMout1')!
+  await applyStatusCallback(client, receipt('delivered')!)
+  eq('row moved to delivered', firstOutbound.status, 'delivered')
+  await applyStatusCallback(client, receipt('read')!)
+  eq('row moved to read, stamped', [firstOutbound.status, typeof (firstOutbound.metadata as Record<string, unknown>).read_at], ['read', 'string'])
+  await applyStatusCallback(client, receipt('delivered')!)
+  eq('late delivered receipt does not roll back', firstOutbound.status, 'read')
+  const secondOutbound = db.rows('whatsapp_messages').find((m) => m.wa_message_id === 'SMout2')!
+  await applyStatusCallback(client, { ...receipt('failed', { ErrorCode: '63016', ErrorMessage: 'Failed to send freeform message' })!, messageSid: 'SMout2' })
+  eq('failure with the Twilio reason', [secondOutbound.status, (secondOutbound.metadata as Record<string, unknown>).error], ['failed', 'Failed to send freeform message (63016)'])
+  await applyStatusCallback(client, { ...receipt('delivered')!, messageSid: 'SM-not-ours' })
+  eq('unknown SID ignored', db.log.filter((l) => l.op === 'update' && l.table === 'whatsapp_messages').length, 3)
 
   console.log('— sender queue: one number in order, different numbers side by side —')
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))

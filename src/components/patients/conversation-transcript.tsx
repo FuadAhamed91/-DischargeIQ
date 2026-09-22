@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import Link from 'next/link'
-import { Mic, AlertCircle, MessageCircle, Send, Loader2, Bot, UserRound, Users } from 'lucide-react'
+import { Mic, AlertCircle, MessageCircle, Send, Loader2, Bot, UserRound, Users, Check, CheckCheck } from 'lucide-react'
 import { format, isSameDay, isToday, isYesterday } from 'date-fns'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -135,6 +135,14 @@ export function ConversationTranscript({
       }, (payload) => {
         const incoming = payload.new as TranscriptMessage
         setMessages((prev) => (prev.some((m) => m.id === incoming.id) ? prev : [...prev, incoming]))
+      })
+      // Delivery receipts update the row in place (sent → delivered → read, or failed).
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'whatsapp_messages',
+        filter: `conversation_id=eq.${conversationId}`,
+      }, (payload) => {
+        const updated = payload.new as TranscriptMessage
+        setMessages((prev) => prev.map((m) => (m.id === updated.id ? { ...m, status: updated.status, metadata: updated.metadata } : m)))
       })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
@@ -351,6 +359,15 @@ export function ConversationTranscript({
                         <span className="inline-flex items-center gap-1 text-danger" title={error ?? 'Delivery failed'}>
                           <AlertCircle className="h-3 w-3" aria-hidden="true" /> Not delivered
                         </span>
+                      )}
+                      {outbound && !failed && m.status === 'sent' && (
+                        <Check className="h-3 w-3" aria-label="Sent" />
+                      )}
+                      {outbound && m.status === 'delivered' && (
+                        <CheckCheck className="h-3 w-3" aria-label="Delivered" />
+                      )}
+                      {outbound && m.status === 'read' && (
+                        <CheckCheck className="h-3 w-3 text-info" aria-label="Read" />
                       )}
                     </div>
                   </div>

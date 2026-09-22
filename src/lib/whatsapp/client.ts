@@ -128,6 +128,10 @@ export async function sendMessage(
 
   const auth = Buffer.from(`${sid}:${token}`).toString('base64')
   const params = new URLSearchParams({ From: from, To: to, Body: body })
+  // Delivery receipts come back to the same webhook (lib/whatsapp/status-callback.ts).
+  // Twilio can only reach a public URL, so a localhost app URL gets none.
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? '').replace(/\/$/, '')
+  if (appUrl.startsWith('https://')) params.set('StatusCallback', `${appUrl}/api/webhooks/whatsapp`)
 
   try {
     const res = await fetch(
