@@ -1,0 +1,27 @@
+# Typecheck, lint and the table-driven checks on every push and pull request.
+# None of these need Supabase, Twilio or model keys — the webhook check runs
+# against an in-memory database with a captured Twilio API.
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Lint
+        run: npm run lint -- --max-warnings=0
+      - name: Table-driven checks (intent, routing, webhook)
+        run: npm run check
