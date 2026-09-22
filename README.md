@@ -169,7 +169,8 @@ and any pending question with the held message. The question is logged on every 
 inbound rows on a shared number carry `metadata.routing = { via, linked_patients }` and the
 Conversation tab shows a "Shared number" notice plus how each message was matched. Intake warns
 when a number is already on another open episode. Table-tested in `scripts/check-routing.ts` and
-end to end in `scripts/check-webhook.ts` (in-memory Supabase, captured Twilio).
+end to end in `scripts/check-webhook.ts` (in-memory Supabase, captured Twilio). Preview the wording
+in any language without sending: `npx --yes tsx scripts/preview-shared-number.ts ar`.
 
 Two more things the handler does for many senders on one number: a redelivered Twilio message
 (retry, double-tap) is handled once — the UNIQUE `wa_message_id` insert is the claim — and messages
