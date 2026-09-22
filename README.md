@@ -246,7 +246,7 @@ src/
 supabase/
   migrations/  00001 … 00011 (see Database)
   seed.sql     demo hospital, department, approved guidance
-  demo_seed.sql evergreen demo dataset (5 patients; all dates relative to today)
+  demo_seed.sql evergreen demo dataset (7 patients incl. a shared family number; all dates relative to today)
 scripts/
   check-intent.ts   table-driven checks for intent / escalation / FSM
 ```
@@ -336,9 +336,10 @@ version in `supabase_migrations.schema_migrations` to keep this true.
 
 - `seed.sql` — the demo hospital (`Dubai General Hospital`, id `00000000-…-0001`), a department, and
   two hospital-approved guidance entries. Idempotent.
-- `demo_seed.sql` — five demo patients with summaries, medications, appointments, alerts, triage,
-  reminders, timeline and 14 days of compliance data. **All dates are relative to `now()`**, so the
-  demo is always current. Idempotent for keyed rows (`ON CONFLICT DO NOTHING`).
+- `demo_seed.sql` — seven demo patients with summaries, medications, appointments, alerts, triage,
+  reminders, timeline and 14 days of compliance data, including the Rahman family (mother and son on
+  one household number, with the who-is-this-about exchange on both transcripts). **All dates are
+  relative to `now()`**, so the demo is always current. Idempotent for keyed rows (`ON CONFLICT DO NOTHING`).
 
 To refresh the demo dataset (e.g. before a demo):
 

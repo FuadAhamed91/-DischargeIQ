@@ -346,3 +346,98 @@ VALUES
   ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003', '+971503234003', now() - interval '2 hours',  '{"state": "idle"}'),
   ('20000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000004', '+971504234004', now() - interval '1 day', '{"state": "idle"}')
 ON CONFLICT (episode_id) DO NOTHING;
+
+-- ── SHARED NUMBER (a family phone) ─────────────────────────────────────
+-- Aisha Rahman and her son Bilal were discharged a few days apart and both
+-- use the household phone. Two patients, two episodes, two conversations,
+-- one number: the transcript shows the assistant asking who a message is
+-- about, the reply, and how each later message was matched
+-- (whatsapp_messages.metadata.routing). See README → "One number, several patients".
+
+INSERT INTO patients (id, hospital_id, mrn, full_name, phone_e164, preferred_language, date_of_birth)
+VALUES
+  ('10000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', 'DGH-2024-006', 'Aisha Rahman', '+971506234006', 'en', '1961-05-02'),
+  ('10000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', 'DGH-2024-007', 'Bilal Rahman', '+971506234006', 'en', '1994-12-19')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO care_episodes (id, hospital_id, patient_id, status, discharge_date, current_risk_level, compliance_score, started_at)
+VALUES
+  ('20000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000006', 'active', current_date - 6, 'green', 90.0, now() - interval '6 days'),
+  ('20000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000007', 'active', current_date - 2, 'green', 100.0, now() - interval '2 days')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO discharge_summaries (id, episode_id, hospital_id, status, source_language, approved_at,
+  emergency_symptoms, lifestyle_instructions, restrictions, activities)
+VALUES
+  -- Aisha — knee replacement
+  ('30000000-0000-0000-0000-000000000006', '20000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001',
+   'sent', 'en', now() - interval '5 days',
+   '["Calf pain or swelling", "Sudden shortness of breath", "Wound redness, warmth or discharge", "Fever above 38.5°C"]',
+   '["Keep the dressing dry", "Ice the knee 20 minutes, 3 times a day", "Take the blood thinner every evening"]',
+   '["No kneeling", "No driving for 6 weeks"]',
+   '["Physiotherapy exercises twice a day", "Walk with the frame indoors"]'),
+  -- Bilal — appendicectomy
+  ('30000000-0000-0000-0000-000000000007', '20000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001',
+   'sent', 'en', now() - interval '1 day',
+   '["Fever above 38°C", "Increasing abdominal pain", "Vomiting", "Wound redness or discharge"]',
+   '["Small, light meals for a week", "Keep the wound clean and dry", "Complete the antibiotic course"]',
+   '["No heavy lifting for 4 weeks", "No swimming until the wound has healed"]',
+   '["Short walks from day one", "Back to desk work when comfortable"]')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO medications (id, summary_id, hospital_id, name, dosage, frequency, instructions, reminder_times, sort_order)
+VALUES
+  ('40000000-0000-0000-0000-000000000060', '30000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', 'Rivaroxaban', '10 mg', 'Once daily', 'Every evening with food, for 14 days', '["20:00"]', 1),
+  ('40000000-0000-0000-0000-000000000061', '30000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', 'Paracetamol', '1 g', 'Up to 4 times daily', 'For pain, at least 4 hours apart', '["08:00", "14:00", "20:00"]', 2),
+  ('40000000-0000-0000-0000-000000000070', '30000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', 'Co-amoxiclav', '625 mg', 'Three times daily', 'With meals, finish the course', '["08:00", "14:00", "20:00"]', 1)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO reminder_schedules (id, episode_id, hospital_id, type, scheduled_time, medication_id, message_template_key, is_active)
+VALUES
+  ('A0000000-0000-0000-0000-000000000008', '20000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', 'symptom_check', '21:00', null, 'nightly_checkin_v1', true),
+  ('A0000000-0000-0000-0000-000000000009', '20000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', 'symptom_check', '21:00', null, 'nightly_checkin_v1', true)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO whatsapp_conversations (id, episode_id, hospital_id, patient_id, wa_phone, last_message_at, conversation_state)
+VALUES
+  ('C0000000-0000-0000-0000-000000000006', '20000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000006', '+971506234006', now() - interval '3 hours', '{"state": "idle"}'),
+  ('C0000000-0000-0000-0000-000000000007', '20000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000007', '+971506234006', now() - interval '1 hour', '{"state": "idle"}')
+ON CONFLICT (episode_id) DO NOTHING;
+
+-- The question went to the number once and is logged on both transcripts (the handler stores the
+-- SID on one copy and null on the other; the seed gives the copy a suffix so re-running stays idempotent).
+INSERT INTO whatsapp_messages (conversation_id, hospital_id, direction, message_type, wa_message_id, content, status, metadata, created_at)
+VALUES
+  ('C0000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', 'outbound', 'text', 'SM-demo-family-01',
+   E'This WhatsApp number is linked to more than one patient.\nWho is this message about?\n\n1. Bilal Rahman\n2. Aisha Rahman\n\nReply with 1 or 2.\nYou can also start any message with a name, e.g. “Aisha: …”\nI will pass your message on as soon as you reply.',
+   'sent', '{"kind": "routing_prompt", "options": ["Bilal Rahman", "Aisha Rahman"], "holding": true}', now() - interval '3 hours 10 minutes'),
+  ('C0000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', 'outbound', 'text', 'SM-demo-family-01b',
+   E'This WhatsApp number is linked to more than one patient.\nWho is this message about?\n\n1. Bilal Rahman\n2. Aisha Rahman\n\nReply with 1 or 2.\nYou can also start any message with a name, e.g. “Aisha: …”\nI will pass your message on as soon as you reply.',
+   'sent', '{"kind": "routing_prompt", "options": ["Bilal Rahman", "Aisha Rahman"], "holding": true}', now() - interval '3 hours 10 minutes'),
+  -- Aisha's daughter answers "2", the held question replays for Aisha
+  ('C0000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', 'inbound', 'text', 'SM-demo-family-02', '2', 'delivered',
+   '{"routing": {"via": "choice", "linked_patients": 2}, "answer": true, "sender_name": "Noor"}', now() - interval '3 hours 8 minutes'),
+  ('C0000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', 'inbound', 'text', 'SM-demo-family-03', 'Can mum take the paracetamol with the blood thinner?', 'delivered',
+   '{"routing": {"via": "choice", "linked_patients": 2}, "sender_name": "Noor"}', now() - interval '3 hours 8 minutes'),
+  ('C0000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', 'outbound', 'text', 'SM-demo-family-04',
+   'Yes — paracetamol can be taken alongside rivaroxaban as prescribed. Keep doses at least 4 hours apart and no more than 4 g of paracetamol a day. Let us know if the knee pain is getting worse rather than better.',
+   'sent', '{}', now() - interval '3 hours 7 minutes'),
+  -- Later, a message that names Bilal goes straight to him
+  ('C0000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', 'inbound', 'text', 'SM-demo-family-05', 'is a bit of tummy pain normal after the operation?', 'delivered',
+   '{"routing": {"via": "name", "linked_patients": 2}, "sender_name": "Noor"}', now() - interval '1 hour'),
+  ('C0000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', 'outbound', 'text', 'SM-demo-family-06',
+   'Some soreness around the wound is expected for the first week, Bilal. Pain that is increasing, a fever above 38°C or vomiting are not — contact the hospital straight away if any of those happen.',
+   'sent', '{}', now() - interval '59 minutes')
+ON CONFLICT (wa_message_id) DO NOTHING;
+
+INSERT INTO whatsapp_number_sessions (hospital_id, wa_phone, active_patient_id, active_until, pending_choice)
+VALUES
+  ('00000000-0000-0000-0000-000000000001', '+971506234006', '10000000-0000-0000-0000-000000000007', now() + interval '23 hours', null)
+ON CONFLICT (hospital_id, wa_phone) DO NOTHING;
+
+INSERT INTO patient_timeline_events (episode_id, hospital_id, event_type, payload, risk_level, created_at)
+VALUES
+  ('20000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', 'whatsapp_inbound',
+   '{"wa_message_id": "SM-demo-family-03", "type": "text", "state_transition": {"from": "idle", "to": "idle", "action": "route_to_ai"}, "routing": {"via": "choice", "linked_patients": 2}, "sender_name": "Noor"}', null, now() - interval '3 hours 8 minutes'),
+  ('20000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', 'whatsapp_inbound',
+   '{"wa_message_id": "SM-demo-family-05", "type": "text", "state_transition": {"from": "idle", "to": "idle", "action": "route_to_ai"}, "routing": {"via": "name", "linked_patients": 2}, "sender_name": "Noor"}', null, now() - interval '1 hour');
