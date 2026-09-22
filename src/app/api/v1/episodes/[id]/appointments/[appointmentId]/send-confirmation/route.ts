@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { resolveAuthContext, apiSuccess, apiError, requireRole } from '@/lib/utils/api'
 import { sendAndLog } from '@/lib/whatsapp/outbound'
 import { buildAppointmentConfirmationRequest } from '@/lib/whatsapp/appointment-templates'
+import { rememberPatientIfShared } from '@/lib/whatsapp/number-session'
 import type { LanguageCode } from '@/types/enums'
 
 export const dynamic = 'force-dynamic'
@@ -92,6 +93,16 @@ export async function POST(
   if (result.status === 'failed') {
     return NextResponse.json(apiError('WhatsApp send failed', result.error), { status: 502 })
   }
+
+  // Shared number: "Can you attend?" makes this patient the topic, so a "1"
+  // is read as their answer even if a relative wrote about someone else earlier.
+  await rememberPatientIfShared(serviceClient, {
+    hospitalId: episode.hospital_id,
+    phone: patient.phone_e164,
+    patientId: episode.patient_id,
+    patientName: patient.full_name,
+    episodeId,
+  })
 
   // Update appointment status
   await supabase

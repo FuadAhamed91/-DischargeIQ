@@ -8,7 +8,8 @@
  */
 
 import type { NumberSession, PendingChoice } from './routing'
-import { EMPTY_SESSION, CHOICE_TTL_MS } from './routing'
+import { EMPTY_SESSION, CHOICE_TTL_MS, sessionAfterDelivery } from './routing'
+import { findOpenEpisodesByPhone } from './recipient'
 import type { ServiceClient } from './recipient'
 
 interface SessionRow {
@@ -63,6 +64,27 @@ export async function saveNumberSession(
       { onConflict: 'hospital_id,wa_phone' },
     )
   if (error) console.error('[WhatsApp] number session write failed:', error.message)
+}
+
+/**
+ * The hospital just wrote to this patient (nurse chat, an appointment to
+ * confirm): on a shared number they become the one the next unaddressed
+ * reply is about. A number with one open episode gets no row.
+ */
+export async function rememberPatientIfShared(
+  supabase: ServiceClient,
+  params: { hospitalId: string; phone: string; patientId: string; patientName: string; episodeId: string },
+): Promise<boolean> {
+  const open = await findOpenEpisodesByPhone(supabase, params.hospitalId, params.phone)
+  if (open.length < 2) return false
+  await saveNumberSession(supabase, params.hospitalId, params.phone, sessionAfterDelivery({
+    patientId: params.patientId,
+    patientName: params.patientName,
+    episodeId: params.episodeId,
+    language: 'en',
+    state: 'idle',
+  }))
+  return true
 }
 
 function isPendingChoice(value: unknown): value is PendingChoice {

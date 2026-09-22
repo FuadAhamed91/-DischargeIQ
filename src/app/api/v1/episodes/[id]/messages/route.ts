@@ -5,9 +5,7 @@ import { resolveAuthContext } from '@/lib/utils/api'
 import { apiSuccess, apiError } from '@/types/api'
 import { sendAndLog } from '@/lib/whatsapp/outbound'
 import { NURSE_ATTENDING_MS } from '@/lib/whatsapp/fsm'
-import { findOpenEpisodesByPhone } from '@/lib/whatsapp/recipient'
-import { saveNumberSession } from '@/lib/whatsapp/number-session'
-import { sessionAfterDelivery } from '@/lib/whatsapp/routing'
+import { rememberPatientIfShared } from '@/lib/whatsapp/number-session'
 
 export const dynamic = 'force-dynamic'
 
@@ -91,16 +89,13 @@ export async function POST(request: Request, { params }: Params) {
 
   // Shared number: the nurse just made this patient the topic. Replies land
   // here anyway while nurse_attending; this keeps them here afterwards too.
-  const onThisNumber = await findOpenEpisodesByPhone(service, episode.hospital_id, episode.patient.phone_e164)
-  if (onThisNumber.length > 1) {
-    await saveNumberSession(service, episode.hospital_id, episode.patient.phone_e164, sessionAfterDelivery({
-      patientId: episode.patient_id,
-      patientName: episode.patient.full_name,
-      episodeId,
-      language: 'en',
-      state: 'nurse_attending',
-    }))
-  }
+  await rememberPatientIfShared(service, {
+    hospitalId: episode.hospital_id,
+    phone: episode.patient.phone_e164,
+    patientId: episode.patient_id,
+    patientName: episode.patient.full_name,
+    episodeId,
+  })
 
   await service.from('patient_timeline_events').insert({
     episode_id: episodeId,
