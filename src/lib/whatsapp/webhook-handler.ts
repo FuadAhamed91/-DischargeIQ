@@ -17,7 +17,7 @@ import { alreadyHandled, logInbound } from './inbound-log'
 import { loadNumberSession, saveNumberSession } from './number-session'
 import { loadRoutingCandidates, askWhoIsThisAbout } from './shared-number'
 import { routeInbound, sessionAfterDelivery, EMPTY_SESSION } from './routing'
-import type { RoutedVia } from './routing'
+import type { RoutedVia, RoutingDecision } from './routing'
 import { buildNowAboutMessage } from './routing-templates'
 import { shouldReplyToUnknown } from './unknown-number'
 import { sendMessage, markAsRead } from './client'
@@ -281,6 +281,7 @@ export async function handleInboundMessage(
   }
 
   const decision = routeInbound(await loadRoutingCandidates(supabase, candidates), session, message)
+  logDecision(message, candidates.length, decision)
 
   if (decision.kind === 'ask') {
     const asked = await askWhoIsThisAbout({
@@ -366,6 +367,20 @@ async function flagBestGuess(
 interface RoutingInfo {
   via: RoutedVia
   linkedPatients: number
+}
+
+/** Last four digits only: enough to follow one sender through the logs, not enough to identify them. */
+function maskPhone(phone: string): string {
+  return `…${phone.slice(-4)}`
+}
+
+/**
+ * One line per inbound message in the server logs — the first place to look
+ * when "a patient's reply wasn't handled" (README → Troubleshooting).
+ */
+function logDecision(message: ParsedInbound, linkedPatients: number, decision: RoutingDecision): void {
+  const who = decision.kind === 'ask' ? `ask ${decision.options.length} options${decision.held ? ', holding' : ''}${decision.repeat ? ', repeat' : ''}` : `${decision.kind} → ${decision.candidate.patientId} (${decision.via})`
+  console.log(`[WhatsApp] ${message.waMessageId} from ${maskPhone(message.from)} type=${message.type} linked=${linkedPatients} ${who}`)
 }
 
 interface PatientMessageParams {
