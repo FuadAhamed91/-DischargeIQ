@@ -276,6 +276,18 @@ async function main() {
   session()!.updated_at = new Date().toISOString()
   eq('a week-old session is pruned, the live one stays', [await pruneStaleNumberSessions(client), db.rows('whatsapp_number_sessions').map((s) => s.wa_phone)], [1, [FAMILY_PHONE]])
 
+  console.log('— parsing what Twilio posts —')
+  const twilio = (extra: Record<string, string>) => parseWebhookPayload({ MessageSid: 'SMx', From: 'whatsapp:+971500000001', To: 'whatsapp:+14155238886', ...extra })[0]
+  eq('text', [twilio({ Body: 'hi', NumMedia: '0' }).type, twilio({ Body: 'hi', NumMedia: '0' }).text], ['text', 'hi'])
+  eq('voice note', [twilio({ Body: '', NumMedia: '1', MediaUrl0: 'https://m/1', MediaContentType0: 'audio/ogg' }).type, twilio({ NumMedia: '1', MediaUrl0: 'https://m/1', MediaContentType0: 'audio/ogg' }).audioMimeType], ['audio', 'audio/ogg'])
+  eq('picture without caption', twilio({ Body: '', NumMedia: '1', MediaUrl0: 'https://m/2', MediaContentType0: 'image/jpeg' }).type, 'image')
+  eq('picture with caption is its caption', [twilio({ Body: 'is this ok?', NumMedia: '1', MediaContentType0: 'image/jpeg' }).type, twilio({ Body: 'is this ok?', NumMedia: '1', MediaContentType0: 'image/jpeg' }).text], ['text', 'is this ok?'])
+  eq('pdf', twilio({ Body: '', NumMedia: '1', MediaContentType0: 'application/pdf' }).type, 'document')
+  eq('sticker / location: unknown', twilio({ Body: '', NumMedia: '0', Latitude: '25.2' }).type, 'unknown')
+  eq('profile name kept, trimmed', twilio({ Body: 'hi', ProfileName: '  Noor  ' }).senderName, 'Noor')
+  eq('no profile name → absent', 'senderName' in twilio({ Body: 'hi' }), false)
+  eq('phone without the whatsapp: prefix', twilio({ Body: 'hi' }).from, '+971500000001')
+
   console.log('— delivery receipts (Twilio StatusCallback) —')
   const receipt = (MessageStatus: string, extra: Record<string, string> = {}) =>
     parseStatusCallback({ MessageSid: 'SMout1', MessageStatus, SmsStatus: MessageStatus, To: `whatsapp:${SOLO_PHONE}`, From: `whatsapp:${HOSPITAL_NUMBER}`, AccountSid: 'AC', ...extra })
