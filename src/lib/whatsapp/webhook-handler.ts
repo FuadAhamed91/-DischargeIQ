@@ -803,7 +803,9 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
     })
     .eq('id', conversation.id)
 
-  // 10. Log timeline for outbound (generic)
+  // 10. Timeline: the inbound message and what it did to the conversation.
+  // On a shared number the routing reason goes in too, so the Timeline tab
+  // tells the same story as the transcript.
   await supabase.from('patient_timeline_events').insert({
     episode_id: episode.id,
     hospital_id: hospital.id,
@@ -812,6 +814,8 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
       wa_message_id: message.waMessageId,
       type: message.type,
       state_transition: { from: state, to: result.nextState, action: result.action },
+      ...(routing ? { routing: { via: routing.via, linked_patients: routing.linkedPatients } } : {}),
+      ...(message.senderName ? { sender_name: message.senderName } : {}),
     },
   })
 

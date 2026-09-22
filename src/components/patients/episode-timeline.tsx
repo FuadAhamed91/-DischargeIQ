@@ -51,9 +51,26 @@ function getPayloadSummary(event: TimelineEvent): string | null {
     case 'appointment_confirmed':
     case 'appointment_rescheduled':
       return p.specialty ? `${p.specialty}` : null
+    case 'whatsapp_inbound': {
+      // On a shared number: how the message was matched to this patient, and who typed it.
+      const routing = p.routing as { via?: string } | undefined
+      const parts: string[] = []
+      if (routing?.via && routing.via !== 'only') parts.push(INBOUND_ROUTING[routing.via] ?? routing.via)
+      if (typeof p.sender_name === 'string' && p.sender_name) parts.push(`typed by ${p.sender_name}`)
+      return parts.length ? parts.join(' · ') : null
+    }
     default:
       return null
   }
+}
+
+const INBOUND_ROUTING: Record<string, string> = {
+  choice: 'shared number: sender chose this patient',
+  name: 'shared number: named in the message',
+  reply: 'shared number: reply to the pending question',
+  recent: 'shared number: last patient written about',
+  emergency: 'shared number: emergency, best guess',
+  fallback: 'shared number: best guess',
 }
 
 interface EpisodeTimelineProps {
