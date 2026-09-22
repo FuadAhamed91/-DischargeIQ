@@ -50,7 +50,12 @@ const UNIQUE: Record<string, string[][]> = {
 let nextId = 1
 const newId = () => `00000000-0000-4000-8000-${String(nextId++).padStart(12, '0')}`
 
-type Filter = { kind: 'eq'; col: string; val: unknown } | { kind: 'in'; col: string; vals: unknown[] }
+type Filter =
+  | { kind: 'eq'; col: string; val: unknown }
+  | { kind: 'neq'; col: string; val: unknown }
+  | { kind: 'in'; col: string; vals: unknown[] }
+  | { kind: 'lt'; col: string; val: string | number }
+  | { kind: 'lte'; col: string; val: string | number }
 
 export interface QueryResult<T = unknown> {
   data: T
@@ -108,7 +113,10 @@ class FakeQuery implements PromiseLike<QueryResult> {
   update(values: Row) { this.op = 'update'; this.payload = [values]; return this }
   delete() { this.op = 'delete'; return this }
   eq(col: string, val: unknown) { this.filters.push({ kind: 'eq', col, val }); return this }
+  neq(col: string, val: unknown) { this.filters.push({ kind: 'neq', col, val }); return this }
   in(col: string, vals: unknown[]) { this.filters.push({ kind: 'in', col, vals }); return this }
+  lt(col: string, val: string | number) { this.filters.push({ kind: 'lt', col, val }); return this }
+  lte(col: string, val: string | number) { this.filters.push({ kind: 'lte', col, val }); return this }
   order(col: string, opts: { ascending?: boolean } = {}) { this.ordering = { col, ascending: opts.ascending !== false }; return this }
   limit(n: number) { this.limitN = n; return this }
   single() { this.wantSingle = 'single'; return this }
@@ -123,7 +131,13 @@ class FakeQuery implements PromiseLike<QueryResult> {
   private matches(row: Row): boolean {
     return this.filters.every((f) => {
       const value = this.resolveColumn(row, f.col)
-      return f.kind === 'eq' ? value === f.val : f.vals.includes(value)
+      switch (f.kind) {
+        case 'eq': return value === f.val
+        case 'neq': return value !== f.val
+        case 'in': return f.vals.includes(value)
+        case 'lt': return value !== null && value !== undefined && (value as string | number) < f.val
+        case 'lte': return value !== null && value !== undefined && (value as string | number) <= f.val
+      }
     })
   }
 
@@ -260,10 +274,9 @@ class FakeQuery implements PromiseLike<QueryResult> {
         return this.returning ? this.finish(updated) : { data: null, error: null, count: null }
       }
       case 'delete': {
-        const keep = table.filter((r) => !this.matches(r))
-        const removed = table.length - keep.length
-        this.db.tables[this.table] = keep
-        return { data: null, error: null, count: removed }
+        const removed = table.filter((r) => this.matches(r))
+        this.db.tables[this.table] = table.filter((r) => !this.matches(r))
+        return this.returning ? this.finish(removed) : { data: null, error: null, count: removed.length }
       }
     }
   }

@@ -93,6 +93,28 @@ function isPendingChoice(value: unknown): value is PendingChoice {
   return Array.isArray(v.options) && typeof v.askedAt === 'string'
 }
 
+/** Sessions untouched for this long are dropped by the nightly housekeeping. */
+export const STALE_SESSION_MS = 7 * 24 * 60 * 60 * 1000
+
+/**
+ * Forget sessions nobody has used for a week: the memory expired days ago
+ * and any pending question with it. Called from the daily reminder
+ * generator; returns how many rows went.
+ */
+export async function pruneStaleNumberSessions(supabase: ServiceClient, now: Date = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - STALE_SESSION_MS).toISOString()
+  const { data, error } = await supabase
+    .from('whatsapp_number_sessions')
+    .delete()
+    .lt('updated_at', cutoff)
+    .select('wa_phone')
+  if (error) {
+    console.error('[WhatsApp] number session housekeeping failed:', error.message)
+    return 0
+  }
+  return (data ?? []).length
+}
+
 /** What the dashboard shows for a number: the remembered patient (expiry applied) and whether a question is open. */
 export interface NumberSessionSummary {
   activePatientId: string | null

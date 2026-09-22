@@ -24,7 +24,7 @@ import { FakeDb } from './lib/fake-supabase'
 import { handleInboundMessage } from '@/lib/whatsapp/webhook-handler'
 import { withSenderLock, senderKey, pendingSenders } from '@/lib/whatsapp/sender-queue'
 import { parseStatusCallback, applyStatusCallback, nextRowStatus } from '@/lib/whatsapp/status-callback'
-import { rememberPatientIfShared } from '@/lib/whatsapp/number-session'
+import { rememberPatientIfShared, pruneStaleNumberSessions, summariseNumberSession, STALE_SESSION_MS } from '@/lib/whatsapp/number-session'
 import { parseWebhookPayload } from '@/lib/whatsapp/webhook-handler'
 import type { ServiceClient } from '@/lib/whatsapp/recipient'
 import type { ParsedInbound } from '@/lib/whatsapp/fsm'
@@ -261,6 +261,20 @@ async function main() {
   await send(inbound(FAMILY_PHONE, 'thank you'))
   sent = drain()
   includes('so the relative\'s thanks goes to her', sent[0]?.body ?? '', 'Thank you, Farzana Arif')
+
+  console.log('— what the dashboard is told about a number —')
+  const soon = new Date(Date.now() + 3600_000).toISOString()
+  const ago = new Date(Date.now() - 3600_000).toISOString()
+  eq('no row → nothing', summariseNumberSession(null), null)
+  eq('live memory', summariseNumberSession({ active_patient_id: 'p-umar', active_until: soon, pending_choice: null }), { activePatientId: 'p-umar', choicePending: false })
+  eq('lapsed memory reads as none', summariseNumberSession({ active_patient_id: 'p-umar', active_until: ago, pending_choice: null }), { activePatientId: null, choicePending: false })
+  eq('fresh question pending', summariseNumberSession({ active_patient_id: null, active_until: null, pending_choice: { options: ['a'], held: null, askedAt: new Date().toISOString() } })?.choicePending, true)
+  eq('stale question is not pending', summariseNumberSession({ active_patient_id: null, active_until: null, pending_choice: { options: ['a'], held: null, askedAt: ago } })?.choicePending, false)
+
+  console.log('— nightly housekeeping —')
+  db.rows('whatsapp_number_sessions').push({ hospital_id: 'h1', wa_phone: '+971500000777', active_patient_id: null, active_until: null, pending_choice: null, updated_at: new Date(Date.now() - STALE_SESSION_MS - 1000).toISOString() })
+  session()!.updated_at = new Date().toISOString()
+  eq('a week-old session is pruned, the live one stays', [await pruneStaleNumberSessions(client), db.rows('whatsapp_number_sessions').map((s) => s.wa_phone)], [1, [FAMILY_PHONE]])
 
   console.log('— delivery receipts (Twilio StatusCallback) —')
   const receipt = (MessageStatus: string, extra: Record<string, string> = {}) =>
