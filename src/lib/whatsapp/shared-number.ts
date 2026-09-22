@@ -56,8 +56,13 @@ export interface AskParams {
  * holding), and log the question on each linked conversation. One Twilio
  * send, so the SID goes on the first transcript row and the copies carry
  * none (wa_message_id is UNIQUE).
+ *
+ * Returns false when the question could not be sent: the session is then
+ * left as it was — a sender who never saw the question must not have their
+ * next message read as an answer — and the caller handles the held message
+ * some other way rather than losing it.
  */
-export async function askWhoIsThisAbout(params: AskParams): Promise<void> {
+export async function askWhoIsThisAbout(params: AskParams): Promise<boolean> {
   const { supabase, phoneNumberId, hospitalId, phone, options, held, repeat, session } = params
   const prompt = buildWhoIsThisAboutMessage({
     to: phone,
@@ -68,7 +73,11 @@ export async function askWhoIsThisAbout(params: AskParams): Promise<void> {
   })
 
   const result = await sendMessage(phoneNumberId, prompt)
-  await saveNumberSession(supabase, hospitalId, phone, sessionWhileAsking(session, options, held, repeat))
+  if (result.status === 'success') {
+    await saveNumberSession(supabase, hospitalId, phone, sessionWhileAsking(session, options, held, repeat))
+  } else {
+    console.error('[WhatsApp] could not ask who a message is about:', result.error)
+  }
 
   const body = renderMessageBody(prompt)
   const metadata = {
@@ -99,4 +108,5 @@ export async function askWhoIsThisAbout(params: AskParams): Promise<void> {
     if (error) console.error('[WhatsApp] could not log routing prompt:', error.message)
     first = false
   }
+  return result.status === 'success'
 }

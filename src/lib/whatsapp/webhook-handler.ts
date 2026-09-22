@@ -279,7 +279,7 @@ export async function handleInboundMessage(
   const decision = routeInbound(await loadRoutingCandidates(supabase, candidates), session, message)
 
   if (decision.kind === 'ask') {
-    await askWhoIsThisAbout({
+    const asked = await askWhoIsThisAbout({
       supabase,
       phoneNumberId,
       hospitalId: hospital.id,
@@ -288,6 +288,16 @@ export async function handleInboundMessage(
       held: decision.held,
       repeat: decision.repeat,
       session,
+    })
+    if (asked || !decision.held) return
+    // The question never reached them (Twilio down, number left the
+    // sandbox). Rather than hold a message nobody will unlock, handle it for
+    // the likeliest patient and say so on the transcript.
+    const likeliest = decision.options[0]
+    const target = candidates.find((c) => c.patient.id === likeliest.patientId) ?? candidates[0]
+    await processForPatient({
+      supabase, phoneNumberId, hospital, patient: target.patient, episode: target.episode,
+      message: decision.held, routing: { via: 'fallback', linkedPatients: candidates.length },
     })
     return
   }

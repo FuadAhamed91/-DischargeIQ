@@ -33,10 +33,17 @@ import type { ParsedInbound } from '@/lib/whatsapp/fsm'
 interface Sent { to: string; body: string }
 const outbox: Sent[] = []
 let sidCounter = 0
+/** Set to make the next Twilio send fail (a 63016 "not joined to the sandbox", say). */
+let failNextSend: string | null = null
 globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
   const url = String(input instanceof Request ? input.url : input)
   if (!url.includes('api.twilio.com')) throw new Error(`unexpected fetch: ${url}`)
   const params = new URLSearchParams(String(init?.body ?? ''))
+  if (failNextSend) {
+    const message = failNextSend
+    failNextSend = null
+    return new Response(JSON.stringify({ code: 63016, message }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+  }
   outbox.push({ to: params.get('To') ?? '', body: params.get('Body') ?? '' })
   return new Response(JSON.stringify({ sid: `SMout${++sidCounter}` }), { status: 201, headers: { 'Content-Type': 'application/json' } })
 }) as typeof fetch
@@ -207,6 +214,18 @@ async function main() {
   sent = drain()
   includes('emergency reply went out immediately', sent[0]?.body ?? '', 'medical emergency')
   eq('critical alert raised', db.rows('alerts').filter((a) => a.severity === 'critical').length, 1)
+
+  console.log('— the question itself cannot be sent: nothing is held for nobody —')
+  session()!.active_until = '2000-01-01T00:00:00Z'
+  session()!.pending_choice = null
+  failNextSend = 'Twilio is having a bad day'
+  await send(inbound(FAMILY_PHONE, 'good evening'))
+  sent = drain()
+  eq('the greeting was still answered (for the likeliest patient)', sent.length, 1)
+  includes('…for Umar, the newest episode', sent[0]?.body ?? '', 'Hello Umar Siddiqui')
+  eq('routed as fallback', routingOf(inboundOf('c-umar').at(-1)!), 'fallback')
+  eq('no question left pending', session()?.pending_choice ?? null, null)
+  eq('the failed prompt is on the transcript as not delivered', messagesOf('c-umar').filter((m) => m.status === 'failed').length, 1)
 
   console.log('— a redelivered SID after handling is dropped —')
   const again = inbound(FAMILY_PHONE, 'thanks')
