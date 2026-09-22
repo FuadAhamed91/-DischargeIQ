@@ -131,6 +131,7 @@ async function main() {
   eq('one prompt sent', sent.length, 1)
   includes('newest episode listed first', sent[0].body, '1. Umar Siddiqui\n2. Farzana Arif')
   includes('promises to pass the message on', sent[0].body, 'pass your message on')
+  includes('tip uses a name from the list', sent[0].body, 'e.g. “Farzana: …”')
   eq('question logged on both transcripts', [messagesOf('c-farzana').length, messagesOf('c-umar').length], [1, 1])
   eq('session holds the message', (session()?.pending_choice as { held?: { text?: string } } | null)?.held?.text, 'hi')
   eq('no reply to "hi" itself yet', inboundOf('c-umar').length + inboundOf('c-farzana').length, 0)

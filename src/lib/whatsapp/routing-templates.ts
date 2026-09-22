@@ -15,7 +15,8 @@ interface AskStrings {
   again: string
   question: string
   reply: (numbers: string) => string
-  tip: string
+  /** The name-prefix tip, with a real name from the list as the example. */
+  tip: (example: string) => string
   holding: string
   or: string
 }
@@ -26,7 +27,7 @@ const ASK: Record<LanguageCode, AskStrings> = {
     again: 'Sorry, I did not catch that.',
     question: 'Who is this message about?',
     reply: (n) => `Reply with ${n}.`,
-    tip: 'You can also start any message with a name, e.g. “Umar: …”',
+    tip: (n) => `You can also start any message with a name, e.g. “${n}: …”`,
     holding: 'I will pass your message on as soon as you reply.',
     or: 'or',
   },
@@ -35,7 +36,7 @@ const ASK: Record<LanguageCode, AskStrings> = {
     again: 'عذراً، لم أفهم.',
     question: 'عن مَن هذه الرسالة؟',
     reply: (n) => `أرسل ${n}.`,
-    tip: 'يمكنك أيضاً بدء أي رسالة بالاسم، مثل: «عمر: …»',
+    tip: (n) => `يمكنك أيضاً بدء أي رسالة بالاسم، مثل: «${n}: …»`,
     holding: 'سأمرر رسالتك فور ردّك.',
     or: 'أو',
   },
@@ -44,7 +45,7 @@ const ASK: Record<LanguageCode, AskStrings> = {
     again: 'माफ़ कीजिए, मैं समझ नहीं पाया।',
     question: 'यह संदेश किसके बारे में है?',
     reply: (n) => `${n} लिखकर जवाब दें।`,
-    tip: 'आप किसी भी संदेश की शुरुआत नाम से भी कर सकते हैं, जैसे “Umar: …”',
+    tip: (n) => `आप किसी भी संदेश की शुरुआत नाम से भी कर सकते हैं, जैसे “${n}: …”`,
     holding: 'आपके जवाब देते ही मैं आपका संदेश आगे भेज दूँगा।',
     or: 'या',
   },
@@ -53,7 +54,7 @@ const ASK: Record<LanguageCode, AskStrings> = {
     again: 'மன்னிக்கவும், புரியவில்லை.',
     question: 'இந்தச் செய்தி யாரைப் பற்றியது?',
     reply: (n) => `${n} என பதிலளிக்கவும்.`,
-    tip: 'எந்தச் செய்தியையும் பெயருடன் தொடங்கலாம், எ.கா. “Umar: …”',
+    tip: (n) => `எந்தச் செய்தியையும் பெயருடன் தொடங்கலாம், எ.கா. “${n}: …”`,
     holding: 'நீங்கள் பதிலளித்தவுடன் உங்கள் செய்தியை அனுப்புகிறேன்.',
     or: 'அல்லது',
   },
@@ -62,7 +63,7 @@ const ASK: Record<LanguageCode, AskStrings> = {
     again: 'Paumanhin, hindi ko naintindihan.',
     question: 'Para kanino ang mensaheng ito?',
     reply: (n) => `Sumagot ng ${n}.`,
-    tip: 'Maaari mo ring simulan ang mensahe sa pangalan, hal. “Umar: …”',
+    tip: (n) => `Maaari mo ring simulan ang mensahe sa pangalan, hal. “${n}: …”`,
     holding: 'Ipapasa ko ang mensahe mo kapag sumagot ka na.',
     or: 'o',
   },
@@ -105,7 +106,9 @@ export function buildWhoIsThisAboutMessage(params: {
     '',
     t.reply(numberList(params.options.length, t.or)),
   ]
-  if (!params.repeat) lines.push(t.tip)
+  // The example is the last listed name: a reminder that the others are one word away.
+  const example = params.options[params.options.length - 1]?.name.split(' ')[0] ?? ''
+  if (!params.repeat && example) lines.push(t.tip(example))
   if (params.holding) lines.push(t.holding)
   return { type: 'text', to: params.to, body: lines.join('\n') }
 }
