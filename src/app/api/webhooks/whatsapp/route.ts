@@ -5,6 +5,7 @@ import {
   extractPhoneNumberId,
   handleInboundMessage,
 } from '@/lib/whatsapp/webhook-handler'
+import { withSenderLock, senderKey } from '@/lib/whatsapp/sender-queue'
 
 export const dynamic = 'force-dynamic'
 // Inbound handling can include a Twilio reply and AI triage (Whisper + Gemini).
@@ -57,10 +58,12 @@ export async function POST(request: Request) {
   // after() keeps the function alive until the handler finishes — a detached
   // promise (the previous approach) can be frozen with the invocation on Vercel,
   // silently dropping the timeline write, the reply, and any triage.
+  // Messages from the same sender are handled in order, one at a time;
+  // different senders run side by side.
   after(async () => {
     for (const msg of messages) {
       try {
-        await handleInboundMessage(phoneNumberId, msg)
+        await withSenderLock(senderKey(phoneNumberId, msg.from), () => handleInboundMessage(phoneNumberId, msg))
       } catch (err) {
         console.error('[Twilio webhook] handler error:', err)
       }
