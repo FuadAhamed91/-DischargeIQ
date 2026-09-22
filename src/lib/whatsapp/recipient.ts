@@ -2,9 +2,11 @@
  * Who is on the other end of an inbound WhatsApp message.
  *
  * One hospital number serves every patient of that hospital, so the sender's
- * phone number is the only thing that identifies them. Resolution is kept
- * apart from the webhook handler so the lookups can be reasoned about (and
- * changed) without touching the message actions.
+ * phone number is the only thing that identifies them — and it is not unique.
+ * A family shares one phone, a daughter writes for both parents, a tester
+ * registers three demo patients on their own number. Resolution therefore
+ * returns *every* open episode behind a number; the handler decides which
+ * one a message is about.
  */
 
 import type { createServiceClient } from '@/lib/supabase/server'
@@ -31,6 +33,12 @@ export interface InboundEpisode {
   status: string
 }
 
+/** One open episode reachable from a phone number, with the patient it belongs to. */
+export interface OpenEpisodeCandidate {
+  episode: InboundEpisode & { created_at: string }
+  patient: InboundPatient
+}
+
 /** The hospital a message was sent to: Twilio's "To" number, E.164 without the whatsapp: prefix. */
 export async function resolveHospital(
   supabase: ServiceClient,
@@ -44,35 +52,58 @@ export async function resolveHospital(
   return (data as InboundHospital | null) ?? null
 }
 
-/** The patient registered with this number at this hospital. */
-export async function resolvePatient(
+/** True when at least one patient at this hospital is registered with the number. */
+export async function isKnownNumber(
   supabase: ServiceClient,
   hospitalId: string,
   phone: string,
-): Promise<InboundPatient | null> {
-  const { data } = await supabase
+): Promise<boolean> {
+  const { count } = await supabase
     .from('patients')
-    .select('id, full_name, preferred_language, hospital_id')
+    .select('id', { count: 'exact', head: true })
     .eq('hospital_id', hospitalId)
     .eq('phone_e164', phone)
-    .single()
-  return (data as InboundPatient | null) ?? null
+  return (count ?? 0) > 0
 }
 
-/** The patient's open episode (active, or approved but not yet sent), newest first. */
-export async function resolveOpenEpisode(
+interface OpenEpisodeRow {
+  id: string
+  status: string
+  created_at: string
+  patients: InboundPatient | InboundPatient[] | null
+}
+
+/**
+ * Every open episode (active, or approved but not yet sent) whose patient is
+ * registered with this number at this hospital — newest first. A patient has
+ * at most one open episode, so each entry is a different patient.
+ */
+export async function findOpenEpisodesByPhone(
   supabase: ServiceClient,
   hospitalId: string,
-  patientId: string,
-): Promise<InboundEpisode | null> {
-  const { data } = await supabase
+  phone: string,
+): Promise<OpenEpisodeCandidate[]> {
+  const { data, error } = await supabase
     .from('care_episodes')
-    .select('id, status')
-    .eq('patient_id', patientId)
+    .select('id, status, created_at, patients!inner(id, full_name, preferred_language, hospital_id)')
     .eq('hospital_id', hospitalId)
+    .eq('patients.phone_e164', phone)
     .in('status', ['active', 'pending_review'])
     .order('created_at', { ascending: false })
-    .limit(1)
-    .single()
-  return (data as InboundEpisode | null) ?? null
+  if (error) {
+    console.error('[WhatsApp] open-episode lookup failed:', error.message)
+    return []
+  }
+  const rows = (data ?? []) as unknown as OpenEpisodeRow[]
+  const candidates: OpenEpisodeCandidate[] = []
+  for (const row of rows) {
+    // patients is a many-to-one embed, but be tolerant of the array shape.
+    const patient = Array.isArray(row.patients) ? row.patients[0] : row.patients
+    if (!patient) continue
+    candidates.push({
+      episode: { id: row.id, status: row.status, created_at: row.created_at },
+      patient,
+    })
+  }
+  return candidates
 }

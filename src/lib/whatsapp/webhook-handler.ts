@@ -11,7 +11,7 @@
  */
 
 import { createServiceClient } from '@/lib/supabase/server'
-import { resolveHospital, resolvePatient, resolveOpenEpisode } from './recipient'
+import { resolveHospital, isKnownNumber, findOpenEpisodesByPhone } from './recipient'
 import type { ServiceClient } from './recipient'
 import { sendMessage, markAsRead } from './client'
 import type { OutboundMessage } from './client'
@@ -219,23 +219,28 @@ export async function handleInboundMessage(
     return
   }
 
-  // 2. Resolve patient
-  const patient = await resolvePatient(supabase, hospital.id, message.from)
-  if (!patient) {
-    await sendMessage(phoneNumberId, buildNotRegisteredMessage(message.from))
+  // 2 + 3. Every open episode behind this number. A number is not unique to
+  // one patient (a shared family phone, a tester's own number on several demo
+  // patients); the old single-row lookup failed on the second registration
+  // and answered "not registered" to a patient who very much was.
+  const candidates = await findOpenEpisodesByPhone(supabase, hospital.id, message.from)
+
+  if (candidates.length === 0) {
+    if (await isKnownNumber(supabase, hospital.id, message.from)) {
+      // Registered, but every episode is closed.
+      await sendMessage(phoneNumberId, {
+        type: 'text',
+        to: message.from,
+        body: `Hello,\n\nWe do not have an active care episode for this number at this time. Please contact the hospital if you have questions.`,
+      })
+    } else {
+      await sendMessage(phoneNumberId, buildNotRegisteredMessage(message.from))
+    }
     return
   }
 
-  // 3. Find active episode
-  const episode = await resolveOpenEpisode(supabase, hospital.id, patient.id)
-  if (!episode) {
-    await sendMessage(phoneNumberId, {
-      type: 'text',
-      to: message.from,
-      body: `Hi ${patient.full_name},\n\nWe do not have an active care episode for you at this time. Please contact the hospital if you have questions.`,
-    })
-    return
-  }
+  // Newest open episode for now; a shared number gets proper routing next.
+  const { patient, episode } = candidates[0]
 
   // 4. Get or create the conversation record (messages hang off it)
   let { data: conversation } = await supabase
