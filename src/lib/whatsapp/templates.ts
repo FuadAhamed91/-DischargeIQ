@@ -352,6 +352,24 @@ export function buildEmergencyEscalationMessage(params: {
   }
 }
 
+const CANNOT_READ_MEDIA: Record<LanguageCode, (name: string) => string> = {
+  en: (n) => `Sorry ${n}, I cannot look at pictures or files yet. 🙏 Please describe it in words, or send a voice note — a nurse can then see it too.`,
+  ar: (n) => `عذراً ${n}، لا أستطيع الاطلاع على الصور أو الملفات بعد. 🙏 صف الأمر بالكلمات أو أرسل رسالة صوتية، ليتمكن الممرض/ة من رؤيته أيضاً.`,
+  hi: (n) => `माफ़ कीजिए ${n}, मैं अभी तस्वीरें या फ़ाइलें नहीं देख सकता। 🙏 कृपया शब्दों में बताएँ या वॉइस नोट भेजें — तब नर्स भी इसे देख सकेंगी।`,
+  ta: (n) => `மன்னிக்கவும் ${n}, படங்களையோ கோப்புகளையோ என்னால் இன்னும் பார்க்க முடியாது. 🙏 வார்த்தைகளில் விவரிக்கவும் அல்லது குரல் குறிப்பு அனுப்பவும் — செவிலியரும் அதைப் பார்க்க முடியும்.`,
+  tl: (n) => `Pasensya na ${n}, hindi ko pa kayang tingnan ang mga larawan o file. 🙏 Ilarawan mo ito sa salita, o magpadala ng voice note — makikita rin ito ng nurse.`,
+}
+
+/** A picture or document with no caption: nobody looks at it, so say so rather than stay silent. */
+export function buildCannotReadMediaReply(params: {
+  to: string
+  patientName: string
+  language: LanguageCode
+}): OutboundMessage {
+  const build = CANNOT_READ_MEDIA[params.language] ?? CANNOT_READ_MEDIA.en
+  return { type: 'text', to: params.to, body: build(params.patientName) }
+}
+
 export function buildEscalationAcknowledgement(params: {
   to: string
   patientName: string

@@ -82,6 +82,11 @@ eq('"wala"', q1('wala'), 'log_checkin_meds:none→awaiting_checkin_symptoms')
 eq('"my wound is red and swollen" (skipped Q1)', q1('my wound is red and swollen'), 'triage_text→idle')
 eq('"I have chest pain" (emergency wins)', q1('I have chest pain'), 'route_to_ai→idle')
 eq('sticker (no text) keeps Q1 pending', transition('awaiting_checkin_meds', inbound(undefined, 'unknown')).nextState, 'awaiting_checkin_meds')
+eq('picture during Q1: told we cannot read it, Q1 still pending', transition('awaiting_checkin_meds', inbound(undefined, 'image')), { nextState: 'awaiting_checkin_meds', action: 'unsupported_media' })
+eq('picture in idle: told, no model call', transition('idle', inbound(undefined, 'image')).action, 'unsupported_media')
+eq('document in idle: told, no model call', transition('idle', inbound(undefined, 'document')).action, 'unsupported_media')
+eq('sticker in idle: ignored, no model call', transition('idle', inbound(undefined, 'unknown')).action, 'noop')
+eq('captioned picture arrives as text', transition('idle', inbound('is this normal?', 'text')).action, 'route_to_ai')
 
 console.log('— FSM: nightly check-in Q2 (awaiting_checkin_symptoms) —')
 const q2 = (text: string) => {

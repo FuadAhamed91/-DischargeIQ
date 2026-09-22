@@ -29,6 +29,7 @@ import {
   buildAcknowledgementReply,
   buildGreetingReply,
   buildEmergencyEscalationMessage,
+  buildCannotReadMediaReply,
 } from './templates'
 import { transition, readConversationState } from './fsm'
 import type { ParsedInbound } from './fsm'
@@ -88,8 +89,13 @@ export function parseWebhookPayload(params: Record<string, string>): ParsedInbou
     parsed.audioUrl = mediaUrl
     parsed.audioMimeType = mediaContentType
   } else if (body.trim() !== '') {
+    // A captioned picture is handled as its caption.
     parsed.type = 'text'
     parsed.text = body
+  } else if (numMedia > 0 && mediaContentType.startsWith('image/')) {
+    parsed.type = 'image'
+  } else if (numMedia > 0) {
+    parsed.type = 'document'
   }
 
   return [parsed]
@@ -795,6 +801,13 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
           payload: { reason: 'AI assistant unavailable', intent: 'unknown', severity: 'low', wa_message_id: message.waMessageId },
         })
       }
+      break
+    }
+
+    case 'unsupported_media': {
+      // A picture of the wound, a photo of the prescription: nobody looks at
+      // it and it must not be silently ignored — say so, in their language.
+      await reply(buildCannotReadMediaReply({ to: message.from, patientName: patient.full_name, language: lang }))
       break
     }
 

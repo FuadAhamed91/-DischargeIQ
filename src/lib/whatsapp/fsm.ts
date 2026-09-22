@@ -98,6 +98,7 @@ export interface FsmResult {
     | 'triage_text'           // free-text symptom report → AI risk classification
     | 'route_to_triage'       // voice note → transcribe + classify
     | 'route_to_ai'
+    | 'unsupported_media'     // picture / document with no caption → say we cannot read it
     | 'noop'
   appointmentId?: string
   slotId?: string
@@ -180,6 +181,16 @@ export function transition(
     return { nextState: 'idle', action: 'route_to_ai' }
   }
 
+  // Nothing to read: a picture or document without a caption gets told so
+  // (nobody looks at it); a sticker, contact or location is simply ignored.
+  // Neither is sent to the model. A pending question stays pending.
+  if (!raw.trim()) {
+    if (message.type === 'image' || message.type === 'document') {
+      return { nextState: state, action: 'unsupported_media' }
+    }
+    return { nextState: state, action: 'noop' }
+  }
+
   switch (state) {
     case 'awaiting_appointment_confirm': {
       const id = message.interactiveId ?? ''
@@ -213,8 +224,6 @@ export function transition(
     }
 
     case 'awaiting_checkin_meds': {
-      // Stickers/images carry no text: keep the question pending.
-      if (!raw.trim()) return { nextState: state, action: 'noop' }
       const meds = parseMedsAnswer(raw)
       if (meds) {
         return { nextState: 'awaiting_checkin_symptoms', action: 'log_checkin_meds', medsTaken: meds }
@@ -224,7 +233,6 @@ export function transition(
     }
 
     case 'awaiting_checkin_symptoms': {
-      if (!raw.trim()) return { nextState: state, action: 'noop' }
       if (isFeelingOk(raw)) {
         return { nextState: 'idle', action: 'checkin_ok' }
       }

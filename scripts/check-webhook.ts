@@ -126,11 +126,18 @@ async function main() {
   eq('inbound logged without routing metadata', inboundOf(String(soloConversation?.id)).map(routingOf), [null])
   eq('no number session for a single patient', db.rows('whatsapp_number_sessions').length, 0)
 
+  console.log('— a picture with no caption —')
+  await send(inbound(SOLO_PHONE, undefined, 'image'))
+  sent = drain()
+  includes('told, in her language, that pictures cannot be read', sent[0]?.body ?? '', 'माफ़ कीजिए Priya Nair')
+  eq('no alert, no AI interaction', [db.rows('alerts').length, db.rows('ai_interactions').length], [0, 0])
+
   console.log('— an unknown number —')
+  const inboundBefore = db.rows('whatsapp_messages').filter((m) => m.direction === 'inbound').length
   await send(inbound('+971500009999', 'hello?'))
   sent = drain()
   includes('not-registered reply', sent[0]?.body ?? '', 'could not find an active care record')
-  eq('nothing logged', db.rows('whatsapp_messages').filter((m) => m.direction === 'inbound').length, 1)
+  eq('nothing logged', db.rows('whatsapp_messages').filter((m) => m.direction === 'inbound').length, inboundBefore)
   await send(inbound('+971500009999', 'hello??'))
   eq('a second message within the hour gets no second reply', drain().length, 0)
 
