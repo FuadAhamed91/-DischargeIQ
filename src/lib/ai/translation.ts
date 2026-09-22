@@ -1,10 +1,8 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { generate } from './gemini'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { LanguageCode } from '@/types/enums'
 import type { ExtractionResult } from './extraction'
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
-const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
 const LANGUAGE_NAMES: Record<LanguageCode, string> = {
   en: 'English',
@@ -95,8 +93,7 @@ ${JSON.stringify(
 
 Return the translated JSON now:`
 
-  const result = await model.generateContent(prompt)
-  const text = result.response.text().trim()
+  const { text } = await generate(prompt, { label: 'translate-summary', budgetMs: 40_000 })
 
   // Strip markdown code fences if present
   const json = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
@@ -148,8 +145,9 @@ export async function translateText(
 ): Promise<string> {
   if (targetLanguage === 'en') return text
 
-  const result = await model.generateContent(
+  const { text: translated } = await generate(
     `Translate the following text to ${LANGUAGE_NAMES[targetLanguage]}. Return only the translated text, no explanation:\n\n${text}`,
+    { label: 'translate-text', budgetMs: 20_000 },
   )
-  return result.response.text().trim()
+  return translated
 }

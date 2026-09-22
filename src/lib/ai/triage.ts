@@ -11,7 +11,7 @@
  */
 
 import OpenAI from 'openai'
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { generate } from './gemini'
 import type { RiskLevel } from '@/types/enums'
 
 // Lazy: the OpenAI SDK throws at construction when OPENAI_API_KEY is unset,
@@ -21,8 +21,6 @@ function getOpenAI(): OpenAI {
   if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   return _openai
 }
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
-const gemini = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
 export interface TriageResult {
   transcript: string
@@ -53,12 +51,12 @@ export async function downloadTwilioMedia(mediaUrl: string): Promise<Buffer> {
 const TRANSCRIBE_PROMPT = `Transcribe this voice message from a patient word for word, in the language spoken (it may be English, Arabic, Hindi, Tamil or Tagalog, or a mix). Return ONLY the transcript text — no quotes, labels, translation or commentary. If nothing intelligible is said, return an empty string.`
 
 async function transcribeWithGemini(audioBuffer: Buffer, mimeType: string): Promise<string> {
-  const result = await gemini.generateContent([
+  const { text } = await generate([
     // Twilio sends e.g. "audio/ogg; codecs=opus" — Gemini wants the bare type.
     { inlineData: { mimeType: mimeType.split(';')[0].trim() || 'audio/ogg', data: audioBuffer.toString('base64') } },
     { text: TRANSCRIBE_PROMPT },
-  ])
-  return result.response.text().trim()
+  ], { label: 'transcribe', budgetMs: 25_000 })
+  return text
 }
 
 async function transcribeWithWhisper(audioBuffer: Buffer, mimeType: string): Promise<string> {
@@ -133,8 +131,7 @@ Risk levels:
 
 Be conservative — when in doubt, escalate to YELLOW or RED.`
 
-  const result = await gemini.generateContent(prompt)
-  const text = result.response.text().trim()
+  const { text } = await generate(prompt, { label: 'triage', budgetMs: 25_000 })
 
   // Extract JSON from response (handle markdown code blocks)
   const jsonMatch = text.match(/\{[\s\S]*\}/)

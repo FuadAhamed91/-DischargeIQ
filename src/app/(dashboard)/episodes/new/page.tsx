@@ -143,7 +143,7 @@ export default function NewEpisodePage() {
       setPhase('confirm')
     } catch (err) {
       setReadError(err instanceof Error ? err.message : 'Could not read the document')
-      setPhase('upload')
+      setPhase('upload') // `file` is kept so the nurse can retry without re-selecting it
     }
   }
 
@@ -334,6 +334,11 @@ export default function NewEpisodePage() {
                 <div className="flex-1">
                   <p className="font-medium text-danger">Couldn’t read that document</p>
                   <p className="mt-0.5 text-danger/90">{readError}</p>
+                  {file && (
+                    <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => readDocument(file)}>
+                      Try again with {file.name}
+                    </Button>
+                  )}
                 </div>
               </div>
             )}

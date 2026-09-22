@@ -38,7 +38,7 @@ own discharge instructions, and is escalated to a nurse the moment they report a
 | Backend | Next.js route handlers on Vercel; Supabase (Postgres 17, Auth, Storage, Realtime, Vault) |
 | Scheduling | Vercel Cron (daily jobs) + `pg_cron` / `pg_net` inside Supabase (5-minute dispatch) |
 | Messaging | WhatsApp via **Twilio** (currently the sandbox; text only) |
-| AI | Gemini 2.5 Flash (extraction, translation, patient Q&A, triage, voice-note transcription); OpenAI Whisper only as an optional transcription fallback |
+| AI | Gemini 2.5 Flash (extraction, translation, patient Q&A, triage, voice-note transcription) through `lib/ai/gemini.ts`, which retries 429/5xx and falls back to `gemini-2.5-flash-lite` → `gemini-2.5-pro` when Google reports high demand; OpenAI Whisper only as an optional transcription fallback |
 | PDF | `unpdf` (serverless-safe text extraction) |
 
 Multi-tenant: every row carries `hospital_id` and Postgres Row Level Security enforces isolation.
@@ -475,10 +475,11 @@ functions callable by `authenticated` (required — policies evaluate them as th
 npm run lint           # eslint (a few pre-existing react/no-unescaped-entities warnings in JSX)
 npx tsc --noEmit       # typecheck
 npm run build          # production build (needs NEXT_PUBLIC_SUPABASE_* set; placeholders are fine)
-npm run check          # all three below
+npm run check          # all four below
 npm run check:intent   # 85 table-driven checks: pre-intent classifier, escalation derivation, FSM (check-in, nurse chat), state parsing
 npm run check:routing  # shared-number routing: name prefixes, answers to "who is this about?", the decision order, expiries
 npm run check:webhook  # the inbound handler end to end against an in-memory Supabase and a captured Twilio (no keys, no network)
+npm run check:gemini   # 11 checks on the Gemini wrapper: retry on 429/503/network, model fallback, 403 fails fast, budget respected
 ```
 
 `scripts/lib/fake-supabase.ts` is the in-memory stand-in the webhook check runs on: enough of the

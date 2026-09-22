@@ -741,7 +741,7 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
           episode_id: episode.id,
           hospital_id: hospital.id,
           input_type: 'text',
-          model: 'gemini-2.5-flash',
+          model: chatResult.model ?? 'none',
           input_text: text,
           output_text: chatResult.answer,
           confidence: chatResult.confidence === 'high' ? 0.9 : chatResult.confidence === 'medium' ? 0.6 : 0.3,

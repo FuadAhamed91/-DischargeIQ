@@ -5,11 +5,9 @@
  * Out-of-scope or low-confidence questions are escalated to a nurse.
  */
 
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { generate } from './gemini'
 import type { DischargeSummary, Medication } from '@/types/database'
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
-const gemini = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
 /**
  * What the patient's message is, as judged by the model. Escalation is derived
@@ -37,6 +35,8 @@ export interface ChatResult {
   shouldEscalate: boolean
   severity?: EscalationSeverity
   escalationReason?: string
+  /** Model that produced the answer (a fallback when the primary was busy); unset when nothing answered. */
+  model?: string
 }
 
 const CHAT_INTENTS: ReadonlySet<string> = new Set<ChatIntent>([
@@ -161,8 +161,8 @@ Respond ONLY with valid JSON:
 }`
 
   try {
-    const result = await gemini.generateContent(prompt)
-    const text = result.response.text().trim()
+    // The webhook runs this inside after() with a 60 s ceiling; leave room for the reply.
+    const { text, model } = await generate(prompt, { label: 'patient-chat', budgetMs: 25_000 })
 
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) throw new Error('Invalid AI response')
@@ -172,6 +172,7 @@ Respond ONLY with valid JSON:
     return {
       ...decision,
       answer: raw.answer?.trim() || "I'm sorry, I couldn't find that information. A nurse will follow up with you shortly.",
+      model,
     }
   } catch {
     // Fail closed for anything we could not classify: the patient asked something

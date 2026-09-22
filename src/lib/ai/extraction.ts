@@ -1,7 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
-const gemini = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+import { generate } from './gemini'
 
 export interface ExtractedMedication {
   name: string
@@ -176,7 +173,9 @@ function normaliseExtraction(raw: Partial<ExtractionResult>): ExtractionResult {
 }
 
 /**
- * Sends extracted PDF text to Gemini 2.5 Flash for structured clinical data extraction.
+ * Sends extracted PDF text to Gemini for structured clinical data extraction.
+ * Retries and falls back to another model when Gemini is overloaded; throws
+ * GeminiUnavailableError when nothing answered so the route can say "busy".
  */
 export async function extractDischargeData(pdfText: string): Promise<ExtractionResult> {
   if (!pdfText || pdfText.length < 50) {
@@ -185,8 +184,8 @@ export async function extractDischargeData(pdfText: string): Promise<ExtractionR
 
   const prompt = `${EXTRACTION_SYSTEM_PROMPT}\n\nExtract structured discharge information from this document:\n\n${pdfText.slice(0, 15000)}`
 
-  const response = await gemini.generateContent(prompt)
-  const content = response.response.text().trim()
+  // The route allows 60 s; PDF parsing already used a little of it.
+  const { text: content } = await generate(prompt, { label: 'extraction', budgetMs: 45_000 })
 
   if (!content) throw new Error('No response from extraction model')
 

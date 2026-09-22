@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { resolveAuthContext } from '@/lib/utils/api'
 import { apiSuccess, apiError } from '@/types/api'
 import { extractTextFromPdf, extractDischargeData, hasMeaningfulContent } from '@/lib/ai/extraction'
+import { GeminiUnavailableError } from '@/lib/ai/gemini'
 import { INTAKE_ROLES, validatePdfUpload } from '@/lib/intake/validate'
 
 export const maxDuration = 60
@@ -49,6 +50,13 @@ export async function POST(request: Request) {
     return NextResponse.json(apiSuccess({ extraction, word_count: wordCount }))
   } catch (err) {
     console.error('[Intake extract]', err)
+    if (err instanceof GeminiUnavailableError) {
+      // Google's side is overloaded, not the document. Nothing was saved; the same file can simply be tried again.
+      return NextResponse.json(
+        apiError('The document reader is busy right now (the AI service reported high demand). Nothing was saved — please try again in a minute.', err.message),
+        { status: 503, headers: { 'Retry-After': '60' } },
+      )
+    }
     return NextResponse.json(
       apiError('Could not read the document', err instanceof Error ? err.message : 'Unknown error'),
       { status: 500 },
