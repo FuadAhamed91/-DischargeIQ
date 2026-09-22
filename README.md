@@ -454,7 +454,19 @@ Vercel → Logs, filtered to `/api/cron/`, shows the route side (`sent=… faile
 
 **A patient's reply wasn't handled** — check in order: Twilio Console → Monitor → Messaging (was the
 webhook called, what did it return?), Vercel logs for `/api/webhooks/whatsapp` (`Invalid signature`
-means the URL in Twilio ≠ `NEXT_PUBLIC_APP_URL`), then the episode's Conversation and Timeline tabs.
+means the URL in Twilio ≠ `NEXT_PUBLIC_APP_URL`; every handled message logs one
+`[WhatsApp] SM… from …1234 type=text linked=2 deliver → <patient> (reply)` line with the routing
+decision, and `duplicate delivery ignored` means Twilio retried), then the episode's Conversation and
+Timeline tabs.
+
+**A message went to the wrong patient on a shared number** — the transcript label under the bubble
+says why (reply to the pending question, last patient written about, best guess…). Press **Forget**
+on the shared-number notice so the next message is routed from scratch, and tell the family to start
+messages with the name (`Umar: …`). A best-guess delivery also raised a low alert on that episode.
+
+**The family keeps getting "Who is this message about?"** — both patients had a question open at the
+same time. The dispatcher staggers nightly check-ins on a shared number so this should be rare; a
+name at the start of the reply answers it for good, and `switch` lists the patients again.
 
 **Reminders failing to send** — `reminder_jobs.status = 'failed'` plus the Twilio error in the
 transcript ("Not delivered"). Common causes: recipient not joined to the sandbox (63016), sandbox
@@ -496,7 +508,7 @@ npm run lint           # eslint — clean; CI runs it with --max-warnings=0
 npx tsc --noEmit       # typecheck
 npm run build          # production build (needs NEXT_PUBLIC_SUPABASE_* set; placeholders are fine)
 npm run check          # all four below
-npm run check:intent   # 85 table-driven checks: pre-intent classifier, escalation derivation, FSM (check-in, nurse chat), state parsing
+npm run check:intent   # table-driven checks: pre-intent classifier, escalation derivation, FSM (check-in, nurse chat, media), state parsing
 npm run check:routing  # shared-number routing: name prefixes, answers to "who is this about?", the decision order, expiries
 npm run check:webhook  # the inbound handler end to end against an in-memory Supabase and a captured Twilio (no keys, no network)
 npm run check:gemini   # 11 checks on the Gemini wrapper: retry on 429/503/network, model fallback, 403 fails fast, budget respected
