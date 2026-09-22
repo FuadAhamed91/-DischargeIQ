@@ -11,6 +11,7 @@ import { format, isSameDay, isToday, isYesterday } from 'date-fns'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { ConversationStateRecord } from '@/lib/whatsapp/fsm'
+import { summariseNumberSession } from '@/lib/whatsapp/number-session'
 import type { NumberSessionSummary } from '@/lib/whatsapp/number-session'
 
 export interface TranscriptMessage {
@@ -147,6 +148,23 @@ export function ConversationTranscript({
       .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [conversationId, supabase])
+
+  // Shared number: follow the routing session as the webhook writes it, so
+  // "currently taken to be about …" and "waiting for the sender" are live.
+  useEffect(() => {
+    if (sharedWith.length === 0) return
+    const channel = supabase
+      .channel(`number-session-${patientPhone}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'whatsapp_number_sessions',
+        filter: `wa_phone=eq.${patientPhone}`,
+      }, (payload) => {
+        const row = payload.new as { active_patient_id: string | null; active_until: string | null; pending_choice: unknown } | null
+        setSession(row && 'active_patient_id' in row ? summariseNumberSession(row) : { activePatientId: null, choicePending: false })
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [patientPhone, sharedWith.length, supabase])
 
   // The 30-minute attending window expires client-side too, so the badge is honest.
   useEffect(() => {
