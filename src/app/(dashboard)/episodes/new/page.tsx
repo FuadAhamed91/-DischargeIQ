@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
-  ArrowLeft, Upload, FileText, Loader2, CheckCircle2, AlertCircle, Sparkles, Pill, CalendarClock, ShieldAlert, X, PenLine,
+  ArrowLeft, Upload, FileText, Loader2, CheckCircle2, AlertCircle, Sparkles, Pill, CalendarClock, ShieldAlert, X, PenLine, Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,6 +22,16 @@ import type { LanguageCode } from '@/types/enums'
 import type { ExtractionResult } from '@/lib/ai/extraction'
 
 type Phase = 'upload' | 'reading' | 'confirm'
+
+/** Another patient with an open episode on the WhatsApp number being typed (GET /api/v1/intake/number-in-use). */
+interface NumberInUse {
+  patient_id: string
+  full_name: string
+  episode_id: string
+  episode_status: string
+}
+
+const E164 = /^\+[1-9]\d{6,14}$/
 
 interface FormState {
   full_name: string
@@ -77,6 +87,30 @@ export default function NewEpisodePage() {
   const [saving, setSaving] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const phoneRef = useRef<HTMLInputElement>(null)
+  // A WhatsApp number is not unique (a family phone, a relative writing for
+  // two patients). Once the number is complete, show who else is on it so
+  // the nurse knows messages will be routed — or catches a typo. The answer
+  // is kept with the number it was fetched for, so editing the number
+  // clears the hint without an extra render.
+  const [inUse, setInUse] = useState<{ phone: string; patients: NumberInUse[] } | null>(null)
+  const phone = form.phone_e164.trim()
+  useEffect(() => {
+    if (!E164.test(phone)) return
+    const controller = new AbortController()
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/v1/intake/number-in-use?phone=${encodeURIComponent(phone)}`, { signal: controller.signal })
+        const json = (await res.json()) as { data?: { patients: NumberInUse[] } }
+        if (res.ok && json.data) setInUse({ phone, patients: json.data.patients })
+      } catch {
+        // Aborted or offline: the hint is a courtesy, never a blocker.
+      }
+    }, 400)
+    return () => { clearTimeout(timer); controller.abort() }
+  }, [phone])
+  const numberInUse = inUse?.phone === phone
+    ? inUse.patients.filter((p) => p.full_name.trim().toLowerCase() !== form.full_name.trim().toLowerCase())
+    : []
 
   // The one field the document never has: put the cursor there.
   useEffect(() => {
@@ -384,6 +418,21 @@ export default function NewEpisodePage() {
                   className="h-11"
                   required
                 />
+                {numberInUse.length > 0 && (
+                  <p className="flex items-start gap-1.5 text-xs text-warning" role="status">
+                    <Users className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span>
+                      Also used by{' '}
+                      {numberInUse.map((p, i) => (
+                        <span key={p.episode_id}>
+                          {i > 0 && (i === numberInUse.length - 1 ? ' and ' : ', ')}
+                          <Link href={`/episodes/${p.episode_id}`} className="font-medium underline underline-offset-2">{p.full_name}</Link>
+                        </span>
+                      ))}
+                      {' '}(open episode). Fine for a shared family phone — the assistant asks who a message is about when it cannot tell. Check the digits if that is not expected.
+                    </span>
+                  </p>
+                )}
               </Field>
               <Field label="Preferred language" hint="The summary and every check-in go out in this language.">
                 <Select value={form.preferred_language} onValueChange={(v) => set('preferred_language')(v as LanguageCode)}>
