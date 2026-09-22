@@ -6,6 +6,7 @@ import { sendAndLog } from '@/lib/whatsapp/outbound'
 import { buildDischargeSummaryMessage } from '@/lib/whatsapp/templates'
 import type { CarePlanAppointment, CarePlanTranslation } from '@/lib/whatsapp/templates'
 import { nightlyCheckinSchedule } from '@/lib/reminders/checkin'
+import { rememberPatientIfShared } from '@/lib/whatsapp/number-session'
 import type { LanguageCode } from '@/types/enums'
 
 export const dynamic = 'force-dynamic'
@@ -132,6 +133,16 @@ export async function POST(
       { status: 502 },
     )
   }
+
+  // Shared number: the care plan just went to this patient, so a relative's
+  // "thanks" or first question is about them.
+  await rememberPatientIfShared(serviceClient, {
+    hospitalId: episode.hospital_id,
+    phone: patient.phone_e164,
+    patientId: patient.id,
+    patientName: patient.full_name,
+    episodeId,
+  })
 
   // Update summary status + episode
   await supabase

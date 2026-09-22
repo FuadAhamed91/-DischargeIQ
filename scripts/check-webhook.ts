@@ -24,6 +24,7 @@ import { FakeDb } from './lib/fake-supabase'
 import { handleInboundMessage } from '@/lib/whatsapp/webhook-handler'
 import { withSenderLock, senderKey, pendingSenders } from '@/lib/whatsapp/sender-queue'
 import { parseStatusCallback, applyStatusCallback, nextRowStatus } from '@/lib/whatsapp/status-callback'
+import { rememberPatientIfShared } from '@/lib/whatsapp/number-session'
 import { parseWebhookPayload } from '@/lib/whatsapp/webhook-handler'
 import type { ServiceClient } from '@/lib/whatsapp/recipient'
 import type { ParsedInbound } from '@/lib/whatsapp/fsm'
@@ -242,6 +243,15 @@ async function main() {
   drain()
   await send({ ...again })
   eq('second delivery sends nothing', drain().length, 0)
+
+  console.log('— the hospital writes first: the addressee becomes the topic —')
+  eq('a number with one open episode gets no session', await rememberPatientIfShared(client, { hospitalId: 'h1', phone: SOLO_PHONE, patientId: 'p-solo', patientName: 'Priya Nair', episodeId: 'ep-solo' }), false)
+  eq('…still no row', db.rows('whatsapp_number_sessions').some((s) => s.wa_phone === SOLO_PHONE), false)
+  eq('a shared number does', await rememberPatientIfShared(client, { hospitalId: 'h1', phone: FAMILY_PHONE, patientId: 'p-farzana', patientName: 'Farzana Arif', episodeId: 'ep-farzana' }), true)
+  eq('…and Farzana is now the topic', session()?.active_patient_id, 'p-farzana')
+  await send(inbound(FAMILY_PHONE, 'thank you'))
+  sent = drain()
+  includes('so the relative\'s thanks goes to her', sent[0]?.body ?? '', 'Thank you, Farzana Arif')
 
   console.log('— delivery receipts (Twilio StatusCallback) —')
   const receipt = (MessageStatus: string, extra: Record<string, string> = {}) =>

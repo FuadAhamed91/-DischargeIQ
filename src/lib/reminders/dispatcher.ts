@@ -16,6 +16,7 @@ import type { ConversationState } from '@/lib/whatsapp/fsm'
 import type { LanguageCode } from '@/types/enums'
 import { holdReason } from './stagger'
 import type { PhoneConversation } from './stagger'
+import { rememberPatientIfShared } from '@/lib/whatsapp/number-session'
 
 interface DispatchResult {
   sent: number
@@ -178,6 +179,16 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
       }
 
       sentThisRun.add(patient.phone_e164)
+
+      // Shared number: tonight's question is theirs, so an unaddressed reply
+      // (or a follow-up after the check-in is done) goes to them.
+      await rememberPatientIfShared(supabase, {
+        hospitalId: job.hospital_id,
+        phone: patient.phone_e164,
+        patientId: episode.patient_id,
+        patientName: patient.full_name,
+        episodeId: job.episode_id,
+      })
 
       // Mark job as sent
       await supabase
