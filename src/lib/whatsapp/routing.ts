@@ -66,7 +66,7 @@ export type RoutedVia =
 export type RoutingDecision =
   | { kind: 'deliver'; candidate: RoutingCandidate; messages: ParsedInbound[]; via: RoutedVia }
   | { kind: 'ask'; options: RoutingCandidate[]; held: ParsedInbound | null; repeat: boolean }
-  | { kind: 'switched'; candidate: RoutingCandidate; message: ParsedInbound }
+  | { kind: 'switched'; candidate: RoutingCandidate; message: ParsedInbound; via: 'name' | 'choice' }
 
 /** A pending question is answered within this long; after that a "2" is just a message. */
 export const CHOICE_TTL_MS = 60 * 60 * 1000
@@ -256,7 +256,7 @@ export function routeInbound(
       const messages: ParsedInbound[] = []
       if (pending.held) messages.push(pending.held)
       if (chosen.rest) messages.push({ ...message, text: chosen.rest })
-      if (messages.length === 0) return { kind: 'switched', candidate: chosen.candidate, message }
+      if (messages.length === 0) return { kind: 'switched', candidate: chosen.candidate, message, via: 'choice' }
       return { kind: 'deliver', candidate: chosen.candidate, messages, via: 'choice' }
     }
     // Not an answer. An emergency, a voice note, or a second non-answer is
@@ -272,7 +272,7 @@ export function routeInbound(
   if (text) {
     const named = parseNamePrefix(text, candidates)
     if (named) {
-      if (!named.rest) return { kind: 'switched', candidate: named.candidate, message }
+      if (!named.rest) return { kind: 'switched', candidate: named.candidate, message, via: 'name' }
       return { kind: 'deliver', candidate: named.candidate, messages: [{ ...message, text: named.rest }], via: 'name' }
     }
     // 4. The sender wants the list.

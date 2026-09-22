@@ -12,8 +12,13 @@
 
 import { createServiceClient } from '@/lib/supabase/server'
 import { resolveHospital, isKnownNumber, findOpenEpisodesByPhone, getOrCreateConversation } from './recipient'
+import type { ServiceClient, InboundHospital, InboundPatient, InboundEpisode } from './recipient'
 import { alreadyHandled, logInbound } from './inbound-log'
-import type { ServiceClient } from './recipient'
+import { loadNumberSession, saveNumberSession } from './number-session'
+import { loadRoutingCandidates, askWhoIsThisAbout } from './shared-number'
+import { routeInbound, sessionAfterDelivery, EMPTY_SESSION } from './routing'
+import type { RoutedVia } from './routing'
+import { buildNowAboutMessage } from './routing-templates'
 import { sendMessage, markAsRead } from './client'
 import type { OutboundMessage } from './client'
 import { sendAndLog } from './outbound'
@@ -246,10 +251,113 @@ export async function handleInboundMessage(
     return
   }
 
-  // Newest open episode for now; a shared number gets proper routing next.
-  const { patient, episode } = candidates[0]
+  // 4. Which patient is this message about? One open episode: no question.
+  // Several (a shared family phone, a caregiver, a tester's own number): the
+  // number's session and the routing rules decide, and when they cannot,
+  // the sender is asked and the message held until they answer.
+  const shared = candidates.length > 1
+  const session = shared ? await loadNumberSession(supabase, hospital.id, message.from) : EMPTY_SESSION
+  if (session.pendingChoice?.held?.waMessageId === message.waMessageId) {
+    // A held message is not logged until it is replayed, so the SID check
+    // above cannot catch its redelivery.
+    console.warn('[WhatsApp] duplicate delivery of a held message ignored:', message.waMessageId)
+    return
+  }
 
-  // 4. Get or create the conversation record (messages hang off it)
+  const decision = routeInbound(await loadRoutingCandidates(supabase, candidates), session, message)
+
+  if (decision.kind === 'ask') {
+    await askWhoIsThisAbout({
+      supabase,
+      phoneNumberId,
+      hospitalId: hospital.id,
+      phone: message.from,
+      options: decision.options,
+      held: decision.held,
+      repeat: decision.repeat,
+      session,
+    })
+    return
+  }
+
+  const target = candidates.find((c) => c.patient.id === decision.candidate.patientId) ?? candidates[0]
+  const routing = shared ? { via: decision.via, linkedPatients: candidates.length } : undefined
+  if (shared) await saveNumberSession(supabase, hospital.id, message.from, sessionAfterDelivery(decision.candidate))
+
+  if (decision.kind === 'switched') {
+    await confirmSwitch({ supabase, phoneNumberId, hospital, patient: target.patient, episode: target.episode, message, routing })
+    return
+  }
+
+  // A bare "2" answers the question and carries nothing to act on, but the
+  // transcript should still show it next to the message it unlocked.
+  if (decision.via === 'choice' && !decision.messages.some((m) => m.waMessageId === message.waMessageId)) {
+    await logRoutingAnswer({ supabase, phoneNumberId, hospital, patient: target.patient, episode: target.episode, message, routing })
+  }
+
+  // A held message replays first, then the one that answered the question.
+  for (const routed of decision.messages) {
+    await processForPatient({ supabase, phoneNumberId, hospital, patient: target.patient, episode: target.episode, message: routed, routing })
+  }
+}
+
+interface RoutingInfo {
+  via: RoutedVia
+  linkedPatients: number
+}
+
+interface PatientMessageParams {
+  supabase: ServiceClient
+  phoneNumberId: string
+  hospital: InboundHospital
+  patient: InboundPatient
+  episode: InboundEpisode
+  message: ParsedInbound
+  /** Set when the number is linked to more than one patient: how this message was matched. */
+  routing?: RoutingInfo
+}
+
+function routingMetadata(routing?: RoutingInfo): Record<string, unknown> | undefined {
+  return routing ? { routing: { via: routing.via, linked_patients: routing.linkedPatients } } : undefined
+}
+
+/** The reply that only said who a message is about: recorded on that patient's transcript, nothing to act on. */
+async function logRoutingAnswer(params: PatientMessageParams): Promise<'logged' | 'duplicate' | 'failed'> {
+  const { supabase, hospital, patient, episode, message, routing } = params
+  const conversation = await getOrCreateConversation(supabase, {
+    episodeId: episode.id,
+    hospitalId: hospital.id,
+    patientId: patient.id,
+    phone: message.from,
+  })
+  if (!conversation) return 'failed'
+  const metadata = { ...routingMetadata(routing), answer: true }
+  const logged = await logInbound({ supabase, conversationId: conversation.id, hospitalId: hospital.id, message, metadata })
+  return logged.status
+}
+
+/** A bare name or a choice with nothing to pass on: log it, confirm who we are talking about now. */
+async function confirmSwitch(params: PatientMessageParams): Promise<void> {
+  const { supabase, phoneNumberId, hospital, patient, episode, message } = params
+  if ((await logRoutingAnswer(params)) === 'duplicate') return
+  await sendAndLog({
+    supabase,
+    phoneNumberId,
+    message: buildNowAboutMessage({ to: message.from, patientName: patient.full_name, language: (patient.preferred_language as LanguageCode) ?? 'en' }),
+    episodeId: episode.id,
+    hospitalId: hospital.id,
+    patientId: patient.id,
+  })
+}
+
+// ------------------------------------
+// One message, one patient
+// ------------------------------------
+
+async function processForPatient(params: PatientMessageParams): Promise<void> {
+  const { supabase, phoneNumberId, hospital, patient, episode, message, routing } = params
+
+  // 5. Get or create the conversation record (messages hang off it)
   const conversation = await getOrCreateConversation(supabase, {
     episodeId: episode.id,
     hospitalId: hospital.id,
@@ -272,20 +380,20 @@ export async function handleInboundMessage(
       patientId: patient.id,
     })
 
-  // 5. Persist inbound message. The UNIQUE wa_message_id makes this the
+  // 6. Persist inbound message. The UNIQUE wa_message_id makes this the
   // claim: if another delivery of the same SID got here first, it is already
   // replying and this one must not (Twilio retries, double-taps).
-  const logged = await logInbound({ supabase, conversationId: conversation.id, hospitalId: hospital.id, message })
+  const logged = await logInbound({ supabase, conversationId: conversation.id, hospitalId: hospital.id, message, metadata: routingMetadata(routing) })
   if (logged.status === 'duplicate') {
     console.warn('[WhatsApp] duplicate delivery ignored:', message.waMessageId)
     return
   }
   const savedMsg = logged.status === 'logged' ? { id: logged.messageId } : null
 
-  // 6. Run FSM
+  // 7. Run FSM
   const result = transition(state, message)
 
-  // 7. Execute action
+  // 8. Execute action
   const lang = (patient.preferred_language as LanguageCode) ?? 'en'
 
   switch (result.action) {
@@ -673,7 +781,7 @@ export async function handleInboundMessage(
       break
   }
 
-  // 8. Update conversation state (the row is guaranteed to exist from step 4).
+  // 9. Update conversation state (the row is guaranteed to exist from step 5).
   // While a nurse is attending, keep the stored object (it carries the expiry)
   // instead of flattening it to a bare string.
   const keepAttending = result.nextState === 'nurse_attending' && state === 'nurse_attending'
@@ -686,7 +794,7 @@ export async function handleInboundMessage(
     })
     .eq('id', conversation.id)
 
-  // 9. Log timeline for outbound (generic)
+  // 10. Log timeline for outbound (generic)
   await supabase.from('patient_timeline_events').insert({
     episode_id: episode.id,
     hospital_id: hospital.id,
@@ -698,6 +806,6 @@ export async function handleInboundMessage(
     },
   })
 
-  // 10. Mark as read
+  // 11. Mark as read
   await markAsRead(phoneNumberId, message.waMessageId)
 }
