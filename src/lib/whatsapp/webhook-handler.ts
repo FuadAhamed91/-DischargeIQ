@@ -12,6 +12,7 @@
 
 import { createServiceClient } from '@/lib/supabase/server'
 import { resolveHospital, isKnownNumber, findOpenEpisodesByPhone } from './recipient'
+import { alreadyHandled, logInbound } from './inbound-log'
 import type { ServiceClient } from './recipient'
 import { sendMessage, markAsRead } from './client'
 import type { OutboundMessage } from './client'
@@ -212,6 +213,12 @@ export async function handleInboundMessage(
 ): Promise<void> {
   const supabase = await createServiceClient()
 
+  // 0. A redelivered webhook carries a SID we have already answered.
+  if (await alreadyHandled(supabase, message.waMessageId)) {
+    console.warn('[WhatsApp] duplicate delivery ignored:', message.waMessageId)
+    return
+  }
+
   // 1. Resolve hospital from phone_number_id
   const hospital = await resolveHospital(supabase, phoneNumberId)
   if (!hospital) {
@@ -282,21 +289,15 @@ export async function handleInboundMessage(
       patientId: patient.id,
     })
 
-  // 5. Persist inbound message
-  const { data: savedMsg, error: msgErr } = await supabase
-    .from('whatsapp_messages')
-    .insert({
-      conversation_id: conversation.id,
-      hospital_id: hospital.id,
-      wa_message_id: message.waMessageId,
-      direction: 'inbound',
-      message_type: message.type === 'audio' ? 'audio' : message.type === 'interactive_reply' ? 'interactive' : 'text',
-      content: message.text ?? message.interactiveTitle ?? '',
-      status: 'delivered',
-    })
-    .select('id')
-    .single()
-  if (msgErr) console.error('[WhatsApp] could not persist inbound message:', msgErr.message)
+  // 5. Persist inbound message. The UNIQUE wa_message_id makes this the
+  // claim: if another delivery of the same SID got here first, it is already
+  // replying and this one must not (Twilio retries, double-taps).
+  const logged = await logInbound({ supabase, conversationId: conversation.id, hospitalId: hospital.id, message })
+  if (logged.status === 'duplicate') {
+    console.warn('[WhatsApp] duplicate delivery ignored:', message.waMessageId)
+    return
+  }
+  const savedMsg = logged.status === 'logged' ? { id: logged.messageId } : null
 
   // 6. Run FSM
   const result = transition(state, message)
