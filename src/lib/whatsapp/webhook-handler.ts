@@ -19,6 +19,7 @@ import { loadRoutingCandidates, askWhoIsThisAbout } from './shared-number'
 import { routeInbound, sessionAfterDelivery, EMPTY_SESSION } from './routing'
 import type { RoutedVia } from './routing'
 import { buildNowAboutMessage } from './routing-templates'
+import { shouldReplyToUnknown } from './unknown-number'
 import { sendMessage, markAsRead } from './client'
 import type { OutboundMessage } from './client'
 import { sendAndLog } from './outbound'
@@ -247,6 +248,8 @@ export async function handleInboundMessage(
   const candidates = await findOpenEpisodesByPhone(supabase, hospital.id, message.from)
 
   if (candidates.length === 0) {
+    // Once an hour per number: a stranger's fourth message gets no fourth reply.
+    if (!shouldReplyToUnknown(`${phoneNumberId}|${message.from}`)) return
     if (await isKnownNumber(supabase, hospital.id, message.from)) {
       // Registered, but every episode is closed.
       await sendMessage(phoneNumberId, {

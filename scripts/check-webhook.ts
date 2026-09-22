@@ -123,6 +123,8 @@ async function main() {
   sent = drain()
   includes('not-registered reply', sent[0]?.body ?? '', 'could not find an active care record')
   eq('nothing logged', db.rows('whatsapp_messages').filter((m) => m.direction === 'inbound').length, 1)
+  await send(inbound('+971500009999', 'hello??'))
+  eq('a second message within the hour gets no second reply', drain().length, 0)
 
   console.log('— a shared number, first contact: the assistant has to ask —')
   const hi = inbound(FAMILY_PHONE, 'hi')
