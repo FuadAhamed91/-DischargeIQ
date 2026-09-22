@@ -87,7 +87,7 @@ export default async function ReviewPage({
               <FileText className="w-4 h-4" /> Upload Discharge PDF
             </CardTitle>
             <CardDescription>
-              Upload the patient's discharge document. AI will extract medications, instructions, and emergency symptoms automatically.
+              Upload the patient’s discharge document. AI will extract medications, instructions, and emergency symptoms automatically.
             </CardDescription>
           </CardHeader>
           <CardContent>
