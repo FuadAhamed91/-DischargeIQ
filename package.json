@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "gen:types": "supabase gen types typescript --project-id $SUPABASE_PROJECT_ID --schema public > src/types/database.generated.ts",
+    "check": "npm run check:intent && npm run check:routing && npm run check:webhook",
     "check:intent": "npx --yes tsx scripts/check-intent.ts",
     "check:routing": "npx --yes tsx scripts/check-routing.ts",
     "check:webhook": "npx --yes tsx scripts/check-webhook.ts"
