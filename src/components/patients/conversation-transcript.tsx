@@ -118,6 +118,8 @@ export function ConversationTranscript({
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [handingBack, setHandingBack] = useState(false)
+  const [session, setSession] = useState<NumberSessionSummary | null>(numberSession)
+  const [forgetting, setForgetting] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const supabase = useMemo(() => createClient(), [])
@@ -206,8 +208,23 @@ export function ConversationTranscript({
 
   // Shared number: who the sender is currently taken to be writing about.
   const shared = sharedWith.length > 0
-  const activeIsThisPatient = numberSession?.activePatientId === patientId
-  const activeOther = sharedWith.find((p) => p.patientId === numberSession?.activePatientId) ?? null
+  const activeIsThisPatient = session?.activePatientId === patientId
+  const activeOther = sharedWith.find((p) => p.patientId === session?.activePatientId) ?? null
+  const hasMemory = Boolean(session?.activePatientId || session?.choicePending)
+
+  async function forgetRouting() {
+    setForgetting(true)
+    try {
+      const res = await fetch(`/api/v1/episodes/${episodeId}/number-session`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Could not reset')
+      setSession({ activePatientId: null, choicePending: false })
+      toast.success('The next message from this number will be routed from scratch')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not reset')
+    } finally {
+      setForgetting(false)
+    }
+  }
 
   return (
     <div className="flex flex-col">
@@ -247,14 +264,22 @@ export function ConversationTranscript({
               . A message that does not say who it is about goes to the conversation waiting for a reply, else to the patient written about most recently; when that is unclear the sender is asked.
             </span>
           </p>
-          <p className="mt-1 pl-[22px] text-muted-foreground">
-            {numberSession?.choicePending
-              ? 'Waiting for the sender to say who their last message is about — it is held until they answer.'
-              : activeIsThisPatient
-                ? `Messages from this number are currently taken to be about ${patientName.split(' ')[0]}.`
-                : activeOther
-                  ? `Messages from this number are currently taken to be about ${activeOther.patientName.split(' ')[0]}.`
-                  : 'The next message without a name will be asked about, unless one conversation is waiting for a reply.'}
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 pl-[22px] text-muted-foreground">
+            <span>
+              {session?.choicePending
+                ? 'Waiting for the sender to say who their last message is about — it is held until they answer.'
+                : activeIsThisPatient
+                  ? `Messages from this number are currently taken to be about ${patientName.split(' ')[0]}.`
+                  : activeOther
+                    ? `Messages from this number are currently taken to be about ${activeOther.patientName.split(' ')[0]}.`
+                    : 'The next message without a name will be asked about, unless one conversation is waiting for a reply.'}
+            </span>
+            {hasMemory && canSend && (
+              <Button type="button" variant="ghost" size="sm" onClick={forgetRouting} disabled={forgetting} className="h-6 px-1.5 text-xs" title="Forget who this number is writing about; the next message is routed from scratch">
+                {forgetting ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> : null}
+                Forget
+              </Button>
+            )}
           </p>
         </div>
       )}
