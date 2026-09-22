@@ -237,6 +237,20 @@ export interface ConversationState {
   context?: Record<string, unknown>
 }
 
+/**
+ * Per (hospital, sender number): which patient the sender is writing about
+ * when the number is linked to more than one open episode (migration 00011).
+ */
+export interface WhatsappNumberSession {
+  hospital_id: string
+  wa_phone: string
+  active_patient_id: string | null
+  active_until: string | null
+  pending_choice: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
 export interface WhatsappMessage {
   id: string
   conversation_id: string
@@ -390,6 +404,7 @@ export type Database = {
       patient_timeline_events: { Row: PatientTimelineEvent; Insert: Partial<PatientTimelineEvent>; Update: Partial<PatientTimelineEvent> }
       whatsapp_conversations: { Row: WhatsappConversation; Insert: Partial<WhatsappConversation>; Update: Partial<WhatsappConversation> }
       whatsapp_messages: { Row: WhatsappMessage; Insert: Partial<WhatsappMessage>; Update: Partial<WhatsappMessage> }
+      whatsapp_number_sessions: { Row: WhatsappNumberSession; Insert: Partial<WhatsappNumberSession>; Update: Partial<WhatsappNumberSession> }
       voice_artifacts: { Row: VoiceArtifact; Insert: Partial<VoiceArtifact>; Update: Partial<VoiceArtifact> }
       triage_assessments: { Row: TriageAssessment; Insert: Partial<TriageAssessment>; Update: Partial<TriageAssessment> }
       alerts: { Row: Alert; Insert: Partial<Alert>; Update: Partial<Alert> }
