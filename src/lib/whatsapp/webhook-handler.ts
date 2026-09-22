@@ -11,6 +11,8 @@
  */
 
 import { createServiceClient } from '@/lib/supabase/server'
+import { resolveHospital, resolvePatient, resolveOpenEpisode } from './recipient'
+import type { ServiceClient } from './recipient'
 import { sendMessage, markAsRead } from './client'
 import type { OutboundMessage } from './client'
 import { sendAndLog } from './outbound'
@@ -95,8 +97,6 @@ export function extractPhoneNumberId(params: Record<string, string>): string | n
 // ------------------------------------
 // Triage persistence (voice notes, text symptom reports, nightly check-in)
 // ------------------------------------
-
-type ServiceClient = Awaited<ReturnType<typeof createServiceClient>>
 
 interface RecordTriageParams {
   supabase: ServiceClient
@@ -213,41 +213,21 @@ export async function handleInboundMessage(
   const supabase = await createServiceClient()
 
   // 1. Resolve hospital from phone_number_id
-  const { data: hospital } = await supabase
-    .from('hospitals')
-    .select('id, name, timezone, settings')
-    .eq('whatsapp_phone_number_id', phoneNumberId)
-    .single()
-
+  const hospital = await resolveHospital(supabase, phoneNumberId)
   if (!hospital) {
     console.error('[WhatsApp] No hospital found for phone_number_id:', phoneNumberId)
     return
   }
 
   // 2. Resolve patient
-  const { data: patient } = await supabase
-    .from('patients')
-    .select('id, full_name, preferred_language, hospital_id')
-    .eq('hospital_id', hospital.id)
-    .eq('phone_e164', message.from)
-    .single()
-
+  const patient = await resolvePatient(supabase, hospital.id, message.from)
   if (!patient) {
     await sendMessage(phoneNumberId, buildNotRegisteredMessage(message.from))
     return
   }
 
   // 3. Find active episode
-  const { data: episode } = await supabase
-    .from('care_episodes')
-    .select('id, status')
-    .eq('patient_id', patient.id)
-    .eq('hospital_id', hospital.id)
-    .in('status', ['active', 'pending_review'])
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single()
-
+  const episode = await resolveOpenEpisode(supabase, hospital.id, patient.id)
   if (!episode) {
     await sendMessage(phoneNumberId, {
       type: 'text',
