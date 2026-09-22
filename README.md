@@ -394,7 +394,7 @@ build cache.
 
 **Supabase** — one project per environment. New project checklist:
 
-1. `supabase db push` (migrations 00001–00008), then `seed.sql` and, if wanted, `demo_seed.sql`.
+1. `supabase db push` (migrations 00001–00011), then `seed.sql` and, if wanted, `demo_seed.sql`.
 2. Create staff auth users + `profiles` rows.
 3. Set the hospital's `whatsapp_phone_number_id`.
 4. Configure pg_cron dispatch (service role, via SQL editor or REST `rpc/configure_cron_dispatch`):
@@ -407,6 +407,12 @@ build cache.
 "When a message comes in": `https://<app-host>/api/webhooks/whatsapp`, POST. Patients (and testers)
 must join the sandbox from their phone (`join <keyword>` to +1 415 523 8886); sandbox opt-ins
 **expire after 72 hours** of inactivity.
+
+Any number of people can write to the one sandbox number at the same time — each is matched to
+their own patient record by their phone number. On the sandbox the only per-person step is that
+join; on a WhatsApp Business sender there is none. To try the shared-number flow with a single
+phone, register two patients with your own number and message the sandbox: you are asked who the
+message is about, then `Umar: …` / `Farzana: …` switch between them.
 
 ### Rotating `CRON_SECRET`
 
@@ -469,13 +475,19 @@ functions callable by `authenticated` (required — policies evaluate them as th
 npm run lint           # eslint (a few pre-existing react/no-unescaped-entities warnings in JSX)
 npx tsc --noEmit       # typecheck
 npm run build          # production build (needs NEXT_PUBLIC_SUPABASE_* set; placeholders are fine)
+npm run check          # all three below
 npm run check:intent   # 85 table-driven checks: pre-intent classifier, escalation derivation, FSM (check-in, nurse chat), state parsing
+npm run check:routing  # shared-number routing: name prefixes, answers to "who is this about?", the decision order, expiries
+npm run check:webhook  # the inbound handler end to end against an in-memory Supabase and a captured Twilio (no keys, no network)
 ```
 
-There is no end-to-end test suite yet. The reference manual test is: create a patient with a real
-sandbox-joined number → move their `reminder_schedules` row a few minutes ahead → trigger `generate` →
-wait for the 5-minute tick → reply "1" then "OK" → confirm `reminder_response` on the timeline and
-all four messages in the Conversation tab; then reply with a symptom in idle state and check the alert.
+`scripts/lib/fake-supabase.ts` is the in-memory stand-in the webhook check runs on: enough of the
+query builder (select / insert / upsert / update, embeds, UNIQUE → 23505) to exercise the real
+handler. There is no browser end-to-end suite. The reference manual test is: create a patient with
+a real sandbox-joined number → move their `reminder_schedules` row a few minutes ahead → trigger
+`generate` → wait for the 5-minute tick → reply "1" then "OK" → confirm `reminder_response` on the
+timeline and all four messages in the Conversation tab; then reply with a symptom in idle state and
+check the alert. For the shared-number flow, register a second patient on the same number first.
 
 ---
 
