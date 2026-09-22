@@ -82,7 +82,13 @@ const WAITING_STATES = new Set<ConversationState>([
   'nurse_attending',
 ])
 
-const SWITCH_WORDS = new Set(['switch', 'change', 'change patient', 'other patient', 'someone else', 'menu', 'who'])
+const SWITCH_WORDS = new Set([
+  'switch', 'change', 'change patient', 'other patient', 'someone else', 'menu', 'who',
+  'تغيير', 'تبديل', 'شخص آخر', 'مريض آخر',
+  'बदलें', 'बदलो', 'badlo', 'badal', 'dusra', 'doosra',
+  'மாற்று', 'மாற்றவும்', 'maatru', 'mathu',
+  'palit', 'ibang pasyente', 'iba',
+])
 
 /** True when this conversation has asked the patient something and is waiting. */
 export function isWaiting(state: ConversationState): boolean {
@@ -140,7 +146,20 @@ function matchNameAtStart(norm: string, keys: Map<string, RoutingCandidate[]>): 
   return best
 }
 
-const NAME_LEAD_IN = /^(for|about|re|this is|its|it s|from)\s+/
+// Words that may come before a name ("for Umar", "para kay Umar", "عن Umar")
+// and after it ("Farzana ke liye" — Hindi/Urdu put the "for" after the name).
+const LEAD_INS = [
+  'this is', 'it is', 'its', 'it s', 'for', 'about', 're', 'from',
+  'عن', 'بخصوص', 'من',
+  'para kay', 'tungkol kay', 'para sa', 'kay', 'si', 'ni',
+]
+const TRAILERS = [
+  'ke liye', 'ke baare mein', 'ke bare mein', 'ke bare me', 'ki taraf se', 'ke bare', 'के लिए', 'के बारे में', 'की तरफ से',
+  'patri', 'patthi', 'பற்றி', 'kaga', 'க்காக', 'sarbil', 'சார்பில்',
+]
+const longestFirst = (words: string[]) => [...words].sort((a, b) => b.length - a.length)
+const NAME_LEAD_IN = new RegExp(`^(${longestFirst(LEAD_INS).join('|')})\\s+`)
+const NAME_TRAILER = new RegExp(`^(${longestFirst(TRAILERS).join('|')})(?:\\s+|$)`)
 
 export interface NamePrefix {
   candidate: RoutingCandidate
@@ -161,10 +180,15 @@ export function parseNamePrefix(text: string, candidates: RoutingCandidate[]): N
   const body = lead ? norm.slice(lead[0].length) : norm
   const match = matchNameAtStart(body, keys)
   if (!match) return null
+  const afterName = body.slice(match.key.length).trim()
+  const trailer = afterName.match(NAME_TRAILER)
 
   // Drop the same number of words from the original text so the rest keeps
   // its casing and punctuation, then the separator ("Umar: …", "Umar - …").
-  const words = (lead ? lead[0].trim().split(' ').length : 0) + match.key.split(' ').length
+  const words =
+    (lead ? lead[0].trim().split(' ').length : 0) +
+    match.key.split(' ').length +
+    (trailer ? trailer[1].split(' ').length : 0)
   let rest = text.trim()
   for (let i = 0; i < words; i++) {
     rest = rest.replace(/^[^\p{L}\p{N}]*[\p{L}\p{M}\p{N}'’]+/u, '')
