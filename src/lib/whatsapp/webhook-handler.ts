@@ -305,6 +305,7 @@ export async function handleInboundMessage(
       supabase, phoneNumberId, hospital, patient: target.patient, episode: target.episode,
       message: decision.held, routing: { via: 'fallback', linkedPatients: candidates.length },
     })
+    await flagBestGuess(supabase, hospital.id, target.episode.id, decision.held, candidates.length)
     return
   }
 
@@ -327,6 +328,41 @@ export async function handleInboundMessage(
   for (const routed of decision.messages) {
     await processForPatient({ supabase, phoneNumberId, hospital, patient: target.patient, episode: target.episode, message: routed, routing })
   }
+  if (decision.via === 'fallback') {
+    await flagBestGuess(supabase, hospital.id, target.episode.id, decision.messages[decision.messages.length - 1], candidates.length)
+  }
+}
+
+/**
+ * A message went to this patient because the sender would not say who it
+ * was about (or the question could not be sent). Whatever it triggered may
+ * belong to the other patient on the number — a nurse should glance at it.
+ */
+async function flagBestGuess(
+  supabase: ServiceClient,
+  hospitalId: string,
+  episodeId: string,
+  message: ParsedInbound,
+  linkedPatients: number,
+): Promise<void> {
+  await supabase.from('alerts').insert({
+    episode_id: episodeId,
+    hospital_id: hospitalId,
+    type: 'escalation',
+    severity: 'low',
+  })
+  await supabase.from('patient_timeline_events').insert({
+    episode_id: episodeId,
+    hospital_id: hospitalId,
+    event_type: 'escalation_created',
+    payload: {
+      reason: `Message matched to this patient by best guess — the number is shared by ${linkedPatients} patients and the sender did not say who it was about`,
+      intent: 'shared_number_best_guess',
+      severity: 'low',
+      wa_message_id: message.waMessageId,
+      text: message.text ?? null,
+    },
+  })
 }
 
 interface RoutingInfo {

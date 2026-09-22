@@ -234,6 +234,8 @@ async function main() {
   eq('the greeting was still answered (for the likeliest patient)', sent.length, 1)
   includes('…for Umar, the newest episode', sent[0]?.body ?? '', 'Hello Umar Siddiqui')
   eq('routed as fallback', routingOf(inboundOf('c-umar').at(-1)!), 'fallback')
+  eq('a low alert asks a nurse to confirm the patient', db.rows('alerts').filter((a) => a.severity === 'low' && a.episode_id === 'ep-umar').length, 1)
+  eq('…with the reason on the timeline', db.rows('patient_timeline_events').filter((e) => (e.payload as { intent?: string }).intent === 'shared_number_best_guess').length, 1)
   eq('no question left pending', session()?.pending_choice ?? null, null)
   eq('the failed prompt is on the transcript as not delivered', messagesOf('c-umar').filter((m) => m.status === 'failed').length, 1)
 
