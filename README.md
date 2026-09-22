@@ -146,6 +146,36 @@ Every outbound message — from any path — goes through `lib/whatsapp/outbound
 which sends via Twilio and records the exact delivered text on the conversation. The episode page's
 **Conversation** tab renders this transcript live.
 
+**One number, several patients.** One hospital number serves every patient, and a patient's own
+number is not unique either: a family shares a phone, a daughter writes for both parents, a tester
+registers three demo patients on their own number. Every open episode behind the sender's number
+is a candidate (`findOpenEpisodesByPhone()`), each patient keeps their own conversation, state and
+transcript, and `lib/whatsapp/routing.ts` decides which one a message belongs to — first match wins:
+
+| Rule | Example |
+|---|---|
+| One open episode behind the number | everything below is skipped — the usual case |
+| A "who is this about?" question is pending | `2`, `Umar`, `it's for Farzana`, `2: can she eat rice?` |
+| The message starts with a patient's name | `Umar: can I walk today?`, `for Farzana – she is dizzy` |
+| `switch` | lists the patients again |
+| The remembered patient is mid-dialogue | a check-in question is waiting on their conversation |
+| Exactly one conversation is waiting for a reply | `1` answers that check-in |
+| The patient written about in the last 24 h | a follow-up `thanks` |
+| An emergency keyword | goes to the likeliest patient at once — never held |
+| Otherwise | the assistant asks, holds the message, and replays it once answered |
+
+The per-number memory (`whatsapp_number_sessions`, migration 00011) holds the remembered patient
+and any pending question with the held message. The question is logged on every linked transcript;
+inbound rows on a shared number carry `metadata.routing = { via, linked_patients }` and the
+Conversation tab shows a "Shared number" notice plus how each message was matched. Intake warns
+when a number is already on another open episode. Table-tested in `scripts/check-routing.ts` and
+end to end in `scripts/check-webhook.ts` (in-memory Supabase, captured Twilio).
+
+Two more things the handler does for many senders on one number: a redelivered Twilio message
+(retry, double-tap) is handled once — the UNIQUE `wa_message_id` insert is the claim — and messages
+from the same sender are handled in order, one at a time, while different senders run side by side
+(`lib/whatsapp/sender-queue.ts`).
+
 **Nurse chat.** Clinical staff can write to the patient from that tab (`POST /api/v1/episodes/[id]/messages`).
 The message is sent as the nurse (logged with `metadata.sender = 'nurse'`, shown in a solid bubble
 with their name) and the conversation enters `nurse_attending` for 30 minutes: patient replies are
@@ -206,13 +236,15 @@ src/
   lib/
     ai/        extraction.ts  translation.ts  chat.ts (Q&A + deriveEscalation)  intent.ts (pre-classifier)  triage.ts  guardrails.ts
     whatsapp/  client.ts (Twilio)  outbound.ts (sendAndLog)  fsm.ts  webhook-handler.ts  templates.ts
+               recipient.ts (who is behind a number)  routing.ts (which patient a message is about)  shared-number.ts
+               number-session.ts  inbound-log.ts (dedupe by SID)  sender-queue.ts (in-order per sender)  routing-templates.ts
     reminders/ generator.ts  dispatcher.ts
     supabase/  server.ts (user + service clients)  client.ts (browser)  middleware.ts (session refresh + public paths)
     auth/      session.ts  permissions.ts
   components/  alerts/  analytics/  appointments/  episodes/  patients/ (timeline, transcript, adherence)  ui/ (shadcn)
   types/       database.ts  enums.ts  api.ts
 supabase/
-  migrations/  00001 … 00008 (see Database)
+  migrations/  00001 … 00011 (see Database)
   seed.sql     demo hospital, department, approved guidance
   demo_seed.sql evergreen demo dataset (5 patients; all dates relative to today)
 scripts/
@@ -287,6 +319,7 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/appo
 | 00008 | `realtime_whatsapp_messages` | Realtime for the conversation transcript |
 | 00009 | `nightly_checkin` | `alert_type += missed_medication`; retires per-dose `medication` schedules (+ cancels their pending jobs); one `symptom_check` / `nightly_checkin_v1` schedule at the hospital's check-in time per active episode |
 | 00010 | `follow_up_appointments` | `appointments.time_tbc`; backfills provisional appointments for dated follow-ups on open episodes and links existing appointments to their follow-up |
+| 00011 | `whatsapp_number_sessions` | Per (hospital, sender number): the patient a shared number is currently writing about and any pending "who is this about?" question with its held message; hospital-scoped SELECT |
 
 Applying to a project:
 
