@@ -54,6 +54,17 @@ export default async function PatientsPage({
 
   const { data: patients, count } = await query
 
+  // Numbers on this page that other patients of the hospital are registered
+  // on too — a family phone. One query for the page, not one per row.
+  const phones = [...new Set((patients ?? []).map((p) => p.phone_e164 as string))]
+  const { data: sameNumberRows } = phones.length
+    ? await supabase.from('patients').select('id, phone_e164').eq('hospital_id', profile.hospital_id).in('phone_e164', phones)
+    : { data: [] as Array<{ id: string; phone_e164: string }> }
+  const holdersByPhone = new Map<string, number>()
+  for (const row of sameNumberRows ?? []) {
+    holdersByPhone.set(row.phone_e164 as string, (holdersByPhone.get(row.phone_e164 as string) ?? 0) + 1)
+  }
+
   const totalPages = Math.ceil((count ?? 0) / limit)
 
   return (
@@ -125,7 +136,12 @@ export default async function PatientsPage({
                       <NavLink href={`/patients/${patient.id}`} className="font-medium hover:underline focus-visible:underline after:absolute after:inset-0" aria-label={`Open ${patient.full_name}`}>
                         {patient.full_name}
                       </NavLink>
-                      <p className="text-xs text-muted-foreground tnum">{patient.phone_e164}</p>
+                      <p className="flex items-center gap-1 text-xs text-muted-foreground tnum">
+                        {patient.phone_e164}
+                        {(holdersByPhone.get(patient.phone_e164) ?? 0) > 1 && (
+                          <Users className="h-3 w-3" aria-label="Number shared with another patient" />
+                        )}
+                      </p>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="font-mono text-xs">
