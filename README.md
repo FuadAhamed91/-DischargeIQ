@@ -109,7 +109,15 @@ immediately, and does the work inside Next's `after()` so Vercel keeps the funct
 
 ```mermaid
 flowchart TD
-  M[inbound message] --> S{conversation state<br/>lib/whatsapp/fsm.ts}
+  M[inbound message] --> D{seen this SID?}
+  D -->|yes| X[drop]
+  D -->|no| W{open episodes<br/>behind the number}
+  W -->|none| U[not registered / episode ended<br/>once an hour per number]
+  W -->|one| S
+  W -->|several| R{routing.ts<br/>pending answer · name · waiting<br/>· remembered · emergency}
+  R -->|decided| S
+  R -->|unclear| ASK[ask who it is about<br/>hold the message, replay on answer]
+  S{conversation state<br/>lib/whatsapp/fsm.ts}
   S -->|awaiting_appointment_confirm| AP[confirm / start reschedule]
   S -->|awaiting_checkin_meds| Q1{1 · 2 · 3 ?}
   Q1 -->|all · some| L[log reminder_response<br/>adherence ✓ · some → alert: low]

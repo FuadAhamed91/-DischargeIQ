@@ -135,6 +135,10 @@ Features:
 - Voice note support
 - Audio playback of care plans
 - Appointment confirmations
+- One phone, several patients: a household shares a number, a relative writes for two patients.
+  Each patient keeps their own conversation; the assistant works out who a message is about
+  (a name at the start, the question that is waiting, who was written about last) and asks
+  when it cannot tell.
 
 ---------------------------------------------------
 APPOINTMENT MANAGEMENT
