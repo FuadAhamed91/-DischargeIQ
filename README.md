@@ -22,7 +22,7 @@ own discharge instructions, and is escalated to a nurse the moment they report a
 4. [Local development](#local-development)
 5. [Database](#database)
 6. [Background jobs](#background-jobs)
-7. [Deployment](#deployment)
+7. [Deployment](#deployment) — incl. [Demo: several people on WhatsApp at once](#demo-several-people-on-whatsapp-at-once)
 8. [Operations runbook](#operations-runbook)
 9. [Security model](#security-model)
 10. [Testing](#testing)
@@ -437,14 +437,43 @@ build cache.
 
 **Twilio** — Messaging → Try it out → Send a WhatsApp message → Sandbox settings →
 "When a message comes in": `https://<app-host>/api/webhooks/whatsapp`, POST. Patients (and testers)
-must join the sandbox from their phone (`join <keyword>` to +1 415 523 8886); sandbox opt-ins
-**expire after 72 hours** of inactivity.
+must join the sandbox from their phone (`join <keyword>` to +1 415 523 8886); a sandbox join
+**lasts three days**, then the phone has to send the join message again.
 
-Any number of people can write to the one sandbox number at the same time — each is matched to
-their own patient record by their phone number. On the sandbox the only per-person step is that
-join; on a WhatsApp Business sender there is none. To try the shared-number flow with a single
-phone, register two patients with your own number and message the sandbox: you are asked who the
-message is about, then `Umar: …` / `Farzana: …` switch between them.
+### Demo: several people on WhatsApp at once
+
+Any number of phones can write to the one sandbox number at the same time; each is matched to its
+own patient record by its number, and each patient's Conversation tab updates live. Per person:
+
+1. **Join the sandbox.** The join message (`join <two-words>`) and a QR code are on Twilio Console →
+   Messaging → Try it out → Send a WhatsApp message. Each person sends it from their own WhatsApp
+   to +1 415 523 8886 and gets Twilio's confirmation. Nobody has to be added in the console — the
+   sandbox's participant list fills itself. **If the Twilio account is still a free trial**, the
+   number must also be added under Phone Numbers → Manage → Verified Caller IDs (trial accounts can
+   only message verified numbers, WhatsApp included); an upgraded account skips this.
+2. **Register them as a patient** within 24 hours of that join message: `/episodes/new` → drop one
+   of the sample PDFs in `docs/` → type *their* WhatsApp number in international format (+971…,
+   +91…) → give each patient a different MRN → confirm → review → approve → **Send to patient**.
+   WhatsApp only allows free text within 24 hours of the person's last message; a care plan sent
+   later fails with 63016, the episode shows "Care plan not delivered", and it goes out again by
+   itself the moment they write anything.
+3. **Chat.** "hi", "can I take paracetamol after lunch?", a voice note, "I have chest pain"
+   (instant emergency reply + critical alert on `/alerts`). Replies arrive on the phone and the
+   exchange appears on the episode's Conversation tab as it happens.
+
+**One phone, two patients** (a family phone): register two patients with the *same* number from two
+different sample PDFs, send both care plans, then write "hi" — the assistant asks "Who is this
+message about? 1. … 2. …", holds the message, and answers it for whoever the sender picks.
+`Umar: can I walk today?` goes straight to Umar; `switch` lists the patients again. Both episodes
+show the question, a "Shared number" notice with a **Forget** button, and under each message how
+it was matched.
+
+Sandbox limits to expect during a demo: it sends **one message every three seconds**, so with
+several people writing at once replies can arrive a few seconds apart (or fail with 63018, which
+the transcript explains); joins expire after three days; free text only inside the 24-hour window.
+A free-trial Twilio account additionally includes 100 WhatsApp messages and expires 30 days after
+sign-up. Demo patients seeded with made-up numbers (`demo_seed.sql`) cannot receive anything —
+their nightly check-ins come back "not delivered" and raise an alert each night.
 
 ### Rotating `CRON_SECRET`
 
