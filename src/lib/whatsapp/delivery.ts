@@ -18,6 +18,7 @@ export type DeliveryStatus = 'sent' | 'delivered' | 'read' | 'failed'
 const EXPLANATIONS: Record<number, string> = {
   63015: 'This number has not joined the Twilio sandbox. The patient must send the "join <keyword>" message to the hospital number first.',
   63016: 'Sent outside the WhatsApp 24-hour window: free-text messages are only allowed within 24 hours of the patient\'s last message. Ask the patient to send any message to the hospital number.',
+  63018: 'Sent too fast: the Twilio sandbox number can send only one message every three seconds, so a burst of replies (several people writing at once) can fail. Ask the patient to write again, or send it from the Conversation tab.',
   63024: 'The phone number is not a valid WhatsApp recipient. Check the number on the patient record.',
   63003: 'WhatsApp could not find this number. Check that it is registered on WhatsApp.',
   63013: 'WhatsApp rejected the message as a policy violation.',
