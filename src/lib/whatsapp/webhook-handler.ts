@@ -12,7 +12,7 @@
 
 import { createServiceClient } from '@/lib/supabase/server'
 import { resolveHospital, patientsOnNumber, findOpenEpisodesByPhone, getOrCreateConversation } from './recipient'
-import type { ServiceClient, InboundHospital, InboundPatient, InboundEpisode } from './recipient'
+import type { ServiceClient, InboundHospital, InboundPatient, InboundEpisode, OpenEpisodeCandidate } from './recipient'
 import { alreadyHandled, logInbound } from './inbound-log'
 import { loadNumberSession, saveNumberSession } from './number-session'
 import { redeliverFailedCarePlan } from './care-plan'
@@ -235,7 +235,10 @@ export async function handleInboundMessage(
       repeat: decision.repeat,
       session,
     })
-    if (asked || !decision.held) return
+    if (asked || !decision.held) {
+      await redeliverOnSharedNumber(supabase, phoneNumberId, hospital, message.from, candidates, null)
+      return
+    }
     // The question never reached them (Twilio down, number left the
     // sandbox). Rather than hold a message nobody will unlock, handle it for
     // the likeliest patient and say so on the transcript.
@@ -246,6 +249,7 @@ export async function handleInboundMessage(
       message: decision.held, routing: { via: 'fallback', linkedPatients: candidates.length },
     })
     await flagBestGuess(supabase, hospital.id, target.episode.id, decision.held, candidates.length)
+    await redeliverOnSharedNumber(supabase, phoneNumberId, hospital, message.from, candidates, target.episode.id)
     return
   }
 
@@ -255,6 +259,7 @@ export async function handleInboundMessage(
 
   if (decision.kind === 'switched') {
     await confirmSwitch({ supabase, phoneNumberId, hospital, patient: target.patient, episode: target.episode, message, routing })
+    await redeliverOnSharedNumber(supabase, phoneNumberId, hospital, message.from, candidates, null)
     return
   }
 
@@ -270,6 +275,49 @@ export async function handleInboundMessage(
   }
   if (decision.via === 'fallback') {
     await flagBestGuess(supabase, hospital.id, target.episode.id, decision.messages[decision.messages.length - 1], candidates.length)
+  }
+  if (shared) await redeliverOnSharedNumber(supabase, phoneNumberId, hospital, message.from, candidates, target.episode.id)
+}
+
+/**
+ * WhatsApp's 24-hour window belongs to the phone, not to the patient a
+ * message was about: a family phone writing about Farzana has just made it
+ * possible to deliver Umar's care plan too. Every patient on the number whose
+ * last plan never got through gets it now (the routed patient's own is
+ * handled in processForPatient, before their reply). Only existing
+ * conversations are looked at, and who the number is taken to be writing
+ * about does not change.
+ */
+async function redeliverOnSharedNumber(
+  supabase: ServiceClient,
+  phoneNumberId: string,
+  hospital: InboundHospital,
+  phone: string,
+  candidates: OpenEpisodeCandidate[],
+  handledEpisodeId: string | null,
+): Promise<void> {
+  const others = candidates.filter((c) => c.episode.id !== handledEpisodeId)
+  if (others.length === 0) return
+  const { data } = await supabase
+    .from('whatsapp_conversations')
+    .select('id, episode_id')
+    .in('episode_id', others.map((c) => c.episode.id))
+  const conversationByEpisode = new Map(((data ?? []) as Array<{ id: string; episode_id: string }>).map((c) => [c.episode_id, c.id]))
+
+  for (const c of others) {
+    const conversationId = conversationByEpisode.get(c.episode.id)
+    if (!conversationId) continue
+    try {
+      await redeliverFailedCarePlan({
+        supabase,
+        conversationId,
+        episodeId: c.episode.id,
+        hospital: { id: hospital.id, name: hospital.name, whatsapp_phone_number_id: phoneNumberId, timezone: hospital.timezone },
+        patient: { id: c.patient.id, full_name: c.patient.full_name, phone, preferred_language: c.patient.preferred_language },
+      })
+    } catch (err) {
+      console.error(`[WhatsApp] care plan re-send for episode ${c.episode.id} on a shared number failed:`, err)
+    }
   }
 }
 

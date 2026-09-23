@@ -370,6 +370,34 @@ async function main() {
   sent = drain()
   eq('not sent a third time once it went through', sent.filter((m) => m.body.includes('💊')).length, 0)
 
+  console.log('— shared number: a message about one patient lets the other one\'s undelivered plan through —')
+  // Umar's plan failed (63016). The family phone writes about Farzana: the
+  // 24-hour window is the phone's, so Umar's plan can go out now too.
+  db.rows('discharge_summaries').push({
+    id: 'sum-umar', episode_id: 'ep-umar', hospital_id: 'h1', status: 'sent', source_language: 'en',
+    emergency_symptoms: ['Chest pain'], lifestyle_instructions: [], restrictions: [], activities: [],
+  })
+  db.rows('medications').push({ id: 'med-umar', summary_id: 'sum-umar', hospital_id: 'h1', name: 'Ticagrelor', dosage: '90 mg', frequency: 'twice daily', instructions: '', reminder_times: [], sort_order: 0 })
+  db.rows('whatsapp_messages').push({
+    id: 'm-plan-umar', conversation_id: 'c-umar', hospital_id: 'h1', direction: 'outbound', message_type: 'text',
+    wa_message_id: 'SMplanUmar', content: '(care plan)', status: 'failed',
+    metadata: { kind: 'care_plan', summary_id: 'sum-umar', error_code: 63016, error: 'outside the 24-hour window' },
+    created_at: '2026-09-22T10:26:19Z',
+  })
+  db.rows('whatsapp_conversations').find((c) => c.id === 'c-umar')!.conversation_state = 'idle'
+  db.rows('whatsapp_conversations').find((c) => c.id === 'c-farzana')!.conversation_state = 'idle'
+  await send(inbound(FAMILY_PHONE, 'Farzana: hello'))
+  sent = drain()
+  eq('two messages: her greeting first, then his plan', sent.length, 2)
+  includes('the reply is about Farzana', sent[0]?.body ?? '', 'Hello Farzana Arif')
+  includes('Umar\'s care plan re-sent to the same phone', sent[1]?.body ?? '', 'Hello Umar Siddiqui')
+  includes('…with his medicines', sent[1]?.body ?? '', 'Ticagrelor')
+  eq('logged on Umar\'s transcript as a re-send', db.rows('whatsapp_messages').filter((m) => m.conversation_id === 'c-umar' && planMeta(m)?.kind === 'care_plan').map((m) => planMeta(m).resend ?? null), [null, true])
+  eq('the number is still taken to be about Farzana', session()?.active_patient_id, 'p-farzana')
+  await send(inbound(FAMILY_PHONE, 'thanks'))
+  sent = drain()
+  eq('nothing re-sent twice', sent.filter((m) => m.body.includes('💊')).length, 0)
+
 
   console.log(fails === 0 ? '\nALL PASSED' : `\n${fails} FAILED`)
   process.exit(fails ? 1 : 0)
