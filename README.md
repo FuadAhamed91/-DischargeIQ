@@ -273,7 +273,7 @@ src/
   components/  alerts/  analytics/  appointments/  episodes/  patients/ (timeline, transcript, adherence)  ui/ (shadcn)
   types/       database.ts  enums.ts  api.ts
 supabase/
-  migrations/  00001 … 00013 (see Database)
+  migrations/  00001 … 00014 (see Database)
   seed.sql     demo hospital, department, approved guidance
   demo_seed.sql evergreen demo dataset (7 patients incl. a shared family number; all dates relative to today)
 scripts/
@@ -351,6 +351,7 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/appo
 | 00011 | `whatsapp_number_sessions` | Per (hospital, sender number): the patient a shared number is currently writing about and any pending "who is this about?" question with its held message; hospital-scoped SELECT |
 | 00012 | `realtime_number_sessions` | Realtime for the shared-number notice on the Conversation tab |
 | 00013 | `delivery_failed_alert` | `alert_type += delivery_failed` for undelivered WhatsApp messages (the code falls back to `escalation` until applied) |
+| 00014 | `revoke_rls_auto_enable` | Supabase's `rls_auto_enable()` event-trigger function is no longer callable by `anon` / `authenticated` over the API (security advisor 0028/0029); the `ensure_rls` event trigger is unaffected |
 
 Applying to a project:
 
@@ -426,7 +427,7 @@ build cache.
 
 **Supabase** — one project per environment. New project checklist:
 
-1. `supabase db push` (migrations 00001–00013), then `seed.sql` and, if wanted, `demo_seed.sql`.
+1. `supabase db push` (migrations 00001–00014), then `seed.sql` and, if wanted, `demo_seed.sql`.
 2. Create staff auth users + `profiles` rows.
 3. Set the hospital's `whatsapp_phone_number_id`.
 4. Configure pg_cron dispatch (service role, via SQL editor or REST `rpc/configure_cron_dispatch`):
