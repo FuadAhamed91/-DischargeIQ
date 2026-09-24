@@ -67,9 +67,10 @@ nurse reviews ► /episodes/[id]/review             (edit, notes, then one "Appr
            ──► /api/v1/episodes/[id]/summary/send (WhatsApp care plan; episode → active; nightly check-in scheduled)
 ```
 
-**Sample letters (demo).** Under the drop box, Add patient offers three fictional discharge letters
-(Fatima Al Hashimi — heart failure; Umar Siddiqui — heart attack, stent; Farzana Arif — gallbladder
-surgery). Click one, or drag it into the box: `GET /api/v1/intake/sample-letters/[id]` prints it as a
+**Sample letters (demo).** Beside the drop box, Add patient shows three fictional discharge letters
+as PDF files (Fatima Al Hashimi — heart failure; Umar Siddiqui — heart attack, stent; Farzana Arif —
+gallbladder surgery). Drag one into the box (a click works too, for touch screens); there is no
+entry by hand, every patient starts from a letter. `GET /api/v1/intake/sample-letters/[id]` prints it as a
 PDF with **today** as the discharge day (`lib/intake/sample-letters.ts`, rendered by the dependency-free
 `lib/pdf/text-pdf.ts`), and it is read like any upload. The same letters are in `docs/` with their
 original dates. When the AI reader fails on one of them (no Gemini/Groq key, quota spent, Google busy)
@@ -86,7 +87,7 @@ it are told apart by the shared-number routing. Set it to `null` to type each pa
 
 `lib/intake/persist-extraction.ts` is the single place an extraction becomes a summary; the older
 `/api/v1/episodes/[id]/documents` + `/extract` pair still works for re-uploading on an existing
-episode (and for the "enter details manually" fallback when there is no readable PDF).
+episode.
 
 Approval activates the episode, which creates its `whatsapp_conversations` row (DB trigger).
 
@@ -331,7 +332,7 @@ come from clinic days, not a live clinic calendar, and there is no hospital PAS 
 | `/` | Overview: four headline numbers, **Needs attention** (open alerts, most urgent first, live), **WhatsApp messages** (every patient's newest messages as they arrive, live), tonight's check-ins and the next 7 days of appointments |
 | `/patients` | One row per care plan (episode), red first; filters Active · Needs review · Draft · Completed · All; search; open-alert count per row. `/episodes` redirects here |
 | `/episodes/[id]` | The patient page: header with risk (and **Change**), this patient's open alerts with Acknowledge / Resolve, an at-a-glance line, and three tabs — **Conversation** (with Show English / Translate), **Care plan**, **Activity** |
-| `/episodes/new`, `/episodes/[id]/review` | **Add patient** (drop the discharge letter → the few details to check, the rest folded away) and **Review care plan** — medicines, warning signs, follow-ups, instructions — sent with one **Approve and send** after a confirmation |
+| `/episodes/new`, `/episodes/[id]/review` | **Add patient** (drop the discharge letter, or drag in a demo letter → the few details to check, the rest folded away) and **Review care plan** — medicines, warning signs, follow-ups, instructions — sent with one **Approve and send** after a confirmation |
 | `/patients/[id]` | A patient's history — earlier care plans (linked from the patient page when there are any) |
 | `/appointments` | Appointment status across the hospital; an appointment's own page books the time, asks the patient to confirm, or cancels |
 | `/alerts` | Open / acknowledged / resolved alerts, realtime |
@@ -559,8 +560,8 @@ own patient record by its number, and each patient's Conversation tab updates li
    sandbox's participant list fills itself. **If the Twilio account is still a free trial**, the
    number must also be added under Phone Numbers → Manage → Verified Caller IDs (trial accounts can
    only message verified numbers, WhatsApp included); an upgraded account skips this.
-2. **Register them as a patient** within 24 hours of that join message: `/episodes/new` → click a
-   sample letter (or drop any discharge PDF) → check the details → **Save and check the care plan**
+2. **Register them as a patient** within 24 hours of that join message: `/episodes/new` → drag a
+   demo letter into the box (or drop any discharge PDF) → check the details → **Save and check the care plan**
    → **Approve and send**. While `siteConfig.demoWhatsAppNumber` is set, every patient gets that one
    number (the field is locked), so to give each person their own, set it to `null` and type
    *their* number in international format (+971…, +91…), with a different MRN per patient.
