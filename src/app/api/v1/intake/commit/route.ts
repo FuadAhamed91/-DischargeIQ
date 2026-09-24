@@ -4,6 +4,9 @@ import { resolveAuthContext } from '@/lib/utils/api'
 import { apiSuccess, apiError } from '@/types/api'
 import { persistExtraction } from '@/lib/intake/persist-extraction'
 import { INTAKE_ROLES, IntakeCommitSchema, validatePdfUpload } from '@/lib/intake/validate'
+import { isSampleMrn } from '@/lib/intake/sample-letters'
+import { closeSampleEpisode } from '@/lib/intake/sample-restart'
+import { whatsAppNumberFor } from '@/config/site'
 import type { ExtractionResult } from '@/lib/ai/extraction'
 
 export const maxDuration = 60
@@ -13,6 +16,10 @@ export const maxDuration = 60
  * Creates (or reuses by MRN) the patient, opens the episode, stores the PDF
  * against it and writes the draft summary from the confirmed extraction, so
  * the nurse lands straight on the review/approve page.
+ *
+ * Demo: the patient gets siteConfig.demoWhatsAppNumber whatever number was
+ * sent, and a sample patient's open care plan is closed so the letter can
+ * be added again (lib/intake/sample-restart.ts).
  *
  * All writes go through the service client after the caller's hospital has
  * been resolved from their profile — a nurse may legitimately open a new
@@ -46,6 +53,7 @@ export async function POST(request: Request) {
   }
   const { patient: patientInput, episode: episodeInput, extraction } = parsed.data
   const hospitalId = profile.hospital_id
+  const phone = whatsAppNumberFor(patientInput.phone_e164)
   const supabase = await createServiceClient()
 
   // 1. Patient: reuse by MRN within the hospital, otherwise create.
@@ -74,7 +82,7 @@ export async function POST(request: Request) {
       .from('patients')
       .update({
         full_name: patientInput.full_name,
-        phone_e164: patientInput.phone_e164,
+        phone_e164: phone,
         preferred_language: patientInput.preferred_language,
         date_of_birth: patientInput.date_of_birth,
         assigned_nurse_id: existing.assigned_nurse_id ?? profile.id,
@@ -90,7 +98,7 @@ export async function POST(request: Request) {
         hospital_id: hospitalId,
         mrn: patientInput.mrn,
         full_name: patientInput.full_name,
-        phone_e164: patientInput.phone_e164,
+        phone_e164: phone,
         preferred_language: patientInput.preferred_language,
         date_of_birth: patientInput.date_of_birth,
         assigned_nurse_id: profile.id,
@@ -102,7 +110,7 @@ export async function POST(request: Request) {
     patientId = created.id
   }
 
-  // 2. One open episode per patient.
+  // 2. One open episode per patient. A sample patient's is closed so the demo can go again.
   const { data: openEpisode } = await supabase
     .from('care_episodes')
     .select('id, status')
@@ -112,7 +120,8 @@ export async function POST(request: Request) {
     .limit(1)
     .maybeSingle()
 
-  if (openEpisode) {
+  const restartsSample = !!openEpisode && isSampleMrn(patientInput.mrn)
+  if (openEpisode && !(restartsSample && (await closeSampleEpisode(supabase, openEpisode.id)))) {
     // The envelope carries the existing episode so the form can link to it.
     return NextResponse.json(
       { ...apiError('This patient already has an open episode'), data: { episode_id: openEpisode.id, status: openEpisode.status } },
@@ -193,7 +202,7 @@ export async function POST(request: Request) {
     episode_id: episodeId,
     hospital_id: hospitalId,
     event_type: 'discharge_uploaded',
-    payload: { document_id: doc.id, filename: pdf.name, intake: 'document_first' },
+    payload: { document_id: doc.id, filename: pdf.name, intake: 'document_first', ...(restartsSample ? { replaces_episode_id: openEpisode!.id } : {}) },
     created_by: profile.id,
   })
 
@@ -213,7 +222,7 @@ export async function POST(request: Request) {
       timezone,
     })
     return NextResponse.json(
-      apiSuccess({ episode_id: episodeId, patient_id: patientId, summary_id: summaryId, patient_existed: !!existing }),
+      apiSuccess({ episode_id: episodeId, patient_id: patientId, summary_id: summaryId, patient_existed: !!existing, restarted_sample: restartsSample }),
       { status: 201 },
     )
   } catch (err) {
