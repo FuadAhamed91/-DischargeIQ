@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
-  ArrowLeft, Upload, Loader2, CheckCircle2, AlertCircle, X, PenLine, Users, Check, ChevronRight, ChevronDown,
+  ArrowLeft, Upload, Loader2, CheckCircle2, AlertCircle, X, PenLine, Users, Check, ChevronRight, ChevronDown, Lock,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,6 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { siteConfig } from '@/config/site'
+import { SampleLetterTiles, SAMPLE_LETTER_DRAG_TYPE, fetchSampleLetter } from '@/components/intake/sample-letter-tiles'
 import { SUPPORTED_LANGUAGES } from '@/types/enums'
 import type { LanguageCode } from '@/types/enums'
 import type { ExtractionResult } from '@/lib/ai/extraction'
@@ -30,6 +32,9 @@ interface NumberInUse {
 }
 
 const E164 = /^\+[1-9]\d{6,14}$/
+
+/** Demo: every patient gets this number and the field cannot be changed (siteConfig.demoWhatsAppNumber). */
+const LOCKED_PHONE = siteConfig.demoWhatsAppNumber
 
 interface FormState {
   full_name: string
@@ -57,7 +62,7 @@ const LANGS = new Set<string>(Object.keys(SUPPORTED_LANGUAGES))
 const today = () => new Date().toISOString().slice(0, 10)
 
 const EMPTY_FORM: FormState = {
-  full_name: '', mrn: '', date_of_birth: '', gender: '', nationality: '', phone_e164: '',
+  full_name: '', mrn: '', date_of_birth: '', gender: '', nationality: '', phone_e164: LOCKED_PHONE ?? '',
   preferred_language: 'en', discharge_date: today(), diagnosis: '', admission_date: '', ward: '', attending_physician: '',
 }
 
@@ -70,7 +75,7 @@ function formFromExtraction(x: ExtractionResult): FormState {
     date_of_birth: p?.date_of_birth ?? '',
     gender: p?.gender ?? '',
     nationality: p?.nationality ?? '',
-    phone_e164: p?.phone ?? '',
+    phone_e164: LOCKED_PHONE ?? p?.phone ?? '',
     preferred_language: (LANGS.has(x.source_language) ? x.source_language : 'en') as LanguageCode,
     discharge_date: e?.discharge_date ?? today(),
     diagnosis: e?.diagnosis ?? '',
@@ -99,6 +104,8 @@ export default function NewEpisodePage() {
   const [errors, setErrors] = useState<Partial<Record<RequiredField, string>>>({})
   const [dragOver, setDragOver] = useState(false)
   const [readError, setReadError] = useState<string | null>(null)
+  /** "sample" when the AI reader was unavailable and a sample letter's built-in reading filled the form. */
+  const [readBy, setReadBy] = useState<'ai' | 'sample' | null>(null)
   const [saving, setSaving] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const nameRef = useRef<HTMLInputElement>(null)
@@ -128,9 +135,12 @@ export default function NewEpisodePage() {
     ? inUse.patients.filter((p) => p.full_name.trim().toLowerCase() !== form.full_name.trim().toLowerCase())
     : []
 
-  // The cursor goes where the nurse starts typing: the one field a letter never has, or the first field.
+  // The cursor goes where the nurse starts typing: the first field by hand, or the one field a
+  // letter never has, unless the demo fixes the number, when a letter leaves nothing to type.
   useEffect(() => {
-    if (phase === 'confirm') (manual ? nameRef : phoneRef).current?.focus()
+    if (phase !== 'confirm') return
+    if (manual) nameRef.current?.focus()
+    else if (!LOCKED_PHONE) phoneRef.current?.focus()
   }, [phase, manual])
 
   const fromLetter = Boolean(extraction) && !manual
@@ -170,9 +180,10 @@ export default function NewEpisodePage() {
       const body = new FormData()
       body.append('file', f)
       const res = await fetch('/api/v1/intake/extract', { method: 'POST', body })
-      const json = (await res.json()) as { data?: { extraction: ExtractionResult }; error?: string; message?: string }
+      const json = (await res.json()) as { data?: { extraction: ExtractionResult; read_by?: 'ai' | 'sample' }; error?: string; message?: string }
       if (!res.ok || !json.data) throw new Error(json.error ?? 'Could not read the letter')
       setExtraction(json.data.extraction)
+      setReadBy(json.data.read_by ?? 'ai')
       setForm(formFromExtraction(json.data.extraction))
       setErrors({})
       setPhase('confirm')
@@ -182,9 +193,21 @@ export default function NewEpisodePage() {
     }
   }
 
+  /** A sample letter (click or drag): fetched as a PDF with today's dates, then read like an upload. */
+  async function readSampleLetter(id: string) {
+    setReadError(null)
+    try {
+      await readDocument(await fetchSampleLetter(id))
+    } catch (err) {
+      setReadError(err instanceof Error ? err.message : 'Could not load the sample letter')
+      setPhase('upload')
+    }
+  }
+
   function startOver() {
     setFile(null)
     setExtraction(null)
+    setReadBy(null)
     setForm(EMPTY_FORM)
     setErrors({})
     setReadError(null)
@@ -248,7 +271,7 @@ export default function NewEpisodePage() {
       body.append('file', file)
       body.append('payload', JSON.stringify(payload))
       const res = await fetch('/api/v1/intake/commit', { method: 'POST', body })
-      const json = (await res.json()) as { data?: { episode_id: string; patient_existed?: boolean }; error?: string; message?: string }
+      const json = (await res.json()) as { data?: { episode_id: string; patient_existed?: boolean; restarted_sample?: boolean }; error?: string; message?: string }
 
       if (res.status === 409 && json.data?.episode_id) {
         const id = json.data.episode_id
@@ -260,7 +283,11 @@ export default function NewEpisodePage() {
       }
       if (!res.ok || !json.data) throw new Error(json.message ? `${json.error}: ${json.message}` : (json.error ?? 'Could not add the patient'))
 
-      toast.success(json.data.patient_existed ? 'Returning patient: a new care plan is started. Check it before it is sent.' : 'Patient added. Check the care plan before it is sent.')
+      toast.success(
+        json.data.restarted_sample
+          ? `Fresh start for ${form.full_name.trim()}: the sample patient’s previous care plan was closed. Check the new one before it is sent.`
+          : json.data.patient_existed ? 'Returning patient: a new care plan is started. Check it before it is sent.' : 'Patient added. Check the care plan before it is sent.',
+      )
       router.push(`/episodes/${json.data.episode_id}/review`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Something went wrong')
@@ -308,7 +335,9 @@ export default function NewEpisodePage() {
   const nameNote = noteFor('full_name')
   const mrnNote = noteFor('mrn')
   const dischargeNote = noteFor('discharge_date')
-  const phoneNote = noteFor('phone_e164', fromLetter ? 'Not in the letter. Type it with the country code, e.g. +971501234567.' : 'With the country code, e.g. +971501234567.')
+  const phoneNote = LOCKED_PHONE
+    ? { text: 'Demo number: every patient’s care plan, check-ins and answers go to this WhatsApp.', tone: 'hint' as const }
+    : noteFor('phone_e164', fromLetter ? 'Not in the letter. Type it with the country code, e.g. +971501234567.' : 'With the country code, e.g. +971501234567.')
 
   return (
     <div className="max-w-3xl space-y-5">
@@ -322,7 +351,9 @@ export default function NewEpisodePage() {
           <p className="mt-1 text-sm text-muted-foreground">
             {manual
               ? 'Enter the patient’s details. You can upload the discharge letter from their page afterwards.'
-              : 'Upload the discharge letter. The details are read from it: you add the WhatsApp number and check the rest.'}
+              : LOCKED_PHONE
+                ? 'Upload the discharge letter. The details are read from it: you check them, then approve the care plan.'
+                : 'Upload the discharge letter. The details are read from it: you add the WhatsApp number and check the rest.'}
           </p>
         </div>
         {!manual && <Steps current={phase === 'confirm' ? 2 : 1} />}
@@ -347,7 +378,14 @@ export default function NewEpisodePage() {
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inputRef.current?.click() } }}
               onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
               onDragLeave={() => setDragOver(false)}
-              onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) void readDocument(f) }}
+              onDrop={(e) => {
+                e.preventDefault()
+                setDragOver(false)
+                const sample = e.dataTransfer.getData(SAMPLE_LETTER_DRAG_TYPE)
+                if (sample) { void readSampleLetter(sample); return }
+                const f = e.dataTransfer.files[0]
+                if (f) void readDocument(f)
+              }}
             >
               <input
                 ref={inputRef}
@@ -388,7 +426,9 @@ export default function NewEpisodePage() {
               </div>
             )}
 
-            <p className="text-sm text-muted-foreground">
+            <SampleLetterTiles onUse={(id) => void readSampleLetter(id)} disabled={phase === 'reading'} />
+
+            <p className="border-t pt-4 text-sm text-muted-foreground">
               No letter to hand?{' '}
               <button type="button" className="font-medium text-brand underline-offset-2 hover:underline" onClick={enterByHand}>
                 Enter the details by hand
@@ -405,6 +445,11 @@ export default function NewEpisodePage() {
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-success/30 bg-success-soft px-3 py-2 text-sm">
               <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
               <span className="min-w-0 truncate font-medium text-success">Read {file?.name}</span>
+              {readBy === 'sample' && (
+                <span className="basis-full text-xs text-muted-foreground sm:order-last">
+                  The AI reader isn’t available right now, so this sample letter was filled in from its built-in copy.
+                </span>
+              )}
               <button type="button" onClick={startOver} className="ml-auto inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-background hover:text-foreground">
                 <X className="h-3.5 w-3.5" aria-hidden="true" /> Use a different file
               </button>
@@ -446,19 +491,32 @@ export default function NewEpisodePage() {
             </CardHeader>
             <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field id="phone_e164" label="WhatsApp number" required note={phoneNote}>
-                <Input
-                  ref={phoneRef}
-                  id="phone_e164"
-                  type="tel"
-                  inputMode="tel"
-                  value={form.phone_e164}
-                  onChange={(e) => set('phone_e164')(e.target.value.replace(/[\s()-]/g, '').replace(/^00/, '+'))}
-                  placeholder="+971501234567"
-                  autoComplete="tel"
-                  className="h-11"
-                  {...describe('phone_e164', true)}
-                />
-                {numberInUse.length > 0 && (
+                <div className="relative">
+                  <Input
+                    ref={phoneRef}
+                    id="phone_e164"
+                    type="tel"
+                    inputMode="tel"
+                    value={form.phone_e164}
+                    readOnly={!!LOCKED_PHONE}
+                    onChange={(e) => set('phone_e164')(e.target.value.replace(/[\s()-]/g, '').replace(/^00/, '+'))}
+                    placeholder="+971501234567"
+                    autoComplete="tel"
+                    className={cn('h-11', LOCKED_PHONE && 'cursor-default bg-muted/60 pr-9 font-medium tnum')}
+                    {...describe('phone_e164', true)}
+                  />
+                  {LOCKED_PHONE && <Lock className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />}
+                </div>
+                {numberInUse.length > 0 && LOCKED_PHONE && (
+                  <p className="flex items-start gap-1.5 text-xs text-muted-foreground" role="status">
+                    <Users className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span>
+                      Also on this number: {numberInUse.slice(0, 3).map((p) => p.full_name).join(', ')}
+                      {numberInUse.length > 3 && ` and ${numberInUse.length - 3} more`}. Replies are matched to the right patient.
+                    </span>
+                  </p>
+                )}
+                {numberInUse.length > 0 && !LOCKED_PHONE && (
                   <p className="flex items-start gap-1.5 text-xs text-warning" role="status">
                     <Users className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                     <span>
