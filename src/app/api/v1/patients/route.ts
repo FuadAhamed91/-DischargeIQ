@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { resolveAuthContext } from '@/lib/utils/api'
 import { apiSuccess, apiError } from '@/types/api'
 import { z } from 'zod'
+import { whatsAppNumberFor } from '@/config/site'
 
 const CreatePatientSchema = z.object({
   mrn: z.string().min(1),
@@ -81,6 +82,8 @@ export async function POST(request: Request) {
     .from('patients')
     .insert({
       ...parsed.data,
+      // Demo: every patient gets the fixed number (siteConfig.demoWhatsAppNumber).
+      phone_e164: whatsAppNumberFor(parsed.data.phone_e164),
       hospital_id: profile.hospital_id,
     })
     .select()
