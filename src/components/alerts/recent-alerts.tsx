@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { NavLink } from '@/components/layout/nav-link'
 import { createClient } from '@/lib/supabase/client'
-import { ChevronRight } from 'lucide-react'
+import { Check, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SEVERITY, ALERT_TYPE_LABELS, SeverityBadge, AlertStatusBadge, alertTime, severityOf } from './alert-primitives'
 
@@ -51,13 +51,18 @@ export function RecentAlerts({ alerts: initialAlerts, hospitalId, tz, openOnly =
 
   if (alerts.length === 0) {
     return (
-      <div className="px-5 py-8 text-center">
-        <p className="text-sm font-medium">{openOnly ? 'All clear' : 'No alerts yet'}</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {openOnly
-            ? 'No patient needs a nurse right now. New alerts appear here the moment they happen.'
-            : 'Reported symptoms, missed medicines and unconfirmed appointments show here.'}
-        </p>
+      <div className="flex items-center gap-3 px-5 py-4">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-success-soft text-success" aria-hidden="true">
+          <Check className="h-4 w-4" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-medium">{openOnly ? 'All clear' : 'No alerts yet'}</p>
+          <p className="text-xs text-muted-foreground">
+            {openOnly
+              ? 'No patient needs a nurse right now. New alerts appear here the moment they happen.'
+              : 'Reported symptoms, missed medicines and unconfirmed appointments show here.'}
+          </p>
+        </div>
       </div>
     )
   }

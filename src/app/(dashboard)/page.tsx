@@ -7,10 +7,12 @@ import { fmt } from '@/lib/format'
 import { fromZonedTime } from 'date-fns-tz'
 import { countCheckinAnswers } from '@/lib/analytics/checkins'
 import { Users, Bell, CalendarCheck, MessageSquareReply, Moon, CalendarDays, ArrowRight, Plus } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { RealtimeAlertsBanner } from '@/components/alerts/realtime-alerts-banner'
 import { RecentAlerts } from '@/components/alerts/recent-alerts'
+import { WhatsAppFeed } from '@/components/dashboard/whatsapp-feed'
+import type { FeedMessage } from '@/components/dashboard/whatsapp-feed'
 import { StatusBadge } from '@/components/shared/status-badge'
 import type { AppointmentStatus } from '@/types/enums'
 
@@ -18,7 +20,10 @@ export const metadata = { title: 'Overview' }
 
 const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
 
-/** The first screen of the day: who needs a nurse now, then what is happening today. */
+/**
+ * The first screen of the day: who needs a nurse now and what patients are
+ * saying on WhatsApp (left, live), then what is scheduled today (right).
+ */
 export default async function OverviewPage() {
   const { profile, hospital } = await requireSession()
   const supabase = await createClient()
@@ -44,6 +49,7 @@ export default async function OverviewPage() {
     checkinsAnswered,
     { data: todaysJobs },
     { data: upcoming },
+    { data: feedRows },
   ] = await Promise.all([
     supabase.from('care_episodes').select('*', { count: 'exact', head: true }).eq('hospital_id', hid).eq('status', 'active'),
     supabase.from('alerts').select('*', { count: 'exact', head: true }).eq('hospital_id', hid).eq('status', 'open'),
@@ -61,6 +67,9 @@ export default async function OverviewPage() {
       .select('id, specialty, scheduled_at, status, episode_id, care_episodes(patients(full_name))')
       .eq('hospital_id', hid).gte('scheduled_at', now.toISOString()).lte('scheduled_at', weekAhead.toISOString())
       .not('status', 'in', '(cancelled,missed)').order('scheduled_at', { ascending: true }).limit(5),
+    supabase.from('whatsapp_messages')
+      .select('id, conversation_id, direction, message_type, content, metadata, created_at, whatsapp_conversations(episode_id, care_episodes(patients(full_name)))')
+      .eq('hospital_id', hid).order('created_at', { ascending: false }).limit(8),
   ])
 
   // Most urgent first, newest first within a severity.
@@ -80,6 +89,17 @@ export default async function OverviewPage() {
     pending: jobs.filter((j) => j.status === 'pending').length,
   }
   const critical = (criticalAlerts ?? 0) > 0
+
+  const feed: FeedMessage[] = (feedRows ?? []).map((row) => {
+    const { whatsapp_conversations: conversation, ...m } = row as typeof row & {
+      whatsapp_conversations: { episode_id: string; care_episodes: { patients: { full_name: string } | null } | null } | null
+    }
+    return {
+      ...(m as Omit<FeedMessage, 'episode_id' | 'patient_name'>),
+      episode_id: conversation?.episode_id ?? null,
+      patient_name: conversation?.care_episodes?.patients?.full_name ?? null,
+    }
+  })
 
   const stats = [
     { label: 'Active patients', value: activePatients ?? 0, icon: Users, tone: 'brand', href: '/patients' },
@@ -139,35 +159,37 @@ export default async function OverviewPage() {
         })}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Needs attention */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="text-base">
-              Needs attention
-              {needsAttention.length > 0 && <span className="ml-2 text-sm font-normal text-muted-foreground tnum">{openAlerts ?? needsAttention.length}</span>}
-            </CardTitle>
-            <Link href="/alerts" className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline">
-              All alerts <ArrowRight className="h-3 w-3" aria-hidden="true" />
-            </Link>
-          </CardHeader>
-          <CardContent className="p-0">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-5">
+        <div className="space-y-4 lg:col-span-3">
+          {/* Needs attention */}
+          <Card className="gap-0 py-0">
+            <div className="flex items-center justify-between gap-3 border-b px-5 py-3.5">
+              <h2 className="text-base font-medium">
+                Needs attention
+                {needsAttention.length > 0 && <span className="ml-2 text-sm font-normal text-muted-foreground tnum">{openAlerts ?? needsAttention.length}</span>}
+              </h2>
+              <Link href="/alerts" className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline">
+                All alerts <ArrowRight className="h-3 w-3" aria-hidden="true" />
+              </Link>
+            </div>
             {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
             <RecentAlerts alerts={needsAttention as any} hospitalId={hid} tz={tz} openOnly limit={6} />
-          </CardContent>
-        </Card>
+          </Card>
 
-        {/* Today */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Today</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <section aria-labelledby="today-checkins">
-              <div className="flex items-center justify-between">
-                <h3 id="today-checkins" className="flex items-center gap-2 text-sm font-medium">
+          {/* What patients are saying, as it happens */}
+          <Card className="gap-0 py-0">
+            <WhatsAppFeed hospitalId={hid} tz={tz} today={todayLocal} initial={feed} whatsappNumber={hospital.whatsapp_phone_number_id} />
+          </Card>
+        </div>
+
+        <div className="space-y-4 lg:col-span-2">
+          {/* Tonight's check-ins */}
+          <Card className="gap-0 py-0">
+            <section aria-labelledby="today-checkins" className="px-5 py-4">
+              <div className="flex items-center justify-between gap-3">
+                <h2 id="today-checkins" className="flex items-center gap-2 text-base font-medium">
                   <Moon className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> Tonight’s check-ins
-                </h3>
+                </h2>
                 <span className="text-xs text-muted-foreground tnum">{tonight.total} scheduled</span>
               </div>
               {tonight.total === 0 ? (
@@ -179,13 +201,13 @@ export default async function OverviewPage() {
                     <div className="bg-success" style={{ width: `${(tonight.sent / tonight.total) * 100}%` }} />
                     <div className="bg-danger" style={{ width: `${(tonight.failed / tonight.total) * 100}%` }} />
                   </div>
-                  <dl className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                    <div><dt className="text-muted-foreground">Sent</dt><dd className="font-medium tnum">{tonight.sent}</dd></div>
-                    <div><dt className="text-muted-foreground">Failed</dt><dd className={`font-medium tnum ${tonight.failed ? 'text-danger' : ''}`}>{tonight.failed}</dd></div>
-                    <div><dt className="text-muted-foreground">Still to send</dt><dd className="font-medium tnum">{tonight.pending}</dd></div>
+                  <dl className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                    <div><dt className="text-muted-foreground">Sent</dt><dd className="mt-0.5 text-sm font-medium tnum">{tonight.sent}</dd></div>
+                    <div><dt className="text-muted-foreground">Failed</dt><dd className={`mt-0.5 text-sm font-medium tnum ${tonight.failed ? 'text-danger' : ''}`}>{tonight.failed}</dd></div>
+                    <div><dt className="text-muted-foreground">Still to send</dt><dd className="mt-0.5 text-sm font-medium tnum">{tonight.pending}</dd></div>
                   </dl>
                   {tonight.failed > 0 && (
-                    <p className="mt-2 text-xs text-muted-foreground">
+                    <p className="mt-3 text-xs text-muted-foreground">
                       <Badge variant="outline" className="mr-1.5 border-danger/40 text-danger">Failed</Badge>
                       usually means the number cannot be reached on WhatsApp — the reason is on the patient’s conversation.
                     </p>
@@ -193,37 +215,44 @@ export default async function OverviewPage() {
                 </>
               )}
             </section>
+          </Card>
 
+          {/* Appointments, next 7 days */}
+          <Card className="gap-0 py-0">
             <section aria-labelledby="upcoming-appts">
-              <div className="flex items-center justify-between">
-                <h3 id="upcoming-appts" className="flex items-center gap-2 text-sm font-medium">
-                  <CalendarDays className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> Appointments, next 7 days
-                </h3>
-                <Link href="/appointments" className="text-xs font-medium text-brand hover:underline">All appointments</Link>
+              <div className="flex items-center justify-between gap-3 border-b px-5 py-3.5">
+                <h2 id="upcoming-appts" className="flex items-center gap-2 text-base font-medium">
+                  <CalendarDays className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> Next 7 days
+                </h2>
+                <Link href="/appointments" className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline">
+                  All appointments <ArrowRight className="h-3 w-3" aria-hidden="true" />
+                </Link>
               </div>
               {!upcoming || upcoming.length === 0 ? (
-                <p className="mt-2 text-sm text-muted-foreground">No appointments in the next 7 days.</p>
+                <p className="px-5 py-4 text-sm text-muted-foreground">No appointments in the next 7 days.</p>
               ) : (
-                <ul className="mt-2 divide-y">
-                  {upcoming.map((a) => {
-                    const patientName = (a.care_episodes as unknown as { patients: { full_name: string } | null } | null)?.patients?.full_name ?? 'Patient'
-                    return (
-                      <li key={a.id}>
-                        <Link href={`/episodes/${a.episode_id}/appointments/${a.id}`} className="-mx-2 flex items-center justify-between gap-3 rounded-md px-2 py-2.5 transition-colors hover:bg-muted/60">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium">{patientName}</p>
-                            <p className="text-xs text-muted-foreground">{a.specialty} · {fmt(a.scheduled_at, 'EEE d MMM, HH:mm', tz)}</p>
-                          </div>
-                          <StatusBadge status={a.status as AppointmentStatus} />
-                        </Link>
-                      </li>
-                    )
-                  })}
-                </ul>
+                <CardContent className="px-0">
+                  <ul className="divide-y">
+                    {upcoming.map((a) => {
+                      const patientName = (a.care_episodes as unknown as { patients: { full_name: string } | null } | null)?.patients?.full_name ?? 'Patient'
+                      return (
+                        <li key={a.id}>
+                          <Link href={`/episodes/${a.episode_id}/appointments/${a.id}`} className="flex items-center justify-between gap-3 px-5 py-3 transition-colors hover:bg-muted/60">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium">{patientName}</p>
+                              <p className="truncate text-xs text-muted-foreground">{a.specialty} · {fmt(a.scheduled_at, 'EEE d MMM, HH:mm', tz)}</p>
+                            </div>
+                            <StatusBadge status={a.status as AppointmentStatus} />
+                          </Link>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </CardContent>
               )}
             </section>
-          </CardContent>
-        </Card>
+          </Card>
+        </div>
       </div>
     </div>
   )
