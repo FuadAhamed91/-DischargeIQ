@@ -20,6 +20,7 @@ import { LiveRefresh } from '@/components/shared/live-refresh'
 import { CarePlanDeliveryBanner, CarePlanResendButton } from '@/components/episodes/care-plan-delivery'
 import { RiskLevelControl } from '@/components/episodes/risk-level-control'
 import { PatientAlerts, type PatientAlert } from '@/components/episodes/patient-alerts'
+import { SendCheckinButton } from '@/components/episodes/send-checkin-button'
 import { CARE_PLAN_KIND, summariseCarePlanMessage } from '@/lib/whatsapp/care-plan'
 import { SUPPORTED_LANGUAGES } from '@/types/enums'
 import type { RiskLevel, EpisodeStatus, SummaryStatus, LanguageCode, AppointmentStatus } from '@/types/enums'
@@ -209,6 +210,7 @@ export default async function EpisodeDetailPage({
             <p className="text-xs text-muted-foreground">Risk</p>
             <RiskLevelControl episodeId={id} level={episode.current_risk_level as RiskLevel} canChange={canMessage} />
           </div>
+          {canAct && episode.status === 'active' && <SendCheckinButton episodeId={id} />}
           {nextStep && (
             <Link href={`/episodes/${id}/review`} className={cn(buttonVariants())}>
               <nextStep.icon className="h-4 w-4" aria-hidden="true" /> {nextStep.label}
