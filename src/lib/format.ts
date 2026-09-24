@@ -30,6 +30,17 @@ export function fmt(
   return formatInTimeZone(date, tz, pattern)
 }
 
+/**
+ * A WhatsApp number as people write it: +1 415 523 8886, +971 50 526 3427.
+ * Other countries' numbers are returned as stored.
+ */
+export function formatPhone(e164: string): string {
+  const d = e164.replace(/\D/g, '')
+  if (d.length === 11 && d.startsWith('1')) return `+1 ${d.slice(1, 4)} ${d.slice(4, 7)} ${d.slice(7)}`
+  if (d.length === 12 && d.startsWith('971')) return `+971 ${d.slice(3, 5)} ${d.slice(5, 8)} ${d.slice(8)}`
+  return e164
+}
+
 /** Relative "x min ago" style label, safe on the server. */
 export function timeAgo(value: string | Date, now: Date = new Date()): string {
   const date = typeof value === 'string' ? parseISO(value) : value
