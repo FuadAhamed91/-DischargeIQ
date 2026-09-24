@@ -42,6 +42,48 @@ const pre: Array<[string, string]> = [
 ]
 for (const [input, want] of pre) eq(JSON.stringify(input), classifyPreIntent(input), want)
 
+console.log('— Arabic as patients write it: instant, no model (each line lists any that miss) —')
+const missed = (texts: string[]) => texts.filter((t) => classifyPreIntent(t) !== 'emergency')
+eq('the phrases the keyword list always had', missed([
+  'ألم في الصدر', 'الم في الصدر', 'ألم بالصدر', 'صعوبة في التنفس', 'ضيق في التنفس', 'لا أستطيع التنفس', 'لا استطيع التنفس', 'فقدان الوعي', 'فقد الوعي',
+]), [])
+eq('chest pain: "my chest", Gulf, Egyptian, Levantine, Sudanese, a relative', missed([
+  'عندي ألم في صدري', 'عندي الم بصدري', 'ألم شديد في الصدر', 'الم في منطقة الصدر', 'عندي وجع في صدري', 'عندي عوار في صدري',
+  'صدري يوجعني', 'صدري يعورني وايد', 'صدري قاعد يعورني', 'يعورني صدري', 'صدري بيوجعني اوي', 'صدري عم يوجعني', 'صدري واجعني',
+  'صدري بوجعني', 'يؤلمني صدري', 'صدري يؤلمني', 'يوجعني راسي وصدري', 'حاس بكتمة في صدري', 'عندي كتمة', 'ثقل على صدري', 'ضيقة صدر',
+  'قلبي يعورني', 'عندي ألم في قلبي', 'أبوي صدره يعوره', 'امي تقول صدرها يوجعها', 'امس كان عندي الم في صدري', 'هل الم الصدر طبيعي؟',
+]), [])
+eq('breathing: can\'t breathe in every dialect, short of breath, choking', missed([
+  'ما اقدر اتنفس', 'مااقدر اتنفس', 'مب قادر أتنفس', 'ماني قادر اتنفس', 'مش قادرة اتنفس', 'مقدرش اتنفس', 'مش عارف اتنفس',
+  'ما عم بقدر اتنفس', 'ما فيني اتنفس', 'ما اكدر اتنفس', 'لا أقدر على التنفس', 'لا اقدر اتنفس', 'ولا اقدر اتنفس', 'ما اقدر اخذ نفس',
+  'ابوي ما يقدر يتنفس', 'خالتي ما تقدر تتنفس', 'اختي تقول ما تقدر تاخذ نفس', 'عندي ضيق تنفس', 'ابوي عنده ضيق تنفس',
+  'ضيق في النفس', 'صعوبة بالتنفس', 'نفسي مقطوع', 'أحس إني أختنق',
+]), [])
+eq('unconscious, fainted, not responding', missed([
+  'أغمي عليه', 'انغمى علي', 'امي مغمى عليها', 'ابوي طاح واغمي عليه', 'فقدت الوعي', 'غاب عن الوعي', 'ما يستجيب',
+]), [])
+eq('heavy bleeding, stroke, heart attack, seizure, self-harm', missed([
+  'نزيف شديد', 'نزيف ما يوقف', 'الدم ما يوقف', 'الجرح ينزف وايد', 'ينزف كثير',
+  'جاته جلطة', 'جاتها جلطة', 'صارت له جلطة', 'صابته سكتة', 'سكتة دماغية', 'وجهه مايل', 'فمه صار معوج', 'نص جسمي منمل',
+  'نوبة قلبية', 'ذبحة صدرية', 'قلبه وقف', 'قلبها وقف', 'جاته نوبة صرع', 'يتشنج', 'ابوي يتشنج', 'امي تتشنج',
+  'ابي اموت', 'أبغى أموت', 'بدي موت', 'أفكر في الانتحار', 'افكر انتحر',
+]), [])
+eq('however it is typed: diacritics, tatweel, Persian letters, punctuation, stretched letters, beside English', missed([
+  'ألمٌ في الصّدر', 'صـدري يـوجعني', 'صدری یعورنی', 'صدري، يوجعني!!', 'صدريييي يعورنيييي', 'I have ألم في صدري',
+  'Iam fine but صدري يوجعني', 'السلام عليكم، صدري يعورني من الصبح', 'لا، صدري يوجعني', 'الم في الصدر مع تعرق',
+]), [])
+eq('not an emergency: negated, a treatment\'s name, an idiom, a cramp, "can\'t talk now" (each line lists any that fire)', [
+  'الحمد لله ما في ألم في صدري', 'صدري ما يعورني', 'صدري مايعورني الحمد لله', 'ما يعورني صدري', 'ما حسيت بألم في صدري',
+  'ولا ألم في الصدر', 'بدون ألم في الصدر', 'ما عندي ضيق في التنفس', 'لا يوجد ضيق تنفس', 'ما فيه ضيق تنفس', 'ما عنده كتمة',
+  'لا، أقدر أتنفس عادي', 'ما اغمي عليه الحمد لله', 'مافي اغماء', 'الجرح ما ينزف', 'ما في نزيف', 'وجهه مو مايل الحمد لله',
+  'نص جسمه مو مشلول',
+  'متى اخذ بخاخ ضيق التنفس؟', 'اخذت دواء الم الصدر', 'عندي مرض ضيق التنفس من زمان',
+  'قلبي يعورني عليك', 'قلبي وقف من الخوف', 'جاب لي جلطة من كثر ما يتكلم', 'بموت من الجوع', 'نفسي اروح البيت', 'الجو كتمة اليوم',
+  'عندي تشنج في رجلي', 'رجلي تتشنج بالليل', 'ما اقدر اتكلم الحين', 'عندي صداع خفيف', 'صدري زين الحمد لله',
+  'متى موعدي مع دكتور القلب؟', 'أخذت دواء الضغط', 'ما مصدر الألم؟', 'صدر التقرير', 'المستشفى صدرت الفاتورة', 'ضيق الوقت',
+].filter((t) => classifyPreIntent(t) === 'emergency'), [])
+eq('Hindi typed with the precomposed फ़ (U+095E) still matches', classifyPreIntent(`सांस लेने में तकली${String.fromCharCode(0x095e)} हो रही है`), 'emergency')
+
 console.log('— escalation derived from model intent —')
 eq('acknowledgement never escalates', deriveEscalation({ intent: 'acknowledgement', confidence: 'low' }).shouldEscalate, false)
 eq('greeting never escalates', deriveEscalation({ intent: 'greeting', confidence: 'low' }).shouldEscalate, false)
@@ -109,6 +151,8 @@ eq('"ayos lang"', q2('ayos lang'), 'checkin_ok→idle')
 eq('"a bit dizzy and my ankle is swollen"', q2('a bit dizzy and my ankle is swollen'), 'triage_text→idle')
 eq('"pain 8/10 in my stomach"', q2('pain 8/10 in my stomach'), 'triage_text→idle')
 eq('"cant breathe" (emergency wins)', q2('cant breathe'), 'route_to_ai→idle')
+eq('"ما اقدر اتنفس" (emergency wins, in Gulf Arabic)', q2('ما اقدر اتنفس'), 'route_to_ai→idle')
+eq('"الحمد لله صدري ما يعورني" → a symptom answer for triage, not an emergency', q2('الحمد لله صدري ما يعورني'), 'triage_text→idle')
 eq('voice note', transition('awaiting_checkin_symptoms', inbound(undefined, 'audio', { audioUrl: 'https://x' })).action, 'route_to_triage')
 
 console.log('— FSM: appointment confirmation and the times offered —')

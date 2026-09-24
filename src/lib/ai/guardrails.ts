@@ -17,6 +17,7 @@ export const FORBIDDEN_INTENTS = [
 
 // Matched case-insensitively as substrings of the normalised message
 // (see intent.ts — apostrophe variants are folded before matching).
+// Arabic is matched by ARABIC_EMERGENCY_PATTERNS below instead.
 export const EMERGENCY_KEYWORDS = [
   'chest pain',
   'chest tightness',
@@ -39,16 +40,6 @@ export const EMERGENCY_KEYWORDS = [
   'fainted',
   'passed out',
   'suicid',
-  // Arabic
-  'ألم في الصدر',
-  'الم في الصدر',
-  'ألم بالصدر',
-  'صعوبة في التنفس',
-  'ضيق في التنفس',
-  'لا أستطيع التنفس',
-  'لا استطيع التنفس',
-  'فقدان الوعي',
-  'فقد الوعي',
   // Hindi (and as typed in Latin letters)
   'सांस लेने में तकलीफ',
   'साँस लेने में तकलीफ',
@@ -90,6 +81,80 @@ export const EMERGENCY_KEYWORDS = [
   'nawalan ng malay',
   'nahimatay',
 ] as const
+
+export interface ArabicEmergencyPattern {
+  pattern: RegExp
+  /** Not an emergency when a negation or a treatment's name comes just before it (ARABIC_NOT_A_REPORT_BEFORE). */
+  negatable?: boolean
+}
+
+/**
+ * Arabic emergencies, written against the message as intent.ts folds it:
+ * one spelling for every variant (أ/إ/آ → ا, ة → ه, ى → ي, ؤ → و, ئ → ي, no
+ * diacritics or tatweel) and punctuation turned into a line break, so a
+ * comma ends a clause. Arabic joins a pronoun, preposition or negation to
+ * the word and every region says it differently, so these are patterns, not
+ * phrases: Modern Standard Arabic, Gulf (Emirati), Egyptian and Levantine
+ * wording, and a relative writing about "his" or "her" chest. A match counts
+ * only at the start of a word (after و/ف, ب/ل/ك and ال at most). The same
+ * categories as the English keywords.
+ */
+export const ARABIC_EMERGENCY_PATTERNS: readonly ArabicEmergencyPattern[] = [
+  // Chest pain, tightness, pressure: "الم في صدري", "وجع بالصدر", "عوار في صدري", "الم شديد في الصدر", "كتمه في صدري", "ضيقه صدر", "ثقل علي صدري"
+  { pattern: /(?:الم|الام|وجع|اوجاع|عوار|نغزه|ضيق|ضيقه|كتمه|ثقل|ضغط)(?:\s+\S+){0,2}?\s+(?:في\s+|علي\s+|[وبف])?(?:ال)?صدر/g, negatable: true },
+  // …the chest as the subject: "صدري يوجعني", "صدري يعورني", "صدري بيوجعني", "صدري عم يوجعني", "صدره يعوره", "صدري موجوع"
+  { pattern: /(?:ال)?صدر\S*\s+(?:(?:وايد|واجد|كثير|كتير|مره|عم|قاعد|قاعده|جالس|شويه)\s+)?ب?(?:يوجع|توجع|يعور|تعور|يولم|يالم|واجع|موجوع|وجع|عور)/g },
+  // …the verb first: "يعورني صدري", "يؤلمني صدري", "وجعني صدري", "يوجعني راسي وصدري"
+  { pattern: /ب?(?:يوجع|توجع|يعور|تعور|يولم|وجع|عور)\S*\s+(?:\S+\s+)?[وب]?(?:ال)?صدر/g, negatable: true },
+  // …the heart, as patients often call it: "قلبي يعورني", "الم في قلبي" (but not "قلبي يوجعني عليك", my heart aches for you)
+  { pattern: /(?:ال)?قلب\S*\s+(?:(?:وايد|واجد|كثير|كتير|مره|عم|قاعد|قاعده|جالس|شويه)\s+)?ب?(?:يوجع|توجع|يعور|تعور|يولم|يالم|واجع|موجوع|وجع|عور)\S*(?!\S)(?![^\S\n]+عل)/g },
+  { pattern: /(?:الم|الام|وجع|اوجاع|عوار|نغزه)(?:\s+\S+){0,2}?\s+(?:في\s+|ب)(?:ال)?قلب/g, negatable: true },
+  // …the Gulf "كتمه" (a tight, smothering chest): "عندي كتمه", "احس بكتمه"
+  { pattern: /(?:عندي|عنده|عندها|احس|حاس|حاسه|يحس|تحس|فيني|فيه|فيها)\s+ب?كتمه/g, negatable: true },
+
+  // Short of breath: "ضيق تنفس", "ضيق في النفس", "ضيقه نفس", "صعوبه بالتنفس", "انقطاع النفس", "نفسي مقطوع"
+  { pattern: /(?:ضيق|ضيقه|انقطاع)(?:\s+\S+)?\s+(?:في\s+|ب)?(?:ال)?(?:تنفس|نفس)|صعوبه(?:\s+\S+)?\s+(?:في\s+|ب)?(?:ال)?تنفس/g, negatable: true },
+  { pattern: /نفسي\s+(?:ضيق|قصير|مقطوع|ينقطع|يقطع|انقطع)|انقطع\s+نفس/g, negatable: true },
+  // Can't breathe (the negation is the emergency here): "لا استطيع التنفس", "ما اقدر اتنفس", "مااقدر اتنفس",
+  // "مب قادر اتنفس", "مش قادره اتنفس", "ما عم بقدر اتنفس", "ما فيني اتنفس", "ما يقدر يتنفس", "مقدرش اتنفس"
+  { pattern: /(?:ما|مو|مش|مب|لا|مني|ماني|مانيب)[^\S\n]*(?:عم[^\S\n]+)?(?:ب?(?:ا|ي|ت|ن)?(?:قدر|كدر|ستطيع)\S*|قادر\S*|(?:ا|ي|ت|ن)?عرف\S*|عارف\S*|فيني|فيه|فيها|فيي)[^\S\n]+(?:علي[^\S\n]+)?(?:\S*تنفس|\S*خذ[^\S\n]+(?:ال)?نفس)/g },
+  { pattern: /(?:مقدرش|ماقدرش|مقدرتش|معرفش|ماعرفش)[^\S\n]+(?:\S*تنفس|\S*خذ[^\S\n]+(?:ال)?نفس)/g },
+  // Choking: "اختنق", "اختناق", "يختنق"
+  { pattern: /(?:ا|ي|ت|ن)?ختن(?:ق|اق)/g, negatable: true },
+
+  // Unconscious, fainted: "فقد الوعي", "فقدت الوعي", "غاب عن الوعي", "اغمي عليه", "انغمي علي", "مغمي عليها", "اغماء", "مغشي عليه"
+  { pattern: /(?:فقد|يفقد|تفقد|فاقد|غاب|غايب|يغيب)\S*\s+(?:عن\s+)?(?:ال)?وعي|(?:ا|ان|م)?غمي\s+عل|(?:ا|م)?غشي\S*\s+عل|اغماء/g, negatable: true },
+  // Not responding: "ما يستجيب", "لا يستجيب", "مش بيستجيب"
+  { pattern: /(?:ما|مو|مش|مب|لا)[^\S\n]*(?:عم[^\S\n]+)?ب?(?:يستجيب|تستجيب)/g },
+
+  // Heavy bleeding: "نزيف شديد", "ينزف وايد", "نزيف ما يوقف", "الدم ما يوقف"
+  { pattern: /نزيف\s+(?:شديد|قوي|حاد|كثير|كتير|وايد|واجد|غزير|جامد)|(?:ي|ت|ا)?نزف\S*\s+(?:كثير|كتير|وايد|واجد|بقوه|جامد|بغزاره)/g, negatable: true },
+  { pattern: /(?:نزيف|(?:ال)?دم)[^\S\n]+(?:ما|مو|مش|مب)[^\S\n]*(?:عم[^\S\n]+)?ب?(?:يوقف|وقف|يقف|راضي)/g },
+
+  // Stroke: "جلطه دماغيه", "سكته دماغيه", "جلطه في المخ"; a drooping face "وجهه مايل", "فمه صار معوج"; half the body numb or still
+  // (a word may come between, but not a negation: "وجهه مو مايل")
+  { pattern: /(?:جلطه|سكته)\s+(?:دماغيه|(?:في\s+|ب)(?:ال)?(?:مخ|دماغ|راس))|(?:وجه|فم|تم)\S*\s+(?:(?!(?:ما|مو|مش|مب|لا)\s)\S+\s+)?(?:مايل|معوج|معووج)|نص\s+(?:جسم|وجه)\S*\s+(?:(?!(?:ما|مو|مش|مب|لا)\s)\S+\s+)?(?:ما\s+يتحرك|ما\s+تتحرك|مشلول|خدران|منمل|مخدر)/g },
+  // Heart attack: "نوبه قلبيه", "ازمه قلبيه", "جلطه قلبيه", "جلطه في القلب", "سكته قلبيه", "ذبحه صدريه"; "قلبه وقف" (someone else's)
+  { pattern: /(?:نوبه|ازمه|جلطه|سكته|ذبحه)\s+(?:قلبيه|صدريه|(?:في\s+|ب)(?:ال)?قلب)/g, negatable: true },
+  { pattern: /قلب(?:ه|ها)\s+(?:وقف|توقف|يوقف)/g },
+  // …or a seizure, as a relative says it happened: "جاته جلطه", "صارت له سكته", "جاته تشنجات", "صابته نوبه صرع"
+  { pattern: /(?:جاته|جاتها|جاتني|جته|جتها|جتني|جاه|جاها|جاني|صابته|صابتها|صابتني|اصابته|اصابتها|اصابتني|صار|صارت)\s+(?:(?:له|لها|لي)\s+)?(?:ال)?(?:جلطه|سكته|تشنجات|تشنج|نوبه\s+(?:صرع|تشنج))/g, negatable: true },
+  // Seizure: "يتشنج", "امي تتشنج" (not a cramping leg), "نوبه صرع", "نوبات تشنج"
+  { pattern: /يتشنج|(?<!(?:رجل|ايد|يد|ساق|عضل|بطن)\S*\s)تتشنج|نوب(?:ه|ات)\s+(?:صرع|تشنج)/g, negatable: true },
+
+  // Self-harm: "انتحار", "انتحر", "اقتل نفسي", "ابي اموت", "ابغي اموت", "بدي موت", "عايز اموت", "انهي حياتي"
+  { pattern: /انتحار|انتحر|(?:اقتل|اذبح|اوذي|اضر)\s+(?:نفسي|حالي)|(?:ابي|ابغي|ابا|بدي|ودي|نفسي|عايز|عايزه|عاوز|عاوزه|اريد)\s+(?:ان\s+)?ا?موت|انهي\s+حياتي|اتمني\s+الموت/g },
+]
+
+/**
+ * Just before a negatable match, in the same clause, these mean the patient
+ * is not reporting the symptom: a negation ("ما في الم في صدري", "ما عندي
+ * ضيق تنفس", "مافي اغماء", "لا اشعر بالم في الصدر", "ولا الم") or the
+ * treatment named after it ("متى اخذ بخاخ ضيق التنفس", when do I use the
+ * inhaler). Tested against the text before the matched word. ("صدري ما
+ * يعورني" needs none of this: its pattern allows no negation.)
+ */
+export const ARABIC_NOT_A_REPORT_BEFORE = /(?:^|\s)(?:[وف]?(?:ما|مو|مش|مب|لا|بدون|بلا|مافي|مافيه|ماكو|مافيني|مابي|ماعندي|معنديش|مفيش)|ما[^\S\n]+(?:في|فيه|فيني|فيها|بي|كو|عندي|عنده|عندها|عندنا|حسيت|احس|حاس|حاسه)|(?:مش|مو|مب)[^\S\n]+(?:عندي|عنده|عندها|حاس|حاسه)|لا[^\S\n]+(?:يوجد|توجد|عندي|اشعر|احس)|(?:ال)?(?:دواء|دوا|علاج|بخاخ|حبوب|حبه|ابره|ادويه|مرض|امراض))[^\S\n]*$/
 
 export const AI_CONFIDENCE_THRESHOLD = 0.75
 

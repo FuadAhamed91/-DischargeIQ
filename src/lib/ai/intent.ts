@@ -11,7 +11,7 @@
  * its own finer-grained intent classification (see chat.ts).
  */
 
-import { EMERGENCY_KEYWORDS } from './guardrails'
+import { ARABIC_EMERGENCY_PATTERNS, ARABIC_NOT_A_REPORT_BEFORE, EMERGENCY_KEYWORDS } from './guardrails'
 
 export type PreIntent = 'emergency' | 'acknowledgement' | 'greeting' | 'unknown'
 
@@ -61,10 +61,51 @@ export function normaliseMessage(text: string): string {
     .trim()
 }
 
+/**
+ * One spelling for the ways a word can be typed: Unicode compatibility forms
+ * and invisible direction marks, case, curly apostrophes ("can’t breathe"),
+ * and in Arabic the hamza forms of alef, ة/ه, ى/ي, ؤ, ئ, the Persian yeh and
+ * kaf of some keyboards, diacritics and tatweel ("ألمٌ في الصّدر" is "الم في الصدر").
+ */
+function foldForEmergency(text: string): string {
+  return text
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/\p{Cf}/gu, '')
+    .replace(/[’‘`´]/g, "'")
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ؤ/g, 'و')
+    .replace(/[ئىی]/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/ک/g, 'ك')
+}
+
+const KEYWORDS = EMERGENCY_KEYWORDS.map(foldForEmergency)
+
+// What may come before a match inside its word: و/ف, then ب/ل/ك, then ال ("والم", "بالصدر", "للصدر").
+const ARABIC_PROCLITICS = /^(?:[وف]?[بلك]?(?:ال)?|[وف]?لل)$/
+
+function containsArabicEmergency(text: string): boolean {
+  // Punctuation ends a clause: "لا، اقدر اتنفس" (no, I can breathe) is not "لا اقدر اتنفس".
+  const clauses = text.replace(/[^\p{L}\p{M}\p{N}\s]/gu, '\n')
+  for (const { pattern, negatable } of ARABIC_EMERGENCY_PATTERNS) {
+    const re = new RegExp(pattern)
+    for (let m = re.exec(clauses); m; m = re.exec(clauses)) {
+      let wordStart = m.index
+      while (wordStart > 0 && !/\s/.test(clauses[wordStart - 1])) wordStart--
+      const atWordStart = ARABIC_PROCLITICS.test(clauses.slice(wordStart, m.index))
+      if (atWordStart && !(negatable && ARABIC_NOT_A_REPORT_BEFORE.test(clauses.slice(0, wordStart)))) return true
+      re.lastIndex = m.index + 1
+    }
+  }
+  return false
+}
+
 export function containsEmergencyKeyword(text: string): boolean {
-  // Fold curly/backtick apostrophes so "can’t breathe" matches "can't breathe"
-  const lower = text.toLowerCase().replace(/[’‘`´]/g, "'")
-  return EMERGENCY_KEYWORDS.some((k) => lower.includes(k.toLowerCase()))
+  const folded = foldForEmergency(text)
+  if (KEYWORDS.some((k) => folded.includes(k))) return true
+  return /[\u0600-\u06FF]/.test(folded) && containsArabicEmergency(folded)
 }
 
 export function isAcknowledgement(text: string): boolean {

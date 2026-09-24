@@ -618,7 +618,10 @@ functions callable by `authenticated` (required — policies evaluate them as th
 - **Secrets** live in Vercel env vars and Supabase Vault; `.env*` is gitignored except `.env.example`.
 - **AI guardrails.** The patient assistant answers only from the patient's own approved summary and
   hospital-approved guidance; it never diagnoses or changes medication. Emergency keywords bypass the
-  model entirely.
+  model entirely. Arabic is matched by patterns (`ARABIC_EMERGENCY_PATTERNS` in `lib/ai/guardrails.ts`)
+  rather than a phrase list: spelling variants folded, "my/his/her chest", Gulf, Egyptian and Levantine
+  wording, and a negation ("صدري ما يعورني", my chest does not hurt) or a treatment's name ("بخاخ ضيق
+  التنفس", the inhaler) is not an emergency.
 
 ---
 
@@ -629,7 +632,7 @@ npm run lint           # eslint — clean; CI runs it with --max-warnings=0
 npx tsc --noEmit       # typecheck
 npm run build          # production build (needs NEXT_PUBLIC_SUPABASE_* set; placeholders are fine)
 npm run check          # all eight below
-npm run check:intent   # table-driven checks: pre-intent classifier, escalation derivation, FSM (check-in, nurse chat, media), state parsing
+npm run check:intent   # table-driven checks: pre-intent classifier (incl. 139 Arabic phrasings: 102 that must fire, 37 that must not), escalation derivation, FSM (check-in, nurse chat, media), state parsing
 npm run check:routing  # shared-number routing: name prefixes, answers to "who is this about?", the decision order, expiries
 npm run check:webhook  # the inbound handler end to end against an in-memory Supabase and a captured Twilio (no keys, no network)
 npm run check:gemini   # checks on the Gemini wrapper: retry on 503/network, next model on 429/404, "usage limit" vs "busy", 403 fails fast, budget respected

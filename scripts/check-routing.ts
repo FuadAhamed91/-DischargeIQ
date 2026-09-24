@@ -117,6 +117,8 @@ eq('bare name switches', route(two, sticky('p-umar'), msg('Farzana')), 'switched
 eq('"switch" asks without holding', route(two, sticky('p-umar'), msg('switch')), 'ask:p-farzana,p-umar:nothing')
 eq('emergency + no memory → newest episode, not held', route(two, EMPTY_SESSION, msg('she has chest pain')), 'deliver:p-farzana:emergency:[she has chest pain]')
 eq('emergency + memory → remembered patient', route(two, sticky('p-umar'), msg('chest pain')), 'deliver:p-umar:recent:[chest pain]')
+eq('Arabic emergency ("her chest hurts her") → newest episode, not held', route(two, EMPTY_SESSION, msg('صدرها يعورها')), 'deliver:p-farzana:emergency:[صدرها يعورها]')
+eq('…"her chest does not hurt" is asked about like any other message', route(two, EMPTY_SESSION, msg('صدرها ما يعورها')), 'ask:p-farzana,p-umar:held(صدرها ما يعورها)')
 eq('voice note + no memory → ask (held)', route(two, EMPTY_SESSION, msg(undefined, 'audio')), 'ask:p-farzana,p-umar:held(audio)')
 eq('voice note + memory → remembered patient', route(two, sticky('p-umar'), msg(undefined, 'audio')), 'deliver:p-umar:recent:[audio]')
 
