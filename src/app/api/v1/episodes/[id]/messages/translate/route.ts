@@ -64,7 +64,9 @@ export async function POST(request: Request, { params }: Params) {
       fresh = await translateMessagesToEnglish(todo)
     } catch (err) {
       console.error(`[translate transcript] episode ${episodeId}:`, err)
-      const hint = err instanceof GeminiUnavailableError ? 'The translation service is busy — try again in a minute.' : undefined
+      const hint = !(err instanceof GeminiUnavailableError) ? undefined
+        : err.quotaReached ? 'The translation service has reached its usage limit for now. Try again later.'
+          : 'The translation service is busy. Try again in a minute.'
       return NextResponse.json(apiError('Could not translate the conversation', hint), { status: 503 })
     }
     Object.assign(translations, fresh)

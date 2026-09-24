@@ -8,7 +8,7 @@ process.env.GEMINI_API_KEY = 'test-key' // imports are hoisted, so only the key 
 import { GenerativeModel, GoogleGenerativeAIFetchError } from '@google/generative-ai'
 import { generate, GeminiUnavailableError, PRIMARY_MODEL, FALLBACK_MODELS } from '@/lib/ai/gemini'
 
-const [primary, lite, pro] = [PRIMARY_MODEL, ...FALLBACK_MODELS]
+const [primary, flash, lite, pro] = [PRIMARY_MODEL, ...FALLBACK_MODELS]
 
 let fails = 0
 const eq = (label: string, got: unknown, want: unknown) => {
@@ -36,7 +36,7 @@ function script(steps: Step[]) {
 const quick = { budgetMs: 10_000 } // real backoff (0.8–1.1 s) but nothing that makes the check slow
 
 async function main() {
-  eq('default chain', [primary, lite, pro], ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro'])
+  eq('default chain', [primary, flash, lite, pro], ['gemini-2.5-flash', 'gemini-3.6-flash', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview'])
 
   // 1. Happy path: one call, primary answers.
   let calls = script([{ text: 'hello' }])
@@ -49,14 +49,14 @@ async function main() {
   eq('503 once → retried on primary', [r.model, r.attempts, calls], [primary, 2, [primary, primary]])
 
   // 3. Primary stays busy → fallback answers (the production incident).
-  calls = script([{ status: 503 }, { status: 503 }, { text: 'from lite' }])
+  calls = script([{ status: 503 }, { status: 503 }, { text: 'from fallback' }])
   r = await generate('p', quick)
-  eq('503 twice → lite answers', [r.text, r.model, r.attempts, calls], ['from lite', lite, 3, [primary, primary, lite]])
+  eq('503 twice → the first fallback answers', [r.text, r.model, r.attempts, calls], ['from fallback', flash, 3, [primary, primary, flash]])
 
-  // 4. 429 rate limit behaves like 503.
+  // 4. 429: this model's quota is spent, and retrying it will not refill it. The next model has its own.
   calls = script([{ status: 429 }, { text: 'ok' }])
   r = await generate('p', quick)
-  eq('429 → retried', [r.attempts, calls], [2, [primary, primary]])
+  eq('429 → next model at once', [r.model, r.attempts, calls], [flash, 2, [primary, flash]])
 
   // 5. Dropped connection is retried.
   calls = script([{ networkError: true }, { text: 'ok' }])
@@ -66,7 +66,7 @@ async function main() {
   // 6. Unknown model (404) skips straight to the next one, no backoff wasted.
   calls = script([{ status: 404 }, { text: 'ok' }])
   r = await generate('p', quick)
-  eq('404 → next model immediately', [r.model, r.attempts, calls], [lite, 2, [primary, lite]])
+  eq('404 → next model immediately', [r.model, r.attempts, calls], [flash, 2, [primary, flash]])
 
   // 7. Auth / bad-request problems are not retried and not passed to another model.
   calls = script([{ status: 403 }])
@@ -75,11 +75,25 @@ async function main() {
   eq('403 → thrown at once', [thrown instanceof GoogleGenerativeAIFetchError, calls], [true, [primary]])
 
   // 8. Everything busy → GeminiUnavailableError (status 503) after the whole chain.
-  calls = script([{ status: 503 }, { status: 503 }, { status: 503 }, { status: 503 }, { status: 503 }, { status: 503 }])
+  calls = script(Array.from({ length: 8 }, () => ({ status: 503 })))
   thrown = undefined
   try { await generate('p', { budgetMs: 60_000 }) } catch (e) { thrown = e }
-  eq('all busy → GeminiUnavailableError', [thrown instanceof GeminiUnavailableError, (thrown as GeminiUnavailableError)?.status, calls],
-    [true, 503, [primary, primary, lite, lite, pro, pro]])
+  eq('all busy → GeminiUnavailableError, not a quota', [thrown instanceof GeminiUnavailableError, (thrown as GeminiUnavailableError)?.status, (thrown as GeminiUnavailableError)?.quotaReached, calls],
+    [true, 503, false, [primary, primary, flash, flash, lite, lite, pro, pro]])
+
+  // 8b. The 2026-09-24 incident: the primary's quota ran out and the old fallbacks were gone (404).
+  //     Each model is asked once, and the error says "usage limit", not "busy".
+  calls = script([{ status: 429 }, { status: 404 }, { status: 404 }, { status: 404 }])
+  thrown = undefined
+  try { await generate('p', quick) } catch (e) { thrown = e }
+  eq('429 then 404s → usage limit reached', [(thrown as GeminiUnavailableError)?.quotaReached, /usage limit/.test((thrown as Error)?.message ?? ''), calls],
+    [true, true, [primary, flash, lite, pro]])
+
+  // 8c. Quota on one model, overload on another: that is "busy", and a minute may help.
+  calls = script([{ status: 429 }, { status: 503 }, { status: 503 }, { status: 429 }, { status: 429 }])
+  thrown = undefined
+  try { await generate('p', { budgetMs: 60_000 }) } catch (e) { thrown = e }
+  eq('429 and 503 mixed → busy', [(thrown as GeminiUnavailableError)?.quotaReached, calls], [false, [primary, flash, flash, lite, pro]])
 
   // 9. fallback:false stays on the primary.
   calls = script([{ status: 503 }, { status: 503 }])
@@ -88,14 +102,14 @@ async function main() {
   eq('fallback:false → primary only', [thrown instanceof GeminiUnavailableError, calls], [true, [primary, primary]])
 
   // 10. A tiny budget never sleeps past it: one try per model at most, and it gives up fast.
-  calls = script([{ status: 503 }, { status: 503 }, { status: 503 }])
+  calls = script([{ status: 503 }, { status: 503 }, { status: 503 }, { status: 503 }])
   const t0 = Date.now()
   thrown = undefined
   try { await generate('p', { budgetMs: 1_000 }) } catch (e) { thrown = e }
   eq('budget exhausted → stops without waiting', [thrown instanceof GeminiUnavailableError, Date.now() - t0 < 900, calls],
-    [true, true, [primary, lite, pro]])
+    [true, true, [primary, flash, lite, pro]])
 
-  // 11. noThinking: the 2.5 Flash models are asked to skip thinking; 2.5 Pro cannot, and is asked as usual.
+  // 11. noThinking: 2.5 Flash is asked to skip thinking; the 3.x fallbacks are asked as usual (a budget of 0 is a 400 for them).
   const sent: Array<{ model: string; request: unknown }> = []
   let busy = 0
   GenerativeModel.prototype.generateContent = async function (this: GenerativeModel, request: unknown) {
@@ -108,8 +122,8 @@ async function main() {
 
   busy = 4
   await generate('translate this', { budgetMs: 60_000, noThinking: true })
-  eq('noThinking → budget 0 on flash and flash-lite, pro untouched', sent.map((s) => [s.model, budgetOf(s.request)]),
-    [[primary, 0], [primary, 0], [lite, 0], [lite, 0], [pro, null]])
+  eq('noThinking → budget 0 on 2.5 Flash only', sent.map((s) => [s.model, budgetOf(s.request)]),
+    [[primary, 0], [primary, 0], [flash, null], [flash, null], [lite, null]])
 
   sent.length = 0
   await generate('plain prompt', { noThinking: true })

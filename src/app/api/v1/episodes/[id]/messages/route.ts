@@ -83,9 +83,9 @@ export async function POST(request: Request, { params }: Params) {
       body = await translateNurseMessage(typed, language)
     } catch (err) {
       console.error(`[nurse message] translation into ${language} failed for episode ${episodeId}:`, err)
-      const hint = err instanceof GeminiUnavailableError
-        ? 'The translation service is busy. Try again in a minute, or send it as typed.'
-        : 'Try again, or send it as typed.'
+      const hint = !(err instanceof GeminiUnavailableError) ? 'Try again, or send it as typed.'
+        : err.quotaReached ? 'The translation service has reached its usage limit for now. Send it as typed, or try again later.'
+          : 'The translation service is busy. Try again in a minute, or send it as typed.'
       return NextResponse.json(
         apiError(`Could not translate into ${SUPPORTED_LANGUAGES[language]} — nothing was sent`, hint, 'translation_failed'),
         { status: 503 },

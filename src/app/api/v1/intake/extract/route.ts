@@ -51,9 +51,14 @@ export async function POST(request: Request) {
   } catch (err) {
     console.error('[Intake extract]', err)
     if (err instanceof GeminiUnavailableError) {
-      // Google's side is overloaded, not the document. Nothing was saved; the same file can simply be tried again.
+      // Google's side, not the document. Nothing was saved; the same file can be tried again.
       return NextResponse.json(
-        apiError('The document reader is busy right now (the AI service reported high demand). Nothing was saved — please try again in a minute.', err.message),
+        apiError(
+          err.quotaReached
+            ? 'The document reader has reached its usage limit with Google’s AI for now, so the letter could not be read. Nothing was saved. Try again later, or enter the details by hand.'
+            : 'The document reader is busy right now (Google’s AI reported high demand). Nothing was saved. Try again in a minute.',
+          err.message,
+        ),
         { status: 503, headers: { 'Retry-After': '60' } },
       )
     }

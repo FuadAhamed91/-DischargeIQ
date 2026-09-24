@@ -1,14 +1,18 @@
 /**
  * The one place that talks to Gemini. Extraction, translation, triage and
  * patient chat all call generate(), which
- *   - retries transient failures (429 rate limit, 500/503/504 "high demand",
- *     dropped connections) with a short backoff,
+ *   - retries transient failures (500/503/504 "high demand", dropped
+ *     connections) with a short backoff,
+ *   - moves to the next model at once on 429 (this model's quota is spent;
+ *     each model has its own) and on 404 (a model this key cannot use),
  *   - moves to a fallback model when the primary stays unavailable, and
  *   - throws GeminiUnavailableError once every option is spent, so a route can
- *     answer "busy, try again in a minute" instead of "could not read".
+ *     answer "busy" or "usage limit reached" instead of "could not read".
  *
  * A single un-retried 503 from gemini-2.5-flash once made a perfectly good
- * discharge PDF look unreadable to the nurse.
+ * discharge PDF look unreadable to the nurse. On 2026-09-24 the key's
+ * gemini-2.5-flash quota ran out (429) while both old fallbacks answered 404
+ * ("no longer available to new users"), so nothing could read a letter.
  */
 
 import {
@@ -22,13 +26,18 @@ import {
 
 export const PRIMARY_MODEL = process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash'
 
-/** Tried in order after the primary. Override with GEMINI_FALLBACK_MODELS (comma-separated). */
-export const FALLBACK_MODELS: readonly string[] = (process.env.GEMINI_FALLBACK_MODELS ?? 'gemini-2.5-flash-lite,gemini-2.5-pro')
+/**
+ * Tried in order after the primary. Override with GEMINI_FALLBACK_MODELS (comma-separated).
+ * Google's named successors to the 2.5 models, which new keys cannot use
+ * (ai.google.dev/gemini-api/docs/deprecations): 3.6 Flash for 2.5 Flash,
+ * 3.1 Flash-Lite for 2.5 Flash-Lite, 3.1 Pro (preview) for 2.5 Pro.
+ */
+export const FALLBACK_MODELS: readonly string[] = (process.env.GEMINI_FALLBACK_MODELS ?? 'gemini-3.6-flash,gemini-3.1-flash-lite,gemini-3.1-pro-preview')
   .split(',')
   .map((m) => m.trim())
   .filter((m) => m && m !== PRIMARY_MODEL)
 
-const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504])
+const RETRYABLE_STATUS = new Set([408, 500, 502, 503, 504])
 
 export type GeminiContent = GenerateContentRequest | string | Array<string | Part>
 
@@ -43,8 +52,9 @@ export interface GenerateOptions {
   label?: string
   /**
    * Skip the model's thinking step where the model allows it (the 2.5 Flash
-   * family; 2.5 Pro always thinks). For work that needs no reasoning, such as
-   * translation, thinking is most of the wait.
+   * family; other models are asked as usual, since a thinking budget of 0 is
+   * a 400 for them). For work that needs no reasoning, such as translation,
+   * thinking is most of the wait.
    */
   noThinking?: boolean
 }
@@ -56,10 +66,15 @@ export interface GenerateResult {
   attempts: number
 }
 
-/** Every model was busy or unreachable. Callers can surface this as HTTP 503. */
+/**
+ * Every model was busy, out of quota or unreachable. Callers can surface this
+ * as HTTP 503. `quotaReached` is true when the models that could answer all
+ * said 429: waiting a minute will not help, the usage limit has to reset (or
+ * the key needs a paid plan).
+ */
 export class GeminiUnavailableError extends Error {
   readonly status = 503
-  constructor(message: string, readonly cause?: unknown) {
+  constructor(message: string, readonly cause?: unknown, readonly quotaReached = false) {
     super(message)
     this.name = 'GeminiUnavailableError'
   }
@@ -110,6 +125,7 @@ function classify(err: unknown): Failure {
   if (err instanceof GoogleGenerativeAIFetchError) {
     const status = err.status ?? 0
     if (RETRYABLE_STATUS.has(status)) return 'retry'
+    if (status === 429) return 'next_model' // this model's quota is spent; the next has its own
     if (status === 404) return 'next_model' // model name unknown to this key/region
     if (status === 0 && /fetch failed|ECONN|ETIMEDOUT|EAI_AGAIN|socket|network/i.test(err.message)) return 'retry'
     return 'fatal' // 400 bad request, 401/403 key problems: no other model will help
@@ -134,6 +150,9 @@ export async function generate(content: GeminiContent, opts: GenerateOptions = {
 
   let attempts = 0
   let lastError: unknown
+  // What the models said, to tell "usage limit reached" from "busy".
+  let quotaRefusals = 0
+  let otherFailures = 0
 
   for (const model of chain) {
     for (let attempt = 1; attempt <= attemptsPerModel; attempt++) {
@@ -149,7 +168,10 @@ export async function generate(content: GeminiContent, opts: GenerateOptions = {
         lastError = err
         const what = classify(err)
         const status = err instanceof GoogleGenerativeAIFetchError ? err.status : undefined
-        console.warn(`[${label}] ${model} attempt ${attempt} failed (${status ?? 'no status'}): ${err instanceof Error ? err.message.slice(0, 160) : String(err)}`)
+        if (status === 429) quotaRefusals++
+        else if (status !== 404) otherFailures++
+        // A 429 says which quota ran out (per minute or per day) past the first 160 characters: keep it.
+        console.warn(`[${label}] ${model} attempt ${attempt} failed (${status ?? 'no status'}): ${err instanceof Error ? err.message.slice(0, status === 429 ? 1_000 : 160) : String(err)}`)
 
         if (what === 'fatal') throw err
         if (what === 'next_model') break
@@ -168,8 +190,10 @@ export async function generate(content: GeminiContent, opts: GenerateOptions = {
   }
 
   const detail = lastError instanceof Error ? lastError.message : String(lastError)
+  const quotaReached = quotaRefusals > 0 && otherFailures === 0
   throw new GeminiUnavailableError(
-    `The AI service is busy or unreachable (${chain.join(', ')} after ${attempts} attempt${attempts === 1 ? '' : 's'}). ${detail}`,
+    `${quotaReached ? 'The AI usage limit is reached' : 'The AI service is busy or unreachable'} (${chain.join(', ')} after ${attempts} attempt${attempts === 1 ? '' : 's'}). ${detail}`,
     lastError,
+    quotaReached,
   )
 }

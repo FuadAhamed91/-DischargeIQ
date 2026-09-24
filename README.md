@@ -38,7 +38,7 @@ own discharge instructions, and is escalated to a nurse the moment they report a
 | Backend | Next.js route handlers on Vercel; Supabase (Postgres 17, Auth, Storage, Realtime, Vault) |
 | Scheduling | Vercel Cron (daily jobs) + `pg_cron` / `pg_net` inside Supabase (5-minute dispatch) |
 | Messaging | WhatsApp via **Twilio** (currently the sandbox; text only) |
-| AI | Gemini 2.5 Flash (extraction, translation, patient Q&A, triage, voice-note transcription) through `lib/ai/gemini.ts`, which retries 429/5xx and falls back to `gemini-2.5-flash-lite` → `gemini-2.5-pro` when Google reports high demand; OpenAI Whisper only as an optional transcription fallback |
+| AI | Gemini 2.5 Flash (extraction, translation, patient Q&A, triage, voice-note transcription) through `lib/ai/gemini.ts`, which retries 5xx, moves on at once after a 429 (that model's quota is spent), and falls back to `gemini-3.6-flash` → `gemini-3.1-flash-lite` → `gemini-3.1-pro-preview` (Google's successors to the 2.5 models, which new keys cannot use); OpenAI Whisper only as an optional transcription fallback |
 | PDF | `unpdf` (serverless-safe text extraction) |
 
 Multi-tenant: every row carries `hospital_id` and Postgres Row Level Security enforces isolation.
@@ -629,7 +629,7 @@ npm run check          # all eight below
 npm run check:intent   # table-driven checks: pre-intent classifier, escalation derivation, FSM (check-in, nurse chat, media), state parsing
 npm run check:routing  # shared-number routing: name prefixes, answers to "who is this about?", the decision order, expiries
 npm run check:webhook  # the inbound handler end to end against an in-memory Supabase and a captured Twilio (no keys, no network)
-npm run check:gemini   # 11 checks on the Gemini wrapper: retry on 429/503/network, model fallback, 403 fails fast, budget respected
+npm run check:gemini   # checks on the Gemini wrapper: retry on 503/network, next model on 429/404, "usage limit" vs "busy", 403 fails fast, budget respected
 npm run check:delivery # Twilio status callbacks: sent → delivered → read ordering, failure reasons, one alert per message
 npm run check:translation # nurse message → patient's language, transcript → English: unwrapping, JSON parsing, batching, partial failure
 npm run check:reschedule  # "2 — change the date": clinic days, the times offered, numbers and dates in five languages, the messages
