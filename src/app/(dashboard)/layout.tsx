@@ -23,7 +23,7 @@ export default async function DashboardLayout({
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:m-2 focus:rounded-md focus:bg-primary focus:px-3 focus:py-2 focus:text-sm focus:text-primary-foreground">
         Skip to content
       </a>
-      <Sidebar role={profile.role} hospitalName={hospital.name} />
+      <Sidebar role={profile.role} hospitalName={hospital.name} whatsappNumber={hospital.whatsapp_phone_number_id} />
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <Header profile={profile} hospitalName={hospital.name} openAlerts={openAlerts ?? 0} criticalAlerts={criticalAlerts ?? 0} />
         {/* The one scroller. relative: anything absolutely positioned inside it (a screen-reader-only

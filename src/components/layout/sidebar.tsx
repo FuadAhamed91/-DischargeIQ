@@ -2,10 +2,11 @@
 
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard, Users, Calendar, Bell, BarChart3, Settings, HeartPulse,
+  LayoutDashboard, Users, Calendar, Bell, BarChart3, Settings, HeartPulse, MessageCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { siteConfig } from '@/config/site'
+import { formatPhone } from '@/lib/format'
 import { NavLink } from './nav-link'
 import type { UserRole } from '@/types/enums'
 
@@ -41,6 +42,8 @@ export function visibleNavItems(role: UserRole): NavItem[] {
 interface SidebarProps {
   role: UserRole
   hospitalName: string
+  /** The hospital's WhatsApp number, shown above Settings. */
+  whatsappNumber?: string | null
 }
 
 function SidebarLink({ item, pathname }: { item: NavItem; pathname: string }) {
@@ -67,11 +70,40 @@ function SidebarLink({ item, pathname }: { item: NavItem; pathname: string }) {
 }
 
 /**
+ * Where patients reach the hospital: the number they write to on WhatsApp
+ * and, in the demo, the phone every patient's messages go to. Labels only
+ * fit from `lg`; the icon rail shows the icon with the number as a tooltip.
+ */
+function WhatsAppLine({ number }: { number: string }) {
+  const demoPhone = siteConfig.demoWhatsAppNumber
+  return (
+    <div className="mt-auto">
+      <div className="hidden rounded-lg border border-sidebar-border bg-background/60 p-3 lg:block">
+        <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <MessageCircle className="h-3.5 w-3.5 text-success" aria-hidden="true" /> Patients write to
+        </p>
+        <p className="mt-1 text-sm font-semibold tracking-tight text-foreground tnum">{formatPhone(number)}</p>
+        <p className="mt-0.5 text-xs leading-snug text-muted-foreground">on WhatsApp, in any of 5 languages.</p>
+        {demoPhone && (
+          <p className="mt-2 border-t border-sidebar-border pt-2 text-xs leading-snug text-muted-foreground">
+            Demo phone: <span className="font-medium text-foreground tnum">{formatPhone(demoPhone)}</span>
+          </p>
+        )}
+      </div>
+      <p className="flex justify-center lg:hidden" title={`Patients write to ${formatPhone(number)} on WhatsApp`}>
+        <MessageCircle className="h-4 w-4 text-success" aria-hidden="true" />
+        <span className="sr-only">Patients write to {formatPhone(number)} on WhatsApp</span>
+      </p>
+    </div>
+  )
+}
+
+/**
  * Desktop navigation. Full width with labels from `lg`; between `md` and `lg`
  * (tablets, split screens) it collapses to an icon rail so the content column
  * keeps ~240px — labels stay in the accessibility tree and surface as tooltips.
  */
-export function Sidebar({ role, hospitalName }: SidebarProps) {
+export function Sidebar({ role, hospitalName, whatsappNumber }: SidebarProps) {
   const pathname = usePathname()
 
   return (
@@ -96,7 +128,8 @@ export function Sidebar({ role, hospitalName }: SidebarProps) {
             <li key={item.href}><SidebarLink item={item} pathname={pathname} /></li>
           ))}
         </ul>
-        <ul className="mt-auto border-t border-sidebar-border pt-3">
+        {whatsappNumber && <WhatsAppLine number={whatsappNumber} />}
+        <ul className={cn('border-t border-sidebar-border pt-3', whatsappNumber ? 'mt-3 lg:mt-4' : 'mt-auto')}>
           <li><SidebarLink item={SETTINGS_ITEM} pathname={pathname} /></li>
         </ul>
       </nav>

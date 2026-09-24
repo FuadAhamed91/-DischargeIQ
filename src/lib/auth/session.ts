@@ -8,6 +8,8 @@ export interface SessionHospital {
   name: string
   timezone: string
   settings: Record<string, unknown>
+  /** The number patients write to on WhatsApp (E.164), when set up. */
+  whatsapp_phone_number_id: string | null
 }
 
 /**
@@ -33,7 +35,7 @@ export const requireSession = cache(async (): Promise<{ userId: string; profile:
   // render timestamps correctly (see lib/format.ts).
   const { data, error: profileError } = await supabase
     .from('profiles')
-    .select('*, hospitals(id, name, timezone, settings)')
+    .select('*, hospitals(id, name, timezone, settings, whatsapp_phone_number_id)')
     .eq('id', userId)
     .single()
 
@@ -43,7 +45,7 @@ export const requireSession = cache(async (): Promise<{ userId: string; profile:
 
   const { hospitals, ...profile } = data as Profile & { hospitals: SessionHospital | null }
   const hospital: SessionHospital = hospitals ?? {
-    id: profile.hospital_id, name: 'Hospital', timezone: 'Asia/Dubai', settings: {},
+    id: profile.hospital_id, name: 'Hospital', timezone: 'Asia/Dubai', settings: {}, whatsapp_phone_number_id: null,
   }
 
   return { userId, profile: profile as Profile, hospital }
