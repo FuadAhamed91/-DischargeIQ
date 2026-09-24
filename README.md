@@ -220,11 +220,14 @@ is sent (`translateNurseMessage`, Gemini). The patient gets the translation; the
 with what the nurse typed underneath (`metadata.original_text`). If the translation fails, nothing
 is sent and the nurse chooses **Send as typed** — the untranslated text never goes out on its own.
 Unticking "Translate into …" under the message box sends exactly what was typed. For the nurse,
-**Show English** on the Conversation tab puts an English translation under every message
+every message in the patient's language has its own **Translate** button, and **Show English** on
+the Conversation tab puts an English translation under all of them
 (`POST /api/v1/episodes/[id]/messages/translate`); each one is kept on its message
 (`metadata.translation_en`), so it is translated once and reaches other open transcripts through
-realtime. The preference is remembered per browser. Translations need `GEMINI_API_KEY`; the fixed
-replies do not.
+realtime. Show English fetches newest first, in small groups side by side, so the messages on
+screen fill in first; the preference is remembered per browser. Translation calls skip Gemini's
+thinking step (`generate(…, { noThinking: true })`, 2.5 Flash models only), which is most of a
+model call's wait. Translations need `GEMINI_API_KEY`; the fixed replies do not.
 
 ### 4. Appointments
 

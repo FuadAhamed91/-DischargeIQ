@@ -139,6 +139,32 @@ function englishOf(m: TranscriptMessage, fetched: Record<string, string>): strin
 
 const sameText = (a: string, b: string) => a.replace(/\s+/g, ' ').trim().toLowerCase() === b.replace(/\s+/g, ' ').trim().toLowerCase()
 
+/**
+ * Messages to translate, newest first (the transcript opens at the bottom) and
+ * in small groups fetched side by side: what is on screen fills in first, and
+ * a long care plan does not hold up the short replies around it.
+ */
+function englishGroups(list: TranscriptMessage[]): string[][] {
+  const groups: string[][] = []
+  let current: string[] = []
+  let chars = 0
+  for (const m of [...list].reverse()) {
+    const length = m.content?.length ?? 0
+    if (current.length > 0 && (current.length >= 8 || chars + length > 1_200)) {
+      groups.push(current)
+      current = []
+      chars = 0
+    }
+    current.push(m.id)
+    chars += length
+  }
+  if (current.length > 0) groups.push(current)
+  return groups
+}
+
+/** Translate requests in flight at once; the rest follow as these come back. */
+const ENGLISH_REQUESTS_AT_ONCE = 4
+
 // "Show English" is a per-browser preference: a nurse who needs it needs it on every patient.
 const SHOW_ENGLISH_KEY = 'dischargeiq:transcript-show-english'
 const SHOW_ENGLISH_EVENT = 'dischargeiq:show-english'
@@ -203,47 +229,82 @@ export function ConversationTranscript({
   const [fetchedEnglish, setFetchedEnglish] = useState<Record<string, string>>({})
   const [noEnglish, setNoEnglish] = useState<ReadonlySet<string>>(new Set())
   const [englishError, setEnglishError] = useState<string | null>(null)
+  // Messages translated one at a time with their own "Translate" button.
+  const [openEnglish, setOpenEnglish] = useState<ReadonlySet<string>>(new Set())
   const requestedEnglish = useRef(new Set<string>())
+  const englishInFlight = useRef(0)
+  // Bumped as each request settles, so the next waiting group always gets its turn.
+  const [englishSettled, setEnglishSettled] = useState(0)
 
   const englishOn = foreign && showEnglish
-  const missingEnglish = englishOn
-    ? messages.filter((m) => wantsEnglish(m) && englishOf(m, fetchedEnglish) === null && !noEnglish.has(m.id)).map((m) => m.id)
-    : []
-  const missingKey = missingEnglish.join(',')
-  const translatingEnglish = missingEnglish.length > 0 && !englishError
+  const englishShown = (m: TranscriptMessage) => englishOn || openEnglish.has(m.id)
+  const missingEnglish = messages.filter((m) =>
+    englishShown(m) && wantsEnglish(m) && englishOf(m, fetchedEnglish) === null && !noEnglish.has(m.id))
+  const missingKey = englishGroups(missingEnglish).map((group) => group.join(',')).join('|')
+  const translatingEnglish = englishOn && missingEnglish.length > 0 && !englishError
 
-  // "Show English": translate whatever has no English yet — on switching it
-  // on, and for each message that arrives while it is on. Up to 50 per call;
-  // the next batch follows when these come back.
+  // Translate whatever is shown in English but has none yet: everything once
+  // "Show English" is on (and each new message while it stays on), or the one
+  // message whose Translate button was pressed.
   useEffect(() => {
     if (!missingKey || englishError) return
-    const ids = missingKey.split(',').filter((id) => !requestedEnglish.current.has(id)).slice(0, 50)
-    if (ids.length === 0) return
-    for (const id of ids) requestedEnglish.current.add(id)
-    void fetch(`/api/v1/episodes/${episodeId}/messages/translate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids }),
-    })
-      .then(async (res) => {
-        const json = (await res.json().catch(() => ({}))) as { data?: { translations: Record<string, string> }; error?: string; message?: string }
-        if (!res.ok || !json.data) throw new Error(json.message ?? json.error ?? 'Could not translate')
-        const got = json.data.translations
-        setFetchedEnglish((prev) => ({ ...prev, ...got }))
-        // Left out by the model: say so on the bubble instead of asking again and again.
-        const left = ids.filter((id) => !got[id])
-        if (left.length > 0) setNoEnglish((prev) => new Set([...prev, ...left]))
+    for (const group of missingKey.split('|')) {
+      if (englishInFlight.current >= ENGLISH_REQUESTS_AT_ONCE) break
+      const ids = group.split(',').filter((id) => !requestedEnglish.current.has(id))
+      if (ids.length === 0) continue
+      for (const id of ids) requestedEnglish.current.add(id)
+      englishInFlight.current += 1
+      void fetch(`/api/v1/episodes/${episodeId}/messages/translate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
       })
-      .catch((err: unknown) => {
-        for (const id of ids) requestedEnglish.current.delete(id)
-        setEnglishError(err instanceof Error ? err.message : 'Could not translate')
-      })
-  }, [missingKey, englishError, episodeId])
+        .then(async (res) => {
+          const json = (await res.json().catch(() => ({}))) as { data?: { translations: Record<string, string> }; error?: string; message?: string }
+          if (!res.ok || !json.data) throw new Error(json.message ?? json.error ?? 'Could not translate')
+          const got = json.data.translations
+          setFetchedEnglish((prev) => ({ ...prev, ...got }))
+          // Left out by the model: say so on the bubble instead of asking again and again.
+          const left = ids.filter((id) => !got[id])
+          if (left.length > 0) setNoEnglish((prev) => new Set([...prev, ...left]))
+        })
+        .catch((err: unknown) => {
+          for (const id of ids) requestedEnglish.current.delete(id)
+          setEnglishError(err instanceof Error ? err.message : 'Could not translate')
+        })
+        .finally(() => {
+          englishInFlight.current -= 1
+          setEnglishSettled((n) => n + 1)
+        })
+    }
+  }, [missingKey, englishError, englishSettled, episodeId])
 
   function retryEnglish() {
     for (const id of noEnglish) requestedEnglish.current.delete(id)
     setNoEnglish(new Set())
     setEnglishError(null)
+  }
+
+  /** One message's own Translate button: show (translating it if need be) or hide its English. */
+  function toggleMessageEnglish(id: string) {
+    const opening = !openEnglish.has(id)
+    setOpenEnglish((prev) => {
+      const next = new Set(prev)
+      if (opening) next.add(id)
+      else next.delete(id)
+      return next
+    })
+    if (opening) {
+      // Pressing it is also the retry for this message.
+      requestedEnglish.current.delete(id)
+      setNoEnglish((prev) => {
+        if (!prev.has(id)) return prev
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+      setEnglishError(null)
+    }
   }
 
   // Live updates: new rows for this conversation (RLS still applies)
@@ -425,7 +486,7 @@ export function ConversationTranscript({
         </div>
       </div>
 
-      {englishOn && englishError && (
+      {(englishOn || openEnglish.size > 0) && englishError && (
         <p className="mt-3 flex flex-wrap items-center gap-x-2 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-danger" role="alert">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           <span>Could not translate the conversation: {englishError}</span>
@@ -491,9 +552,10 @@ export function ConversationTranscript({
             const routed = shared ? routingLabel(m) : null
             const typist = m.direction === 'inbound' ? typedBy(m, patientName) : null
             const original = originalOf(m)
-            const english = englishOn && wantsEnglish(m) ? englishOf(m, fetchedEnglish) : null
+            const translatable = foreign && wantsEnglish(m)
+            const english = translatable && englishShown(m) ? englishOf(m, fetchedEnglish) : null
             const showTranslation = english !== null && !sameText(english, m.content ?? '')
-            const englishPending = englishOn && wantsEnglish(m) && english === null && !englishError
+            const englishPending = translatable && englishShown(m) && english === null && !englishError
 
             return (
               <div key={m.id}>
@@ -546,6 +608,18 @@ export function ConversationTranscript({
                       {typist && <span title="WhatsApp profile name of the phone that sent this">(typed by {typist})</span>}
                       <span>·</span>
                       <span>{format(date, 'HH:mm')}</span>
+                      {translatable && !englishOn && (
+                        <button
+                          type="button"
+                          onClick={() => toggleMessageEnglish(m.id)}
+                          aria-pressed={openEnglish.has(m.id)}
+                          className="inline-flex items-center gap-1 rounded-sm underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2"
+                          title={openEnglish.has(m.id) ? 'Hide the English translation' : 'Show this message in English'}
+                        >
+                          <Languages className="h-3 w-3" aria-hidden="true" />
+                          {openEnglish.has(m.id) ? 'Hide English' : 'Translate'}
+                        </button>
+                      )}
                       {routed && (
                         <span className="inline-flex items-center gap-1" title="How this message was matched to this patient on the shared number">
                           <Users className="h-3 w-3" aria-hidden="true" /> {routed}
