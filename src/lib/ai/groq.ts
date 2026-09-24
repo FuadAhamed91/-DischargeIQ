@@ -12,14 +12,16 @@
  * Set GROQ_API_KEY to switch it on; without it nothing changes. Models are
  * tried in order and can be replaced with GROQ_MODELS (comma-separated) when
  * Groq retires one — a model this key cannot use is skipped, and the names it
- * can use are logged once so the fix is obvious.
+ * can use are logged once so the fix is obvious. The defaults are the chat
+ * models the production key answered with on 2026-09-24; the first guess,
+ * llama-3.3-70b-versatile, 404s ("does not exist or you do not have access").
  */
 
 import type { GeminiContent } from './gemini'
 
 const ENDPOINT = 'https://api.groq.com/openai/v1'
 
-export const GROQ_MODELS: readonly string[] = (process.env.GROQ_MODELS ?? 'llama-3.3-70b-versatile,openai/gpt-oss-120b,llama-3.1-8b-instant')
+export const GROQ_MODELS: readonly string[] = (process.env.GROQ_MODELS ?? 'openai/gpt-oss-120b,openai/gpt-oss-20b,qwen/qwen3.8-27b')
   .split(',')
   .map((m) => m.trim())
   .filter(Boolean)

@@ -7,7 +7,7 @@ process.env.GEMINI_API_KEY = 'test-key' // imports are hoisted, so only the key 
 
 import { GenerativeModel, GoogleGenerativeAIFetchError } from '@google/generative-ai'
 import { generate, GeminiUnavailableError, PRIMARY_MODEL, FALLBACK_MODELS, leastThinking, resetModelState } from '@/lib/ai/gemini'
-import { flattenForGroq, resetGroqState } from '@/lib/ai/groq'
+import { flattenForGroq, resetGroqState, GROQ_MODELS } from '@/lib/ai/groq'
 
 const [primary, flash, lite, pro] = [PRIMARY_MODEL, ...FALLBACK_MODELS]
 
@@ -210,6 +210,7 @@ async function main() {
   // Groq, once Gemini has nothing left (lib/ai/groq.ts)
   // ------------------------------------
   console.log('— Groq —')
+  const [groqFirst, groqSecond] = GROQ_MODELS
   const DEAD = [{ status: 429, details: DAILY_QUOTA }, { status: 503 }, { status: 503 }, { status: 503 }] as Step[]
 
   eq('text is flattened to one turn', [
@@ -221,7 +222,7 @@ async function main() {
   calls = script(DEAD)
   let groq = groqScript([{ text: 'from groq' }])
   r = await generate('p', quick)
-  eq('every Gemini model spent → Groq answers', [r.text, r.model, r.attempts], ['from groq', 'groq:llama-3.3-70b-versatile', 5])
+  eq('every Gemini model spent → Groq answers', [r.text, r.model, r.attempts], ['from groq', `groq:${groqFirst}`, 5])
   eq('…asked once, with the prompt as sent', [groq.length, groq.prompts[0]], [1, 'p'])
 
   calls = script([{ text: 'gemini' }])
@@ -240,13 +241,13 @@ async function main() {
   eq('…never with response_format, which would insist on an object', 'response_format' in (groq.bodies[0] as Record<string, unknown>), false)
 
   calls = script(DEAD)
-  groq = groqScript([{ status: 404, body: '{"error":{"code":"model_not_found"}}' }, { models: ['llama-3.3-70b-versatile'] }, { text: 'second model' }])
+  groq = groqScript([{ status: 404, body: '{"error":{"code":"model_not_found"}}' }, { models: [groqSecond] }, { text: 'second model' }])
   r = await generate('p', quick)
-  eq('a retired model is skipped for the one behind it', [r.text, r.model], ['second model', 'groq:openai/gpt-oss-120b'])
+  eq('a retired model is skipped for the one behind it', [r.text, r.model], ['second model', `groq:${groqSecond}`])
   calls = script(DEAD)
   groq = groqScript([{ text: 'straight to the live one' }])
   r = await generate('p', quick)
-  eq('…and never asked again', [r.model, groq.models], ['groq:openai/gpt-oss-120b', ['openai/gpt-oss-120b']])
+  eq('…and never asked again', [r.model, groq.models], [`groq:${groqSecond}`, [groqSecond]])
 
   resetGroqState()
   calls = script(DEAD)

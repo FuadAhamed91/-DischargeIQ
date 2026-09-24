@@ -178,26 +178,20 @@ function englishOf(m: TranscriptMessage, fetched: Record<string, string>): strin
 
 const sameText = (a: string, b: string) => a.replace(/\s+/g, ' ').trim().toLowerCase() === b.replace(/\s+/g, ' ').trim().toLowerCase()
 
+/** Message ids one request may carry (the route takes at most this many). */
+const IDS_PER_REQUEST = 50
+
 /**
- * Messages to translate, newest first (the transcript opens at the bottom) and
- * in small groups fetched side by side: what is on screen fills in first, and
- * a long care plan does not hold up the short replies around it.
+ * Messages to translate, newest first (the transcript opens at the bottom).
+ * They go in one request: the route asks the model once per distinct *text*,
+ * so a conversation of repeated check-ins is a single call, and asking eight
+ * at a time would only add round trips to a nurse's wait. A transcript longer
+ * than one request follows in the groups behind it.
  */
 function englishGroups(list: TranscriptMessage[]): string[][] {
+  const ids = [...list].reverse().map((m) => m.id)
   const groups: string[][] = []
-  let current: string[] = []
-  let chars = 0
-  for (const m of [...list].reverse()) {
-    const length = m.content?.length ?? 0
-    if (current.length > 0 && (current.length >= 8 || chars + length > 1_200)) {
-      groups.push(current)
-      current = []
-      chars = 0
-    }
-    current.push(m.id)
-    chars += length
-  }
-  if (current.length > 0) groups.push(current)
+  for (let i = 0; i < ids.length; i += IDS_PER_REQUEST) groups.push(ids.slice(i, i + IDS_PER_REQUEST))
   return groups
 }
 
