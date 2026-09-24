@@ -1,13 +1,15 @@
 /**
- * Voice triage engine.
+ * Voice notes and triage.
  *
- * Pipeline:
- *  1. Download audio from Twilio media URL → Buffer
- *  2. Transcribe with Gemini 2.5 Flash (audio in, text out); Whisper only as a
- *     fallback when OPENAI_API_KEY is configured — the OpenAI account ran out
- *     of credits on 2026-09-19 and silently took voice triage down with it
- *  3. Classify risk with Gemini 2.5 Flash against patient's known emergency symptoms
- *  4. Return structured triage result
+ *  1. downloadTwilioMedia — the audio behind a Twilio media URL
+ *  2. transcribeVoiceNote — Gemini 2.5 Flash (audio in, JSON out): the words,
+ *     and how clearly it heard them (0–100). Whisper only as a fallback when
+ *     OPENAI_API_KEY is configured — the OpenAI account ran out of credits on
+ *     2026-09-19 and silently took voice triage down with it
+ *  3. classifyRisk — Gemini 2.5 Flash against the patient's own warning signs
+ *
+ * What happens with a note — acted on, or handed to a nurse — is decided in
+ * the webhook handler (takeVoiceNote).
  */
 
 import OpenAI from 'openai'
@@ -48,48 +50,80 @@ export async function downloadTwilioMedia(mediaUrl: string): Promise<Buffer> {
   return Buffer.from(arrayBuffer)
 }
 
-const TRANSCRIBE_PROMPT = `Transcribe this voice message from a patient word for word, in the language spoken (it may be English, Arabic, Hindi, Tamil or Tagalog, or a mix). Return ONLY the transcript text — no quotes, labels, translation or commentary. If nothing intelligible is said, return an empty string.`
-
-async function transcribeWithGemini(audioBuffer: Buffer, mimeType: string): Promise<string> {
-  const { text } = await generate([
-    // Twilio sends e.g. "audio/ogg; codecs=opus" — Gemini wants the bare type.
-    { inlineData: { mimeType: mimeType.split(';')[0].trim() || 'audio/ogg', data: audioBuffer.toString('base64') } },
-    { text: TRANSCRIBE_PROMPT },
-  ], { label: 'transcribe', budgetMs: 25_000 })
-  return text
+/** Twilio sends e.g. "audio/ogg; codecs=opus"; Gemini and Storage want the bare type. */
+export function bareMimeType(mimeType: string): string {
+  return mimeType.split(';')[0].trim().toLowerCase() || 'audio/ogg'
 }
 
-async function transcribeWithWhisper(audioBuffer: Buffer, mimeType: string): Promise<string> {
-  const file = new File([audioBuffer.buffer as ArrayBuffer], 'audio.ogg', { type: mimeType })
+/** What was heard in a voice note. */
+export interface HeardVoiceNote {
+  transcript: string
+  /**
+   * 0–100: how clearly the model says it heard the note, against the scale in
+   * the prompt — its own estimate, not a measured accuracy. null when the
+   * words came from the Whisper fallback, which gives none.
+   */
+  clarity: number | null
+}
+
+const TRANSCRIBE_PROMPT = `Transcribe this voice message from a patient word for word, in the language spoken (it may be English, Arabic, Hindi, Tamil or Tagalog, or a mix). Do not translate, correct or complete it; write [unclear] where a word cannot be made out.
+
+Then rate how clearly you heard it, from 0 to 100:
+- 90–100: every word clear.
+- 80–89: clear enough to act on: at most a word or two uncertain, none that change the meaning.
+- 50–79: parts missing or uncertain, so the meaning may be wrong.
+- 1–49: mostly unintelligible (noise, mumbling, too quiet, cut off).
+- 0: no speech, or nothing intelligible.
+
+Answer with ONLY this JSON: {"transcript": "<the words>", "clarity": <0-100>}`
+
+/** The model's answer. Anything unreadable counts as not heard — clarity 0 sends the note to a nurse. */
+export function parseHeard(text: string): HeardVoiceNote {
+  const match = text.match(/\{[\s\S]*\}/)
+  if (!match) return { transcript: '', clarity: 0 }
+  try {
+    const raw = JSON.parse(match[0]) as { transcript?: unknown; clarity?: unknown }
+    const transcript = typeof raw.transcript === 'string' ? raw.transcript.trim() : ''
+    const clarity = typeof raw.clarity === 'number' && Number.isFinite(raw.clarity) ? Math.max(0, Math.min(100, Math.round(raw.clarity))) : 0
+    return { transcript, clarity: transcript ? clarity : 0 }
+  } catch {
+    return { transcript: '', clarity: 0 }
+  }
+}
+
+async function transcribeWithGemini(audio: Buffer, mimeType: string): Promise<HeardVoiceNote> {
+  // No thinking: hearing words needs none, and the patient is waiting for an answer.
+  const { text } = await generate({
+    contents: [{ role: 'user', parts: [
+      { inlineData: { mimeType: bareMimeType(mimeType), data: audio.toString('base64') } },
+      { text: TRANSCRIBE_PROMPT },
+    ] }],
+    generationConfig: { responseMimeType: 'application/json' },
+  }, { label: 'transcribe', budgetMs: 25_000, noThinking: true })
+  return parseHeard(text)
+}
+
+async function transcribeWithWhisper(audio: Buffer, mimeType: string): Promise<string> {
+  const file = new File([audio.buffer as ArrayBuffer], 'audio.ogg', { type: mimeType })
   const response = await getOpenAI().audio.transcriptions.create({ model: 'whisper-1', file })
   return response.text.trim()
 }
 
 /**
- * Transcribes a voice note. Gemini first; Whisper only if a key is set and
- * Gemini failed. Throws when neither produced a transcript so the caller can
- * escalate the message to a nurse instead of losing it.
+ * The words in a voice note and how clearly they were heard. Gemini first;
+ * Whisper only when Gemini failed and a key is set (its words carry no
+ * clarity, so they go to a nurse). "Nothing intelligible" is an answer, not a
+ * failure. Throws when no model could be asked, so the caller hands the note
+ * to a nurse instead of losing it.
  */
-export async function transcribeAudio(audioBuffer: Buffer, mimeType = 'audio/ogg'): Promise<string> {
-  let geminiError: unknown
+export async function transcribeVoiceNote(audio: Buffer, mimeType = 'audio/ogg'): Promise<HeardVoiceNote> {
   try {
-    const text = await transcribeWithGemini(audioBuffer, mimeType)
-    if (text) return text
-    geminiError = new Error('Gemini returned an empty transcript')
+    return await transcribeWithGemini(audio, mimeType)
   } catch (err) {
-    geminiError = err
+    if (!process.env.OPENAI_API_KEY) throw err
+    console.error('[Triage] Gemini transcription failed, trying Whisper:', err)
+    return { transcript: await transcribeWithWhisper(audio, mimeType), clarity: null }
   }
-
-  if (process.env.OPENAI_API_KEY) {
-    try {
-      const text = await transcribeWithWhisper(audioBuffer, mimeType)
-      if (text) return text
-    } catch (err) {
-      console.error('[Triage] Whisper fallback failed:', err)
-    }
-  }
-
-  throw geminiError instanceof Error ? geminiError : new Error('Transcription failed')
 }
 
 /**
@@ -151,22 +185,4 @@ Be conservative — when in doubt, escalate to YELLOW or RED.`
     keySymptoms: parsed.keySymptoms ?? [],
     requiresImmediateAttention: parsed.requiresImmediateAttention ?? false,
   }
-}
-
-/**
- * Full triage pipeline: download → transcribe → classify.
- */
-export async function triageVoiceNote(params: {
-  audioUrl: string
-  audioMimeType?: string
-  emergencySymptoms: string[]
-  patientName: string
-}): Promise<TriageResult> {
-  const audioBuffer = await downloadTwilioMedia(params.audioUrl)
-  const transcript = await transcribeAudio(audioBuffer, params.audioMimeType ?? 'audio/ogg')
-  return classifyRisk({
-    transcript,
-    emergencySymptoms: params.emergencySymptoms,
-    patientName: params.patientName,
-  })
 }

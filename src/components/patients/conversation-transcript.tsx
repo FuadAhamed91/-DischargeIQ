@@ -6,13 +6,15 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import Link from 'next/link'
-import { Mic, AlertCircle, MessageCircle, Send, Loader2, Bot, UserRound, Users, Check, CheckCheck, Languages } from 'lucide-react'
+import { Mic, AlertCircle, MessageCircle, Send, Loader2, Bot, UserRound, Users, Check, CheckCheck, Languages, Play, EarOff } from 'lucide-react'
 import { format, isSameDay, isToday, isYesterday } from 'date-fns'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { ConversationStateRecord } from '@/lib/whatsapp/fsm'
 import { summariseNumberSession } from '@/lib/whatsapp/number-session'
 import type { NumberSessionSummary } from '@/lib/whatsapp/number-session'
+import { VOICE_NOTES_BUCKET } from '@/lib/whatsapp/voice-note'
+import type { VoiceNoteMeta } from '@/lib/whatsapp/voice-note'
 import { SUPPORTED_LANGUAGES } from '@/types/enums'
 import type { LanguageCode } from '@/types/enums'
 
@@ -20,9 +22,12 @@ export interface TranscriptMessage {
   id: string
   direction: 'inbound' | 'outbound'
   message_type: 'text' | 'interactive' | 'audio' | 'template'
+  /** For a voice note: the transcript, once it has been heard. */
   content: string | null
   status: 'sent' | 'delivered' | 'read' | 'failed'
   metadata: Record<string, unknown> | null
+  /** A voice note's audio in the voice-notes bucket. */
+  media_storage_path?: string | null
   created_at: string
 }
 
@@ -112,6 +117,40 @@ const SECOND_LINE: Record<SenderKind, string> = {
   nurse: 'border-brand-foreground/25 text-brand-foreground/85',
   assistant: 'border-brand/20 text-brand/80',
   patient: 'border-foreground/15 text-muted-foreground',
+}
+
+/** A voice note that was not heard clearly enough to act on: its clarity (0–100, or null when unknown). */
+function unclearVoice(m: TranscriptMessage): { clarity: number | null } | null {
+  if (m.message_type !== 'audio') return null
+  const voice = m.metadata?.voice as Partial<VoiceNoteMeta> | undefined
+  if (!voice || voice.clear !== false) return null
+  return { clarity: typeof voice.clarity === 'number' ? voice.clarity : null }
+}
+
+/** Plays a stored voice note through a short-lived signed URL, fetched on the first press. */
+function VoiceNotePlayer({ path, supabase }: { path: string; supabase: ReturnType<typeof createClient> }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [failed, setFailed] = useState(false)
+
+  async function load() {
+    setLoading(true)
+    const { data, error } = await supabase.storage.from(VOICE_NOTES_BUCKET).createSignedUrl(path, 60 * 60)
+    setLoading(false)
+    if (error || !data?.signedUrl) {
+      setFailed(true)
+      return
+    }
+    setUrl(data.signedUrl)
+  }
+
+  if (url) return <audio controls autoPlay src={url} className="mt-2 h-9 w-full min-w-52 max-w-72" />
+  return (
+    <Button type="button" variant="outline" size="sm" onClick={load} disabled={loading} className="mt-2 h-7 gap-1.5 bg-background/60 text-xs">
+      {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Play className="h-3.5 w-3.5" aria-hidden="true" />}
+      {failed ? 'Could not load — try again' : 'Listen'}
+    </Button>
+  )
 }
 
 /** What a nurse typed when it was sent to the patient in translation. */
@@ -319,13 +358,16 @@ export function ConversationTranscript({
         const incoming = payload.new as TranscriptMessage
         setMessages((prev) => (prev.some((m) => m.id === incoming.id) ? prev : [...prev, incoming]))
       })
-      // Delivery receipts update the row in place (sent → delivered → read, or failed).
+      // Rows change in place: delivery receipts (sent → delivered → read, or
+      // failed), translations, and a voice note once it has been heard.
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'public', table: 'whatsapp_messages',
         filter: `conversation_id=eq.${conversationId}`,
       }, (payload) => {
         const updated = payload.new as TranscriptMessage
-        setMessages((prev) => prev.map((m) => (m.id === updated.id ? { ...m, status: updated.status, metadata: updated.metadata } : m)))
+        setMessages((prev) => prev.map((m) => (m.id === updated.id
+          ? { ...m, status: updated.status, metadata: updated.metadata, content: updated.content ?? m.content, media_storage_path: updated.media_storage_path ?? m.media_storage_path }
+          : m)))
       })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
@@ -552,6 +594,7 @@ export function ConversationTranscript({
             const routed = shared ? routingLabel(m) : null
             const typist = m.direction === 'inbound' ? typedBy(m, patientName) : null
             const original = originalOf(m)
+            const unclear = unclearVoice(m)
             const translatable = foreign && wantsEnglish(m)
             const english = translatable && englishShown(m) ? englishOf(m, fetchedEnglish) : null
             const showTranslation = english !== null && !sameText(english, m.content ?? '')
@@ -577,9 +620,13 @@ export function ConversationTranscript({
                     )}
                   >
                     {m.message_type === 'audio' ? (
-                      <p className="flex items-center gap-2 italic" dir="auto">
-                        <Mic className="h-3.5 w-3.5" aria-hidden="true" /> Voice note{m.content ? `: “${m.content}”` : ''}
-                      </p>
+                      <div>
+                        <p className="flex items-start gap-2 italic" dir="auto">
+                          <Mic className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                          <span className="whitespace-pre-wrap break-words">Voice note{m.content ? `: “${m.content}”` : ''}</span>
+                        </p>
+                        {m.media_storage_path && <VoiceNotePlayer path={m.media_storage_path} supabase={supabase} />}
+                      </div>
                     ) : (
                       <p className="whitespace-pre-wrap break-words" dir="auto">{m.content || <span className="italic opacity-70">(empty message)</span>}</p>
                     )}
@@ -606,6 +653,15 @@ export function ConversationTranscript({
                     )}>
                       <span>{sender.kind === 'patient' ? patientName.split(' ')[0] : sender.name}</span>
                       {typist && <span title="WhatsApp profile name of the phone that sent this">(typed by {typist})</span>}
+                      {unclear && (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-sm bg-warning-soft px-1 font-medium text-warning"
+                          title="Not heard clearly enough to act on: a nurse should listen to it. The words above may be wrong."
+                        >
+                          <EarOff className="h-3 w-3" aria-hidden="true" />
+                          Unclear{unclear.clarity !== null ? ` · ${unclear.clarity}%` : ''}
+                        </span>
+                      )}
                       <span>·</span>
                       <span>{format(date, 'HH:mm')}</span>
                       {translatable && !englishOn && (

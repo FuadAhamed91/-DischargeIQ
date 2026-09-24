@@ -83,7 +83,7 @@ export default async function EpisodeDetailPage({
     // joined through the conversation so it needs no second trip.
     supabase
       .from('whatsapp_messages')
-      .select('id, direction, message_type, content, status, metadata, created_at, whatsapp_conversations!inner(episode_id)')
+      .select('id, direction, message_type, content, status, metadata, media_storage_path, created_at, whatsapp_conversations!inner(episode_id)')
       .eq('whatsapp_conversations.episode_id', id)
       .order('created_at', { ascending: true })
       .limit(200),

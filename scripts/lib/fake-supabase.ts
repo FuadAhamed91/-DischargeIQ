@@ -6,6 +6,7 @@
  *   from(table).insert(row | rows).select().single()
  *   from(table).upsert(row, { onConflict }).select().single()
  *   from(table).update(values).eq()
+ *   storage.from(bucket).upload(path, body, { contentType })   (kept in db.uploads)
  *
  * Embeds in select strings ("patients!inner(id, full_name)") follow the
  * relations declared in RELATIONS; a filter on "patients.phone_e164" applies
@@ -68,6 +69,19 @@ export class FakeDb {
   tables: Record<string, Row[]> = {}
   /** Every insert/upsert/update, in order — handy for assertions. */
   log: Array<{ op: string; table: string; row: Row }> = []
+  /** Files "uploaded" to Storage. Set failUploads to see how the caller copes without them. */
+  uploads: Array<{ bucket: string; path: string; contentType: string | undefined; bytes: number }> = []
+  failUploads = false
+
+  storage = {
+    from: (bucket: string) => ({
+      upload: async (path: string, body: { length?: number; byteLength?: number }, opts: { contentType?: string } = {}) => {
+        if (this.failUploads) return { data: null, error: { message: `Bucket not found: ${bucket}` } }
+        this.uploads.push({ bucket, path, contentType: opts.contentType, bytes: body.byteLength ?? body.length ?? 0 })
+        return { data: { path }, error: null }
+      },
+    }),
+  }
 
   constructor(seed: Record<string, Row[]> = {}) {
     for (const [table, rows] of Object.entries(seed)) this.tables[table] = rows.map((r) => ({ ...r }))

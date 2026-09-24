@@ -151,13 +151,29 @@ flowchart TD
 Escalation is **derived in code** from the classified intent (`deriveEscalation()`), never left to
 the model's discretion: a thank-you cannot page a nurse, a symptom report always does.
 
-Voice notes: `triageVoiceNote()` transcribes with Whisper and grades the transcript against the
-patient's own emergency symptoms. Text symptom reports use the same `classifyRisk()`. Both land in
-`recordTriage()` (webhook handler): a `triage_assessments` row — DB triggers from 00003 then raise
-the yellow/red alert (assigned to the nurse) and bump the episode's `current_risk_level` — plus a
-localised reply telling the patient what to do and a `triage_completed` timeline event. If the
-model is unavailable the report is still acknowledged and escalated at medium — a symptom report
-is never dropped.
+Symptom reports are graded by `classifyRisk()` against the patient's own emergency symptoms and land
+in `recordTriage()` (webhook handler): a `triage_assessments` row — DB triggers from 00003 then
+raise the yellow/red alert (assigned to the nurse) and bump the episode's `current_risk_level` —
+plus a localised reply telling the patient what to do and a `triage_completed` timeline event. If
+the model is unavailable the report is still acknowledged and escalated at medium — a symptom
+report is never dropped.
+
+**Voice notes** (`takeVoiceNote()` in the webhook handler). The audio is downloaded from Twilio and
+kept in the private `voice-notes` bucket (migration 00016, `<hospital>/<episode>/<SID>.<ext>`, the
+path on `whatsapp_messages.media_storage_path`), so a nurse can press **Listen** on the Conversation
+tab. Gemini transcribes it and rates how clearly it heard it, 0–100 (`transcribeVoiceNote()`; the
+model's own estimate against a fixed scale, not a measured accuracy). The transcript becomes the
+message's text, so the bubble and Translate work as for typed messages.
+
+| The note | What happens |
+|---|---|
+| Heard clearly (clarity ≥ `VOICE_CLARITY_THRESHOLD`, 80) | Exactly as if typed: a question is answered, a check-in answer counts, a symptom is triaged, an emergency word escalates |
+| Not clearly, but what was heard triages red | Acted on at once: urgent reply, critical alert, red — an emergency never waits for someone to press play |
+| Not clearly (or nothing intelligible) | "Your care team will review it" to the patient; medium alert "Voice note unclear (45%) — listen to it"; patient yellow; the bubble says **Unclear · 45%** |
+| While a nurse is chatting | Nothing is said over the nurse; only a red result is acted on |
+| Audio could not be downloaded or transcribed | Acknowledged, and handed to a nurse at medium |
+
+80 is a starting point — adjust it once real voice notes have been heard.
 
 **The patient's colour** (`care_episodes.current_risk_level`, the Stable / Monitor / Critical badge)
 is raised by every kind of report, never lowered by the system (`lib/episodes/risk.ts`):
@@ -167,7 +183,7 @@ is raised by every kind of report, never lowered by the system (`lib/episodes/ri
 | Triage (voice note, check-in symptom answer): red / yellow / green | critical / medium / none | red / yellow / unchanged |
 | Emergency word ("chest pain", "सीने में दर्द" …) — no model | critical | red |
 | Symptom in chat matching one of the patient's warning signs / other symptom | high / medium | red / yellow |
-| Symptom report the model could not assess | medium | yellow |
+| Symptom report the model could not assess, or a voice note not heard clearly | medium | yellow |
 
 Red always wins; yellow only replaces green. Lowering it is a nurse's call: **Change** on the
 episode's Risk level card (`POST /api/v1/episodes/[id]/risk`) needs a note when lowering, refuses
@@ -224,7 +240,7 @@ number is currently taken to be writing about.
 The message is sent as the nurse (logged with `metadata.sender = 'nurse'`, shown in a solid bubble
 with their name) and the conversation enters `nurse_attending` for 30 minutes: patient replies are
 logged and streamed to the dashboard but the assistant does not answer over the nurse. Emergency
-keywords still escalate instantly and voice notes are still triaged. "Hand back to assistant"
+keywords still escalate instantly and a voice note that triages red is still acted on. "Hand back to assistant"
 (`PATCH { attending: false }`) or the 30-minute expiry returns the conversation to `idle`; the
 nightly check-in also takes over when it fires.
 
@@ -306,7 +322,7 @@ src/
   components/  alerts/  analytics/  appointments/  episodes/  patients/ (timeline, transcript, adherence)  ui/ (shadcn)
   types/       database.ts  enums.ts  api.ts
 supabase/
-  migrations/  00001 … 00015 (see Database)
+  migrations/  00001 … 00016 (see Database)
   seed.sql     demo hospital, department, approved guidance
   demo_seed.sql evergreen demo dataset (7 patients incl. a shared family number; all dates relative to today)
 scripts/
@@ -386,6 +402,7 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/appo
 | 00013 | `delivery_failed_alert` | `alert_type += delivery_failed` for undelivered WhatsApp messages (the code falls back to `escalation` until applied) |
 | 00014 | `revoke_rls_auto_enable` | Supabase's `rls_auto_enable()` event-trigger function is no longer callable by `anon` / `authenticated` over the API (security advisor 0028/0029); the `ensure_rls` event trigger is unaffected |
 | 00015 | `risk_changed_event` | `timeline_event_type += risk_changed`: a nurse's change of the patient's colour on the timeline (until applied, the change is made and audit-logged, without the timeline entry) |
+| 00016 | `voice_notes_bucket` | Private `voice-notes` bucket (audio, 16 MB) with a hospital-scoped read policy, so nurses can play patients' voice notes (until applied, notes are still transcribed and handled; the audio is not kept) |
 
 Applying to a project:
 
@@ -461,7 +478,7 @@ build cache.
 
 **Supabase** — one project per environment. New project checklist:
 
-1. `supabase db push` (migrations 00001–00015), then `seed.sql` and, if wanted, `demo_seed.sql`.
+1. `supabase db push` (migrations 00001–00016), then `seed.sql` and, if wanted, `demo_seed.sql`.
 2. Create staff auth users + `profiles` rows.
 3. Set the hospital's `whatsapp_phone_number_id`.
 4. Configure pg_cron dispatch (service role, via SQL editor or REST `rpc/configure_cron_dispatch`):
@@ -622,7 +639,9 @@ check the alert. For the shared-number flow, register a second patient on the sa
 - **No staff invite/onboarding flow** (`/invite` is reserved in the proxy but not built).
 - `compute_compliance_snapshot()` exists but is not yet scheduled; adherence figures come from
   `reminder_response` events directly.
-- Voice-note triage is implemented but has not been exercised against a live Twilio media URL recently.
+- Voice notes are checked end to end against a stubbed Twilio and model (`npm run check:webhook`),
+  not yet against a live Twilio media URL. The clarity score is the model's own estimate; the 80
+  threshold is a first guess to tune on real notes.
 - Every reply to a registered patient is in their language. Only "not registered" is English: it
   goes to an unknown number, whose language nobody knows. Translations of nurse messages and of the
   transcript are machine translations (Gemini) — the transcript labels them, and the nurse's

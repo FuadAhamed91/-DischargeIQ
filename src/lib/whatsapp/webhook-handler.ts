@@ -35,7 +35,8 @@ import {
   buildReminderThanks,
 } from './templates'
 import { transition, readConversationState } from './fsm'
-import type { ParsedInbound } from './fsm'
+import type { ParsedInbound, ConversationState, FsmResult } from './fsm'
+import { storeVoiceNote, recordVoiceNote, heardClearly } from './voice-note'
 import {
   buildCheckinSymptomQuestion,
   buildCheckinGoodnight,
@@ -47,8 +48,8 @@ import {
   buildNoPendingAppointmentReply,
 } from './appointment-templates'
 import type { LanguageCode } from '@/types/enums'
-import { classifyRisk, triageVoiceNote } from '@/lib/ai/triage'
-import type { TriageResult } from '@/lib/ai/triage'
+import { classifyRisk, downloadTwilioMedia, transcribeVoiceNote, bareMimeType } from '@/lib/ai/triage'
+import type { TriageResult, HeardVoiceNote } from '@/lib/ai/triage'
 import { answerPatientQuestion } from '@/lib/ai/chat'
 import { classifyPreIntent } from '@/lib/ai/intent'
 import { raiseEpisodeRisk } from '@/lib/episodes/risk'
@@ -138,29 +139,176 @@ async function findAwaitingAppointment(supabase: ServiceClient, episodeId: strin
   return (data as AwaitingAppointment | null) ?? null
 }
 
-/** Model unavailable: hand the message to a nurse at medium rather than lose it, and mark the patient yellow. */
-async function escalateUntriaged(
-  supabase: ServiceClient,
-  episodeId: string,
-  hospitalId: string,
-  reason: string,
-  waMessageId: string,
-  text?: string,
-): Promise<void> {
+interface NurseHandover {
+  episodeId: string
+  hospitalId: string
+  reason: string
+  /** untriaged_symptom_report: the model could not assess it; unclear_voice_note: it could not be heard clearly. */
+  intent: 'untriaged_symptom_report' | 'unclear_voice_note'
+  waMessageId: string
+  text?: string
+  clarity?: number | null
+}
+
+/**
+ * A report the assistant could not act on — the model was unavailable, or a
+ * voice note was not heard clearly: a nurse takes it (medium alert) rather
+ * than it being lost, and the patient turns yellow.
+ */
+async function handToNurse(supabase: ServiceClient, h: NurseHandover): Promise<void> {
   await supabase.from('alerts').insert({
-    episode_id: episodeId,
-    hospital_id: hospitalId,
+    episode_id: h.episodeId,
+    hospital_id: h.hospitalId,
     type: 'escalation',
     severity: 'medium',
   })
-  await raiseEpisodeRisk(supabase, episodeId, 'yellow')
+  await raiseEpisodeRisk(supabase, h.episodeId, 'yellow')
   await supabase.from('patient_timeline_events').insert({
-    episode_id: episodeId,
-    hospital_id: hospitalId,
+    episode_id: h.episodeId,
+    hospital_id: h.hospitalId,
     event_type: 'escalation_created',
-    payload: { reason, intent: 'untriaged_symptom_report', severity: 'medium', text: text ?? null, wa_message_id: waMessageId },
+    payload: {
+      reason: h.reason,
+      intent: h.intent,
+      severity: 'medium',
+      text: h.text || null,
+      wa_message_id: h.waMessageId,
+      ...(h.clarity !== undefined ? { clarity: h.clarity } : {}),
+    },
     risk_level: 'yellow',
   })
+}
+
+// ------------------------------------
+// Voice notes
+// ------------------------------------
+
+interface VoiceNoteParams {
+  supabase: ServiceClient
+  hospitalId: string
+  episodeId: string
+  patient: { full_name: string; language: LanguageCode; to: string }
+  state: ConversationState
+  message: ParsedInbound
+  /** The logged inbound row (null when logging failed): gets the transcript, the audio path and the clarity. */
+  messageId: string | null
+  reply: (outbound: OutboundMessage) => Promise<unknown>
+}
+
+type VoiceOutcome =
+  /** Heard clearly: carry on as if the patient had typed the transcript. */
+  | { kind: 'as_text'; message: ParsedInbound; voiceArtifactId: string | null }
+  /** Already dealt with here: nothing more to do but set the state. */
+  | { kind: 'handled'; nextState: ConversationState }
+
+/**
+ * A voice note: keep the audio for the nurse, hear it, and decide —
+ *  - heard clearly → as if the patient had typed it (a question is answered,
+ *    a check-in answer counts, a symptom is triaged);
+ *  - not clearly → a nurse listens (medium alert, patient yellow), unless
+ *    what was heard is red: an emergency never waits for someone to press play;
+ *  - while a nurse is chatting → only a red result is acted on; the nurse
+ *    hears the rest.
+ */
+async function takeVoiceNote(p: VoiceNoteParams): Promise<VoiceOutcome> {
+  const { supabase, hospitalId, episodeId, patient, state, message, messageId, reply } = p
+  const attending = state === 'nurse_attending'
+  const settled: ConversationState = attending ? 'nurse_attending' : 'idle'
+
+  let heard: HeardVoiceNote
+  let audioPath: string | null = null
+  try {
+    if (!message.audioUrl) throw new Error('the voice note came without a media URL')
+    const mimeType = bareMimeType(message.audioMimeType ?? 'audio/ogg')
+    const audio = await downloadTwilioMedia(message.audioUrl)
+    audioPath = await storeVoiceNote(supabase, { hospitalId, episodeId, name: message.waMessageId, audio, mimeType })
+    heard = await transcribeVoiceNote(audio, mimeType)
+  } catch (err) {
+    // Never lost: a nurse gets it, with the audio when it was saved.
+    console.error('[Voice note] could not be heard:', err)
+    if (messageId && audioPath) await recordVoiceNote(supabase, messageId, { transcript: '', clarity: null, audioPath })
+    if (!attending) await reply(buildEscalationAcknowledgement({ to: patient.to, patientName: patient.full_name, language: patient.language }))
+    await handToNurse(supabase, {
+      episodeId, hospitalId, intent: 'untriaged_symptom_report', waMessageId: message.waMessageId,
+      reason: audioPath
+        ? 'Voice note could not be transcribed automatically — listen to it on the Conversation tab'
+        : 'Voice note could not be downloaded or transcribed automatically',
+    })
+    return { kind: 'handled', nextState: settled }
+  }
+
+  if (messageId) await recordVoiceNote(supabase, messageId, { ...heard, audioPath })
+  const voiceArtifactId = messageId && audioPath
+    ? await saveVoiceArtifact(supabase, { episodeId, hospitalId, messageId, audioPath, transcript: heard.transcript })
+    : null
+  const redNow = () => actOnRedOnly(p, heard.transcript, voiceArtifactId)
+
+  if (attending) {
+    if (heard.transcript) await redNow()
+    return { kind: 'handled', nextState: 'nurse_attending' }
+  }
+
+  if (heardClearly(heard)) {
+    return { kind: 'as_text', message: { ...message, type: 'text', text: heard.transcript }, voiceArtifactId }
+  }
+
+  if (heard.transcript && (await redNow())) return { kind: 'handled', nextState: 'idle' }
+
+  await reply(buildEscalationAcknowledgement({ to: patient.to, patientName: patient.full_name, language: patient.language }))
+  await handToNurse(supabase, {
+    episodeId, hospitalId, intent: 'unclear_voice_note', waMessageId: message.waMessageId,
+    text: heard.transcript, clarity: heard.clarity,
+    reason: heard.clarity === null
+      ? 'Voice note — how clearly it was heard is unknown; listen to it on the Conversation tab'
+      : `Voice note unclear (clarity ${heard.clarity}%) — listen to it on the Conversation tab`,
+  })
+  return { kind: 'handled', nextState: 'idle' }
+}
+
+/**
+ * Triage on the words of a voice note that is not otherwise acted on, and act
+ * only when it is red. True when it was.
+ */
+async function actOnRedOnly(p: VoiceNoteParams, transcript: string, voiceArtifactId: string | null): Promise<boolean> {
+  const { supabase, episodeId, hospitalId, patient, message, reply } = p
+  try {
+    const { data: summary } = await supabase
+      .from('discharge_summaries')
+      .select('emergency_symptoms')
+      .eq('episode_id', episodeId)
+      .maybeSingle()
+    const triage = await classifyRisk({
+      transcript,
+      emergencySymptoms: (summary?.emergency_symptoms as string[]) ?? [],
+      patientName: patient.full_name,
+    })
+    if (triage.riskLevel !== 'red') return false
+    await recordTriage({ supabase, episodeId, hospitalId, patient, reply, triage, waMessageId: message.waMessageId, source: 'voice', voiceArtifactId })
+    return true
+  } catch (err) {
+    console.error('[Voice note] triage of what was heard failed:', err)
+    return false
+  }
+}
+
+/** The voice_artifacts row the triage assessment links to. */
+async function saveVoiceArtifact(
+  supabase: ServiceClient,
+  a: { episodeId: string; hospitalId: string; messageId: string; audioPath: string; transcript: string },
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('voice_artifacts')
+    .insert({
+      episode_id: a.episodeId,
+      hospital_id: a.hospitalId,
+      message_id: a.messageId,
+      audio_storage_path: a.audioPath,
+      transcript: a.transcript || null,
+    })
+    .select('id')
+    .single()
+  if (error) console.error('[Voice note] voice_artifacts insert failed:', error.message)
+  return (data as { id: string } | null)?.id ?? null
 }
 
 // ------------------------------------
@@ -473,12 +621,37 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
     patient: { id: patient.id, full_name: patient.full_name, phone: message.from, preferred_language: patient.preferred_language },
   })
 
-  // 7. Run FSM
-  const result = transition(state, message)
-
-  // 8. Execute action
   const lang = (patient.preferred_language as LanguageCode) ?? 'en'
 
+  // 7. A voice note is heard first. Heard clearly, it carries on below exactly
+  // as if the patient had typed the words; otherwise takeVoiceNote dealt with it.
+  let inbound = message
+  let voiceArtifactId: string | null = null
+  let result: FsmResult
+  if (message.type === 'audio') {
+    const voice = await takeVoiceNote({
+      supabase,
+      hospitalId: hospital.id,
+      episodeId: episode.id,
+      patient: { full_name: patient.full_name, language: lang, to: message.from },
+      state,
+      message,
+      messageId: savedMsg?.id ?? null,
+      reply,
+    })
+    if (voice.kind === 'as_text') {
+      inbound = voice.message
+      voiceArtifactId = voice.voiceArtifactId
+      result = transition(state, inbound)
+    } else {
+      result = { nextState: voice.nextState, action: 'noop' }
+    }
+  } else {
+    result = transition(state, message)
+  }
+  const spoken = inbound !== message
+
+  // 8. Execute action
   switch (result.action) {
     case 'confirm_appointment': {
       // A text "1"/"YES" carries no id: take the appointment most recently
@@ -554,71 +727,9 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
       break
     }
 
-    case 'route_to_triage': {
-      // Always acknowledge immediately so patient isn't left waiting
-      await reply(buildEscalationAcknowledgement({
-        to: message.from,
-        patientName: patient.full_name,
-        language: lang,
-      }))
-
-      if (message.audioUrl) {
-        try {
-          // Load emergency symptoms from approved summary
-          const { data: summary } = await supabase
-            .from('discharge_summaries')
-            .select('emergency_symptoms')
-            .eq('episode_id', episode.id)
-            .single()
-
-          const triageResult = await triageVoiceNote({
-            audioUrl: message.audioUrl,
-            audioMimeType: message.audioMimeType,
-            emergencySymptoms: (summary?.emergency_symptoms as string[]) ?? [],
-            patientName: patient.full_name,
-          })
-
-          // Persist voice artifact (only if we have a saved message row)
-          let voiceArtifactId: string | null = null
-          if (savedMsg?.id) {
-            const { data: voiceArtifact } = await supabase
-              .from('voice_artifacts')
-              .insert({
-                episode_id: episode.id,
-                hospital_id: hospital.id,
-                message_id: savedMsg.id,
-                audio_storage_path: `voice/${episode.id}/${message.audioId}`,
-                transcript: triageResult.transcript,
-              })
-              .select('id')
-              .single()
-            voiceArtifactId = voiceArtifact?.id ?? null
-          }
-
-          await recordTriage({
-            supabase,
-            episodeId: episode.id,
-            hospitalId: hospital.id,
-            patient: { full_name: patient.full_name, language: lang, to: message.from },
-            reply,
-            triage: triageResult,
-            waMessageId: message.waMessageId,
-            source: 'voice',
-            voiceArtifactId,
-          })
-        } catch (err) {
-          // Acknowledged already; make sure a nurse still sees that a voice
-          // note came in and could not be assessed automatically.
-          console.error('[Triage] failed:', err)
-          await escalateUntriaged(supabase, episode.id, hospital.id, 'Voice note could not be transcribed or triaged automatically', message.waMessageId)
-        }
-      }
-      break
-    }
-
     case 'triage_text': {
-      // Free-text symptom report (nightly check-in answer, or instead of one).
-      const text = (message.text ?? '').trim()
+      // Free-text symptom report (nightly check-in answer, or instead of one) — typed or spoken.
+      const text = (inbound.text ?? '').trim()
       try {
         const { data: summary } = await supabase
           .from('discharge_summaries')
@@ -640,14 +751,18 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
           reply,
           triage,
           waMessageId: message.waMessageId,
-          source: state === 'idle' ? 'text' : 'nightly_checkin',
+          source: spoken ? 'voice' : state === 'idle' ? 'text' : 'nightly_checkin',
+          voiceArtifactId,
         })
       } catch (err) {
         // The model is down or returned garbage: never drop a symptom report
         // on the floor. Acknowledge, and hand it to a nurse at medium.
         console.error('[Triage text] failed:', err)
         await reply(buildEscalationAcknowledgement({ to: message.from, patientName: patient.full_name, language: lang }))
-        await escalateUntriaged(supabase, episode.id, hospital.id, 'Symptom report could not be triaged automatically', message.waMessageId, text)
+        await handToNurse(supabase, {
+          episodeId: episode.id, hospitalId: hospital.id, intent: 'untriaged_symptom_report',
+          reason: 'Symptom report could not be triaged automatically', waMessageId: message.waMessageId, text,
+        })
       }
       break
     }
@@ -720,7 +835,7 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
     }
 
     case 'route_to_ai': {
-      const text = message.text ?? ''
+      const text = inbound.text ?? ''
       const preIntent = classifyPreIntent(text)
 
       // Emergency keyword: instant, deterministic, critical — no model in the loop.
@@ -817,7 +932,7 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
         await supabase.from('ai_interactions').insert({
           episode_id: episode.id,
           hospital_id: hospital.id,
-          input_type: 'text',
+          input_type: spoken ? 'voice' : 'text',
           model: chatResult.model ?? 'none',
           input_text: text,
           output_text: chatResult.answer,

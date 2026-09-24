@@ -19,7 +19,9 @@ process.env.TWILIO_WHATSAPP_NUMBER ??= 'whatsapp:+14155238886'
 process.env.WHATSAPP_USE_TEXT_FALLBACK ??= 'true'
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= 'https://fake.supabase.co'
 process.env.SUPABASE_SERVICE_ROLE_KEY ??= 'fake'
+process.env.GEMINI_API_KEY = 'test-key' // read lazily; every model call below goes to the stub
 
+import { GenerativeModel } from '@google/generative-ai'
 import { FakeDb } from './lib/fake-supabase'
 import { handleInboundMessage } from '@/lib/whatsapp/webhook-handler'
 import { withSenderLock, senderKey, pendingSenders } from '@/lib/whatsapp/sender-queue'
@@ -42,6 +44,8 @@ let failNextSend: string | null = null
 globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
   const url = String(input instanceof Request ? input.url : input)
   if (!url.includes('api.twilio.com')) throw new Error(`unexpected fetch: ${url}`)
+  // A voice note's audio, downloaded from Twilio.
+  if (url.includes('/Media/')) return new Response(new Uint8Array([79, 103, 103, 83]), { status: 200, headers: { 'Content-Type': 'audio/ogg' } })
   const params = new URLSearchParams(String(init?.body ?? ''))
   if (failNextSend) {
     const message = failNextSend
@@ -56,6 +60,29 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
 function drain(): Sent[] {
   return outbox.splice(0, outbox.length)
 }
+
+// ------------------------------------
+// Stubbed Gemini: what the next voice note is heard as, and the next triage colour
+// ------------------------------------
+
+let heardNext: { transcript: string; clarity: number } = { transcript: '', clarity: 0 }
+let triageNext: 'green' | 'yellow' | 'red' = 'green'
+const modelCalls: string[] = []
+GenerativeModel.prototype.generateContent = async function (request: unknown) {
+  const prompt = JSON.stringify(request)
+  const answer = (text: string) => ({ response: { text: () => text } }) as unknown as ReturnType<GenerativeModel['generateContent']>
+  if (prompt.includes('Transcribe this voice message')) {
+    modelCalls.push('transcribe')
+    return answer(JSON.stringify(heardNext))
+  }
+  if (prompt.includes('clinical triage assistant')) {
+    modelCalls.push('triage')
+    return answer(JSON.stringify({ riskLevel: triageNext, reasoning: 'scripted', keySymptoms: [], requiresImmediateAttention: triageNext === 'red' }))
+  }
+  // Patient chat and the rest: nothing usable, so their fallbacks answer (as with no key at all).
+  modelCalls.push('other')
+  return answer('')
+} as GenerativeModel['generateContent']
 
 // ------------------------------------
 // Seed: one hospital number, a shared family phone, a patient of her own
@@ -410,8 +437,7 @@ async function main() {
   eq('critical alert on her episode', db.rows('alerts').filter((a) => a.severity === 'critical' && a.episode_id === 'ep-solo').length, 1)
   eq('…and she is red', riskOf('ep-solo'), 'red')
 
-  console.log('— …and a voice note, acknowledged in Hindi before triage —')
-  // No model here: triage fails, and the note is escalated for a nurse instead.
+  console.log('— a voice note whose audio cannot be downloaded: acknowledged in Hindi, a nurse takes it —')
   await send(inbound(SOLO_PHONE, undefined, 'audio', { audioUrl: 'https://media.example/voice.ogg', audioMimeType: 'audio/ogg' }))
   sent = drain()
   includes('acknowledged in Hindi', sent[0]?.body ?? '', 'आपका संदेश मिल गया है')
@@ -427,6 +453,70 @@ async function main() {
   await raiseEpisodeRisk(client, 'ep-farzana', 'yellow')
   eq('red stays red', riskOf('ep-farzana'), 'red')
   eq('lowering needs a note, raising or keeping does not', [isLowering('red', 'green'), isLowering('red', 'yellow'), isLowering('yellow', 'red'), isLowering('green', 'green')], [true, true, false, false])
+
+  console.log('— voice notes: the audio is kept, and a note is acted on only when heard clearly —')
+  let voiceSid = 0
+  const voiceNote = () => {
+    const sid = `MMvoice${++voiceSid}`
+    return inbound(SOLO_PHONE, undefined, 'audio', { audioUrl: `https://api.twilio.com/2010-04-01/Accounts/ACtest/Messages/${sid}/Media/ME${sid}`, audioMimeType: 'audio/ogg; codecs=opus' })
+  }
+  const solo = db.rows('whatsapp_conversations').find((c) => c.episode_id === 'ep-solo')!
+  const lastSolo = () => inboundOf(String(solo.id)).at(-1)!
+  const voiceOf = (m: Record<string, unknown>) => (m.metadata as { voice?: unknown } | undefined)?.voice
+  const soloAlerts = () => db.rows('alerts').filter((a) => a.episode_id === 'ep-solo').length
+  db.rows('care_episodes').find((e) => e.id === 'ep-solo')!.current_risk_level = 'green'
+  solo.conversation_state = 'idle'
+
+  heardNext = { transcript: 'नमस्ते', clarity: 92 }
+  let alertsBefore = soloAlerts()
+  await send(voiceNote())
+  sent = drain()
+  eq('heard clearly: answered like a typed "नमस्ते" — one reply, no "a nurse will review it"', [sent.length, sent[0]?.body.startsWith('नमस्ते Priya Nair')], [1, true])
+  eq('the audio is kept for the nurse', db.uploads.at(-1), { bucket: 'voice-notes', path: `h1/ep-solo/${lastSolo().wa_message_id}.ogg`, contentType: 'audio/ogg', bytes: 4 })
+  eq('the transcript is the message text; the audio path and clarity are on it', [lastSolo().content, lastSolo().media_storage_path, voiceOf(lastSolo())], ['नमस्ते', db.uploads.at(-1)?.path, { clarity: 92, clear: true }])
+  eq('no alert', soloAlerts() - alertsBefore, 0)
+
+  heardNext = { transcript: 'मुझे [unclear] कल से [unclear]', clarity: 45 }
+  triageNext = 'yellow'
+  alertsBefore = soloAlerts()
+  await send(voiceNote())
+  sent = drain()
+  includes('not clear: told in Hindi that the care team will look at it', sent[0]?.body ?? '', 'आपका संदेश मिल गया है')
+  eq('…one medium alert for the nurse', [soloAlerts() - alertsBefore, db.rows('alerts').at(-1)?.severity], [1, 'medium'])
+  const unclearEvent = db.rows('patient_timeline_events').filter((e) => (e.payload as { intent?: string }).intent === 'unclear_voice_note').at(-1)?.payload as { clarity?: number; reason?: string } | undefined
+  eq('…saying it was unclear, and how clear', [unclearEvent?.clarity, unclearEvent?.reason?.includes('45%')], [45, true])
+  eq('…the patient turns yellow', riskOf('ep-solo'), 'yellow')
+  eq('…and the message is marked unclear, with what was heard', [voiceOf(lastSolo()), lastSolo().content], [{ clarity: 45, clear: false }, 'मुझे [unclear] कल से [unclear]'])
+
+  heardNext = { transcript: 'सीने में [unclear] साँस नहीं [unclear]', clarity: 40 }
+  triageNext = 'red'
+  alertsBefore = soloAlerts()
+  await send(voiceNote())
+  sent = drain()
+  includes('not clear, but red: the urgent reply goes out at once', sent[0]?.body ?? '', 'ज़रूरी, Priya Nair')
+  eq('…triage recorded red (the database raises the critical alert and the colour)', db.rows('triage_assessments').filter((t) => t.episode_id === 'ep-solo').at(-1)?.risk_level, 'red')
+  eq('…and no "unclear" hand-over on top', soloAlerts() - alertsBefore, 0)
+
+  heardNext = { transcript: '', clarity: 0 }
+  alertsBefore = soloAlerts()
+  await send(voiceNote())
+  sent = drain()
+  eq('nothing intelligible: acknowledged, handed to a nurse, nothing triaged', [sent[0]?.body.includes('आपका संदेश मिल गया है'), soloAlerts() - alertsBefore, modelCalls.at(-1)], [true, 1, 'transcribe'])
+
+  solo.conversation_state = { state: 'nurse_attending', until: new Date(Date.now() + 600_000).toISOString(), by: 'nurse-1' }
+  heardNext = { transcript: 'मैं ठीक हूँ', clarity: 95 }
+  triageNext = 'green'
+  await send(voiceNote())
+  eq('while a nurse is chatting: the assistant says nothing', drain().length, 0)
+  eq('…the nurse keeps the conversation, and the note was still triaged', [stateOf(String(solo.id)), modelCalls.at(-1)], ['nurse_attending', 'triage'])
+
+  solo.conversation_state = 'idle'
+  db.failUploads = true
+  heardNext = { transcript: 'नमस्ते', clarity: 90 }
+  await send(voiceNote())
+  sent = drain()
+  eq('storage not ready (00016 not applied): still heard and answered, no audio path', [sent[0]?.body.startsWith('नमस्ते Priya Nair'), lastSolo().media_storage_path ?? null], [true, null])
+  db.failUploads = false
 
   console.log(fails === 0 ? '\nALL PASSED' : `\n${fails} FAILED`)
   process.exit(fails ? 1 : 0)
