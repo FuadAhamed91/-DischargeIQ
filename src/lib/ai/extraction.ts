@@ -177,7 +177,7 @@ function normaliseExtraction(raw: Partial<ExtractionResult>): ExtractionResult {
  * Retries and falls back to another model when Gemini is overloaded; throws
  * GeminiUnavailableError when nothing answered so the route can say "busy".
  */
-export async function extractDischargeData(pdfText: string): Promise<ExtractionResult> {
+export async function extractDischargeData(pdfText: string, opts: { budgetMs?: number } = {}): Promise<ExtractionResult> {
   if (!pdfText || pdfText.length < 50) {
     throw new Error('PDF text is too short or empty. The document may be scanned/image-only.')
   }
@@ -189,7 +189,7 @@ export async function extractDischargeData(pdfText: string): Promise<ExtractionR
   // the wait; the nurse checks every field before anything is sent.
   const { text: content } = await generate(
     { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json' } },
-    { label: 'extraction', budgetMs: 45_000, noThinking: true },
+    { label: 'extraction', budgetMs: opts.budgetMs ?? 45_000, noThinking: true },
   )
 
   if (!content) throw new Error('No response from extraction model')
