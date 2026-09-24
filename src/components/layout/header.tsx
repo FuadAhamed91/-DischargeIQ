@@ -1,8 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { LogOut, User } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { User } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
   DropdownMenu,
@@ -17,7 +16,6 @@ import { Badge } from '@/components/ui/badge'
 import { MobileNav } from '@/components/layout/mobile-nav'
 import { AlertBell } from '@/components/alerts/alert-bell'
 import { ThemeToggle } from '@/components/theme/theme-toggle'
-import { siteConfig } from '@/config/site'
 import type { Profile } from '@/types/database'
 import type { UserRole } from '@/types/enums'
 
@@ -39,13 +37,6 @@ interface HeaderProps {
 
 export function Header({ profile, hospitalName, openAlerts, criticalAlerts }: HeaderProps) {
   const router = useRouter()
-  const supabase = createClient()
-
-  async function handleSignOut() {
-    await supabase.auth.signOut()
-    router.push('/login')
-    router.refresh()
-  }
 
   const initials = profile.full_name
     .split(' ')
@@ -104,19 +95,6 @@ export function Header({ profile, hospitalName, openAlerts, criticalAlerts }: He
               <User className="w-4 h-4 mr-2" />
               Settings
             </DropdownMenuItem>
-            {/* In the demo a signed-out visitor is signed straight back in, so there is nothing to sign out of */}
-            {!siteConfig.demoSignIn && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={handleSignOut}
-                  className="text-destructive focus:text-destructive cursor-pointer"
-                >
-                  <LogOut className="w-4 h-4 mr-2" />
-                  Sign out
-                </DropdownMenuItem>
-              </>
-            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

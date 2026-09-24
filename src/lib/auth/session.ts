@@ -12,7 +12,8 @@ export interface SessionHospital {
 
 /**
  * Returns the authenticated user's profile.
- * Redirects to /login if not authenticated.
+ * Redirects to /setup if there is no session or profile (the proxy signs
+ * every visitor in, so this only happens when that sign-in is impossible).
  * Call this at the top of any server component or route handler
  * that requires an authenticated user.
  */
@@ -25,7 +26,7 @@ export const requireSession = cache(async (): Promise<{ userId: string; profile:
   const userId = claimsData?.claims?.sub
 
   if (authError || !userId) {
-    redirect('/login')
+    redirect('/setup')
   }
 
   // Profile + hospital in one query; pages need the hospital's timezone to
@@ -37,7 +38,7 @@ export const requireSession = cache(async (): Promise<{ userId: string; profile:
     .single()
 
   if (profileError || !data) {
-    redirect('/login')
+    redirect('/setup')
   }
 
   const { hospitals, ...profile } = data as Profile & { hospitals: SessionHospital | null }

@@ -326,7 +326,7 @@ check-in (not reminder), *Needs review*, *Needs a nurse*.
 
 Realtime (`postgres_changes`) is enabled for `alerts`, `patient_timeline_events`, `whatsapp_messages` and `whatsapp_number_sessions`.
 
-Theme: light / dark / system toggle in the header (and on the login page), persisted by `next-themes`.
+Theme: light / dark / system toggle in the header, persisted by `next-themes`.
 All colours are semantic tokens in `src/app/globals.css` (`brand`, `teal`, `success|warning|danger|info` with
 `-soft` and `-foreground` variants, `chart-1…5`, `sidebar-*`) — components never use raw hex or palette classes.
 
@@ -337,7 +337,7 @@ All colours are semantic tokens in `src/app/globals.css` (`brand`, `teal`, `succ
 ```
 src/
   app/
-    (auth)/login                     Supabase email/password login
+    setup                            shown only when the automatic admin sign-in is impossible (missing service key)
     (dashboard)/…                    pages above
     api/v1/…                         session-authenticated JSON API (patients, episodes, summaries, appointments, alerts, analytics)
     api/cron/…                       reminders/generate, reminders/dispatch, appointments/escalate  (CRON_SECRET bearer)
@@ -621,14 +621,14 @@ functions callable by `authenticated` (required — policies evaluate them as th
   helpers, which `authenticated` needs. `anon` can execute nothing. Fixed `search_path` on all.
 - **Storage.** `discharge-documents` is private; object paths are `<hospital_id>/<episode_id>/<file>`
   and policies match the first path segment to the caller's hospital.
-- **Auth proxy** (`src/proxy.ts`) redirects everything to `/login` except `/login`, `/invite`,
-  `/api/webhooks` (Twilio signature), `/api/cron` (`CRON_SECRET`), `/api/v1/auth`.
-- **Hackathon demo: no login screen.** While `siteConfig.demoSignIn` is `true` (`src/config/site.ts`),
-  the proxy signs a visitor without a session in as the hospital's first active admin
-  (`lib/supabase/demo-sign-in.ts`: a one-time magic-link token made with the service key, redeemed
-  on the spot, no email sent) and hides "Sign out". Anyone with the link can see every patient and
-  do everything that admin can, including messaging patients. Set it to `false` to bring the login
-  screen back.
+- **No login screen (demo).** The auth proxy (`src/proxy.ts`) signs every visitor without a
+  session in as the hospital's first active admin (`lib/supabase/demo-sign-in.ts`: a one-time
+  magic-link token made with the service key, redeemed on the spot, no email sent), so opening the
+  app lands straight on the dashboard; `/login` redirects there and there is no "Sign out". If the
+  sign-in is impossible (no `SUPABASE_SERVICE_ROLE_KEY`, no active `hospital_admin` profile) the
+  visitor gets `/setup`, which says which. Anyone with the link can see every patient and do
+  everything that admin can, including messaging patients. Public without a session: `/setup`,
+  `/invite`, `/api/webhooks` (Twilio signature), `/api/cron` (`CRON_SECRET`), `/api/v1/auth`.
 - **Twilio** requests are HMAC-verified against the exact webhook URL.
 - **Secrets** live in Vercel env vars and Supabase Vault; `.env*` is gitignored except `.env.example`.
 - **AI guardrails.** The patient assistant answers only from the patient's own approved summary and

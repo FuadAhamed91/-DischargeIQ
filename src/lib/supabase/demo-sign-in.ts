@@ -11,11 +11,11 @@ let queue: Promise<unknown> = Promise.resolve()
 const ATTEMPTS = 3
 
 /**
- * Signs the visitor in as the hospital's admin without a password
- * (siteConfig.demoSignIn). The service key mints a one-time magic-link token,
+ * Signs the visitor in as the hospital's admin without a password: the app
+ * has no login screen. The service key mints a one-time magic-link token,
  * which sends no email, and `supabase`, the proxy's cookie-bound client,
  * redeems it: that writes the session cookies onto the response. Returns false
- * when there is no active admin or Supabase refuses, so the login screen shows.
+ * when there is no active admin or Supabase refuses; the proxy then shows /setup.
  */
 export function demoSignIn(supabase: AuthClient): Promise<boolean> {
   const run = queue.then(() => signIn(supabase))
