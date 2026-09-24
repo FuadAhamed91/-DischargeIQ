@@ -6,6 +6,8 @@ import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ComplianceChart, RiskDonut, AlertActivityChart } from '@/components/analytics/lazy-charts'
 import { AppointmentFunnel } from '@/components/analytics/appointment-funnel'
+import { countCheckinAnswers, checkinTrend } from '@/lib/analytics/checkins'
+import { appointmentBreakdown } from '@/lib/analytics/appointments'
 import { Users, Bell, CalendarCheck, MessageSquareReply } from 'lucide-react'
 import { subDays } from 'date-fns'
 
@@ -18,6 +20,7 @@ export default async function AnalyticsPage() {
   const supabase = await createClient()
 
   // ── Fetch all data server-side ──────────────────────────────────────
+  const since30 = subDays(new Date(), 31).toISOString()
   const [
     { count: totalPatients },
     { count: activeEpisodes },
@@ -26,10 +29,11 @@ export default async function AnalyticsPage() {
     { count: criticalAlerts },
     { count: totalAlerts30d },
     { count: totalReminders },
-    { count: reminderResponses },
+    checkinAnswers,
     { data: riskData },
     { data: apptStats },
-    { data: snapshots },
+    { data: sentJobs30d },
+    { data: answerEvents30d },
     { data: alertActivity },
   ] = await Promise.all([
     supabase.from('patients').select('*', { count: 'exact', head: true }).eq('hospital_id', hospitalId),
@@ -39,39 +43,35 @@ export default async function AnalyticsPage() {
     supabase.from('alerts').select('*', { count: 'exact', head: true }).eq('hospital_id', hospitalId).eq('status', 'open').eq('severity', 'critical'),
     supabase.from('alerts').select('*', { count: 'exact', head: true }).eq('hospital_id', hospitalId).gte('created_at', subDays(new Date(), 30).toISOString()),
     supabase.from('reminder_jobs').select('*', { count: 'exact', head: true }).eq('hospital_id', hospitalId).eq('status', 'sent'),
-    supabase.from('patient_timeline_events').select('*', { count: 'exact', head: true }).eq('hospital_id', hospitalId).eq('event_type', 'reminder_response'),
+    countCheckinAnswers(supabase, { hospitalId }),
     supabase.from('care_episodes').select('current_risk_level').eq('hospital_id', hospitalId).eq('status', 'active'),
-    supabase.from('appointments').select('status').eq('hospital_id', hospitalId),
-    supabase.from('compliance_snapshots').select('snapshot_date, medication_adherence, reminder_response_rate').eq('hospital_id', hospitalId).gte('snapshot_date', fmt(subDays(new Date(), 30), 'yyyy-MM-dd', tz)).order('snapshot_date', { ascending: true }),
+    supabase.from('appointments').select('status, time_tbc').eq('hospital_id', hospitalId),
+    // The check-in chart is worked out from the check-ins themselves, as they happen.
+    supabase.from('reminder_jobs').select('id, fire_at').eq('hospital_id', hospitalId).eq('status', 'sent').gte('fire_at', since30),
+    supabase.from('patient_timeline_events').select('event_type, payload, created_at').eq('hospital_id', hospitalId).in('event_type', ['reminder_response', 'escalation_created']).gte('created_at', since30),
     supabase.from('alerts').select('created_at, severity').eq('hospital_id', hospitalId).gte('created_at', subDays(new Date(), 14).toISOString()),
   ])
 
   // ── Compute derived metrics ──────────────────────────────────────────
-  // Nightly check-ins that went out, and how many were answered.
+  // Nightly check-ins that went out, and how many were answered ("none taken" counts: lib/analytics/checkins.ts).
   const sentCheckins = totalReminders ?? 0
-  const answeredCheckins = Math.min(reminderResponses ?? 0, sentCheckins)
+  const answeredCheckins = Math.min(checkinAnswers, sentCheckins)
   const answerRate = sentCheckins > 0 ? Math.round((answeredCheckins / sentCheckins) * 100) : null
 
-  const apptCounts = (apptStats ?? []).reduce<Record<string, number>>((acc, a) => {
-    acc[a.status] = (acc[a.status] ?? 0) + 1
-    return acc
-  }, {})
-  const totalAppts = apptStats?.length ?? 0
-  const confirmedAppts = (apptCounts['confirmed'] ?? 0) + (apptCounts['completed'] ?? 0)
-  const missedAppts = apptCounts['missed'] ?? 0
-  const pendingAppts = apptCounts['confirmation_pending'] ?? 0
-  const apptCompletionRate = totalAppts > 0 ? Math.round((confirmedAppts / totalAppts) * 100) : 0
+  const appts = appointmentBreakdown(apptStats ?? [])
 
   const riskCounts = (riskData ?? []).reduce<Record<string, number>>((acc, e) => {
     acc[e.current_risk_level] = (acc[e.current_risk_level] ?? 0) + 1
     return acc
   }, { green: 0, yellow: 0, red: 0 })
 
-  const complianceTrend = (snapshots ?? []).map((s) => ({
-    date: fmt(s.snapshot_date, 'dd MMM', tz),
-    adherence: Number(s.medication_adherence),
-    responseRate: Number(s.reminder_response_rate),
-  }))
+  const last30Days = Array.from({ length: 30 }, (_, i) => fmt(subDays(new Date(), 29 - i), 'yyyy-MM-dd', tz))
+  const complianceTrend = checkinTrend({
+    sent: (sentJobs30d ?? []) as Array<{ id: string; fire_at: string }>,
+    events: (answerEvents30d ?? []) as Array<{ event_type: string; payload: Record<string, unknown> | null; created_at: string }>,
+    days: last30Days,
+    timezone: tz,
+  }).map((d) => ({ date: fmt(d.day, 'dd MMM', tz), answered: d.answered, tookAll: d.tookAll }))
 
   // Build 14-day alert activity
   const alertByDay: Record<string, { date: string; critical: number; high: number; medium: number; low: number }> = {}
@@ -112,11 +112,13 @@ export default async function AnalyticsPage() {
     },
     {
       label: 'Appointments confirmed',
-      value: totalAppts > 0 ? `${apptCompletionRate}%` : '—',
-      sub: totalAppts > 0 ? `${confirmedAppts} of ${totalAppts} appointments` : 'No appointments yet',
+      value: appts.confirmedRate == null ? '—' : `${appts.confirmedRate}%`,
+      sub: appts.confirmedRate == null
+        ? (appts.toBook > 0 ? `None booked yet · ${appts.toBook} to book` : 'No appointments yet')
+        : `${appts.confirmed} of ${appts.booked} booked${appts.toBook > 0 ? ` · ${appts.toBook} still to book` : ''}`,
       icon: CalendarCheck,
-      color: totalAppts === 0 ? 'text-muted-foreground' : apptCompletionRate >= 70 ? 'text-success' : 'text-warning',
-      bg: totalAppts === 0 ? 'bg-muted' : apptCompletionRate >= 70 ? 'bg-success-soft' : 'bg-warning-soft',
+      color: appts.confirmedRate == null ? 'text-muted-foreground' : appts.confirmedRate >= 70 ? 'text-success' : 'text-warning',
+      bg: appts.confirmedRate == null ? 'bg-muted' : appts.confirmedRate >= 70 ? 'bg-success-soft' : 'bg-warning-soft',
     },
     {
       label: 'Open alerts',
@@ -163,7 +165,7 @@ export default async function AnalyticsPage() {
         <Card className="lg:col-span-2">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Check-ins, last 30 days</CardTitle>
-            <p className="text-xs text-muted-foreground">Medicines taken and check-ins answered, per day</p>
+            <p className="text-xs text-muted-foreground">Of each night’s check-ins: how many were answered, and how many answers said every medicine was taken</p>
           </CardHeader>
           <CardContent>
             <ComplianceChart data={complianceTrend} />
@@ -196,15 +198,10 @@ export default async function AnalyticsPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Appointments</CardTitle>
-            <p className="text-xs text-muted-foreground">Booked, confirmed by the patient, missed</p>
+            <p className="text-xs text-muted-foreground">Booked appointments, and where each one stands</p>
           </CardHeader>
           <CardContent>
-            <AppointmentFunnel
-              total={totalAppts}
-              confirmed={confirmedAppts}
-              missed={missedAppts}
-              pending={pendingAppts}
-            />
+            <AppointmentFunnel {...appts} />
           </CardContent>
         </Card>
       </div>

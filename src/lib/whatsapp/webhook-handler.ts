@@ -784,8 +784,9 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
         .limit(1)
         .maybeSingle()
 
-      // reminder_response feeds the adherence metrics, so it is only written
-      // when at least some medicines were taken; "none" becomes an escalation.
+      // reminder_response is only written when at least some medicines were
+      // taken; "none" becomes an escalation (intent missed_medication, severity
+      // medium), which lib/analytics/checkins.ts also counts as an answer.
       if (taken !== 'none') {
         await supabase.from('patient_timeline_events').insert({
           episode_id: episode.id,

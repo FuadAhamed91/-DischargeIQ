@@ -58,6 +58,7 @@ type Filter =
   | { kind: 'in'; col: string; vals: unknown[] }
   | { kind: 'lt'; col: string; val: string | number }
   | { kind: 'lte'; col: string; val: string | number }
+  | { kind: 'gte'; col: string; val: string | number }
 
 export interface QueryResult<T = unknown> {
   data: T
@@ -132,6 +133,7 @@ class FakeQuery implements PromiseLike<QueryResult> {
   in(col: string, vals: unknown[]) { this.filters.push({ kind: 'in', col, vals }); return this }
   lt(col: string, val: string | number) { this.filters.push({ kind: 'lt', col, val }); return this }
   lte(col: string, val: string | number) { this.filters.push({ kind: 'lte', col, val }); return this }
+  gte(col: string, val: string | number) { this.filters.push({ kind: 'gte', col, val }); return this }
   order(col: string, opts: { ascending?: boolean } = {}) { this.ordering = { col, ascending: opts.ascending !== false }; return this }
   limit(n: number) { this.limitN = n; return this }
   single() { this.wantSingle = 'single'; return this }
@@ -152,6 +154,7 @@ class FakeQuery implements PromiseLike<QueryResult> {
         case 'in': return f.vals.includes(value)
         case 'lt': return value !== null && value !== undefined && (value as string | number) < f.val
         case 'lte': return value !== null && value !== undefined && (value as string | number) <= f.val
+        case 'gte': return value !== null && value !== undefined && (value as string | number) >= f.val
       }
     })
   }

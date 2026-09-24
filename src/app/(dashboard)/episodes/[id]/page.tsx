@@ -12,6 +12,7 @@ import { StatusBadge } from '@/components/shared/status-badge'
 import { EpisodeTimeline } from '@/components/patients/episode-timeline'
 import { ConversationTranscript, type TranscriptMessage, type SharedNumberPatient } from '@/components/patients/conversation-transcript'
 import { summariseNumberSession } from '@/lib/whatsapp/number-session'
+import { countCheckinAnswers } from '@/lib/analytics/checkins'
 import { ArrowLeft, Pencil, Pill, AlertTriangle, ChevronRight, CalendarDays, FileText, MessageCircle, ClipboardList, History, Upload } from 'lucide-react'
 import { fmt } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -50,7 +51,7 @@ export default async function EpisodeDetailPage({
     { data: episode },
     { data: timelineEvents },
     { data: reminderJobs },
-    { count: answeredCount },
+    answeredCount,
     { data: appointments },
     { data: conversation },
     { data: transcriptRows },
@@ -74,7 +75,7 @@ export default async function EpisodeDetailPage({
       .single(),
     supabase.from('patient_timeline_events').select('id, event_type, payload, risk_level, created_at').eq('episode_id', id).order('created_at', { ascending: false }).limit(50),
     supabase.from('reminder_jobs').select('status').eq('episode_id', id),
-    supabase.from('patient_timeline_events').select('*', { count: 'exact', head: true }).eq('episode_id', id).eq('event_type', 'reminder_response'),
+    countCheckinAnswers(supabase, { hospitalId: hospital.id, episodeId: id }),
     supabase.from('appointments').select('id, specialty, scheduled_at, status, time_tbc, location, follow_up_id').eq('episode_id', id).order('scheduled_at', { ascending: true }),
     supabase.from('whatsapp_conversations').select('id, conversation_state, last_message_at').eq('episode_id', id).maybeSingle(),
     // The newest 200 messages (a long conversation would otherwise show its oldest), put back in order below.

@@ -622,7 +622,7 @@ functions callable by `authenticated` (required — policies evaluate them as th
 npm run lint           # eslint — clean; CI runs it with --max-warnings=0
 npx tsc --noEmit       # typecheck
 npm run build          # production build (needs NEXT_PUBLIC_SUPABASE_* set; placeholders are fine)
-npm run check          # all seven below
+npm run check          # all eight below
 npm run check:intent   # table-driven checks: pre-intent classifier, escalation derivation, FSM (check-in, nurse chat, media), state parsing
 npm run check:routing  # shared-number routing: name prefixes, answers to "who is this about?", the decision order, expiries
 npm run check:webhook  # the inbound handler end to end against an in-memory Supabase and a captured Twilio (no keys, no network)
@@ -630,6 +630,7 @@ npm run check:gemini   # 11 checks on the Gemini wrapper: retry on 429/503/netwo
 npm run check:delivery # Twilio status callbacks: sent → delivered → read ordering, failure reasons, one alert per message
 npm run check:translation # nurse message → patient's language, transcript → English: unwrapping, JSON parsing, batching, partial failure
 npm run check:reschedule  # "2 — change the date": clinic days, the times offered, numbers and dates in five languages, the messages
+npm run check:analytics   # what the dashboard counts: check-in answers ("none taken" included), the 30-day trend, booked vs to-book appointments
 ```
 
 `scripts/lib/fake-supabase.ts` is the in-memory stand-in the webhook check runs on: enough of the

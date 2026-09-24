@@ -5,6 +5,7 @@ import { requireSession } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
 import { fmt } from '@/lib/format'
 import { fromZonedTime } from 'date-fns-tz'
+import { countCheckinAnswers } from '@/lib/analytics/checkins'
 import { Users, Bell, CalendarCheck, MessageSquareReply, Moon, CalendarDays, ArrowRight, Plus } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -40,7 +41,7 @@ export default async function OverviewPage() {
     { count: toConfirm },
     { data: openAlertRows },
     { count: checkinsSent },
-    { count: checkinsAnswered },
+    checkinsAnswered,
     { data: todaysJobs },
     { data: upcoming },
   ] = await Promise.all([
@@ -52,7 +53,7 @@ export default async function OverviewPage() {
       .select('id, type, severity, status, created_at, episode_id, care_episodes(id, patients(full_name, mrn))')
       .eq('hospital_id', hid).eq('status', 'open').order('created_at', { ascending: false }).limit(20),
     supabase.from('reminder_jobs').select('*', { count: 'exact', head: true }).eq('hospital_id', hid).eq('status', 'sent').gte('fire_at', weekAgo),
-    supabase.from('patient_timeline_events').select('*', { count: 'exact', head: true }).eq('hospital_id', hid).eq('event_type', 'reminder_response').gte('created_at', weekAgo),
+    countCheckinAnswers(supabase, { hospitalId: hid, since: weekAgo }),
     supabase.from('reminder_jobs')
       .select('status')
       .eq('hospital_id', hid).gte('fire_at', dayStart.toISOString()).lt('fire_at', dayEnd.toISOString()),
