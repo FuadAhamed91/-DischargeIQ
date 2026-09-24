@@ -26,7 +26,10 @@ export default async function DashboardLayout({
       <Sidebar role={profile.role} hospitalName={hospital.name} />
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <Header profile={profile} hospitalName={hospital.name} openAlerts={openAlerts ?? 0} criticalAlerts={criticalAlerts ?? 0} />
-        <main id="main" tabIndex={-1} className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 focus:outline-none">
+        {/* The one scroller. relative: anything absolutely positioned inside it (a screen-reader-only
+            label, a hidden input) is placed here too — placed against the page instead, it made the
+            whole page scroll and a second scrollbar appear beside this one. */}
+        <main id="main" tabIndex={-1} className="relative flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 focus:outline-none">
           <div className="mx-auto w-full max-w-7xl">{children}</div>
         </main>
       </div>
