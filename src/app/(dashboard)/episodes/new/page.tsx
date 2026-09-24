@@ -211,15 +211,15 @@ export default function NewEpisodePage() {
 
       if (res.status === 409 && json.data?.episode_id) {
         const id = json.data.episode_id
-        toast.error('This patient already has an open episode', {
+        toast.error('This patient already has an open care plan', {
           action: { label: 'Open it', onClick: () => router.push(`/episodes/${id}`) },
           duration: 10000,
         })
         return
       }
-      if (!res.ok || !json.data) throw new Error(json.message ? `${json.error}: ${json.message}` : (json.error ?? 'Could not create the episode'))
+      if (!res.ok || !json.data) throw new Error(json.message ? `${json.error}: ${json.message}` : (json.error ?? 'Could not add the patient'))
 
-      toast.success(json.data.patient_existed ? 'Returning patient — new episode created. Review the summary.' : 'Patient created. Review the summary before it goes out.')
+      toast.success(json.data.patient_existed ? 'Returning patient — new care plan started. Review it before it is sent.' : 'Patient created. Review the summary before it goes out.')
       router.push(`/episodes/${json.data.episode_id}/review`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Something went wrong')
@@ -248,8 +248,8 @@ export default function NewEpisodePage() {
       const lookup = await fetch(`/api/v1/patients?search=${encodeURIComponent(form.mrn.trim())}&limit=5`)
       const lookupData = (await lookup.json()) as { data?: Array<{ id: string; mrn: string }> }
       patientId = lookupData.data?.find((p) => p.mrn === form.mrn.trim())?.id
-      if (!patientId) throw new Error('A patient with this MRN exists but is assigned to someone else. Ask a coordinator to open the episode.')
-      toast.info('Patient already registered — creating a new episode for them.')
+      if (!patientId) throw new Error('A patient with this MRN exists but is assigned to someone else. Ask a coordinator to open their care plan.')
+      toast.info('Patient already registered — starting a new care plan for them.')
     } else if (!patientRes.ok || !patientId) {
       throw new Error(patientData.error ?? 'Failed to create patient')
     }
@@ -259,8 +259,8 @@ export default function NewEpisodePage() {
       body: JSON.stringify({ patient_id: patientId, discharge_date: form.discharge_date }),
     })
     const episodeData = (await episodeRes.json()) as { data?: { id: string }; error?: string }
-    if (!episodeRes.ok || !episodeData.data) throw new Error(episodeData.error ?? 'Failed to create episode')
-    toast.success('Episode created — attach the discharge document when you have it.')
+    if (!episodeRes.ok || !episodeData.data) throw new Error(episodeData.error ?? 'Could not add the patient')
+    toast.success('Patient added — attach the discharge letter when you have it.')
     router.push(`/episodes/${episodeData.data.id}`)
   }
 
@@ -269,13 +269,13 @@ export default function NewEpisodePage() {
   return (
     <div className="max-w-3xl space-y-5">
       <Link href="/patients" className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="w-3.5 h-3.5 mr-1.5" /> All patients
+        <ArrowLeft className="w-3.5 h-3.5 mr-1.5" /> Patients
       </Link>
 
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">New patient</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Add patient</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Upload the discharge summary. The details are read from it — you only add the WhatsApp number and check the rest.
+          Upload the discharge letter. The details are read from it — you only add the WhatsApp number and check the rest.
         </p>
       </div>
 
@@ -284,7 +284,7 @@ export default function NewEpisodePage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <FileText className="h-4 w-4 text-brand" aria-hidden="true" /> Discharge document
+              <FileText className="h-4 w-4 text-brand" aria-hidden="true" /> Discharge letter
             </CardTitle>
             <CardDescription>PDF only, up to 20MB. Scanned images can’t be read yet.</CardDescription>
           </CardHeader>
@@ -372,7 +372,7 @@ export default function NewEpisodePage() {
           {manual && (
             <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
               <PenLine className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-              <span>Entering details manually — you can attach the discharge document from the episode page afterwards.</span>
+              <span>Entering details by hand — you can attach the discharge letter from the patient page afterwards.</span>
               <button type="button" onClick={startOver} className="ml-auto text-xs font-medium text-brand hover:underline">Upload a document instead</button>
             </div>
           )}
@@ -497,7 +497,7 @@ export default function NewEpisodePage() {
             </p>
             <Button type="submit" disabled={saving} aria-busy={saving} className="h-11 sm:min-w-56">
               {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-              {saving ? 'Creating…' : manual ? 'Create patient & episode' : 'Create patient & review summary'}
+              {saving ? 'Creating…' : manual ? 'Add patient' : 'Create patient & review summary'}
             </Button>
           </div>
         </form>

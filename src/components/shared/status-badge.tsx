@@ -7,7 +7,7 @@ type AnyStatus = EpisodeStatus | SummaryStatus | AppointmentStatus
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   // Episode
   draft:          { label: 'Draft',           className: 'bg-muted text-muted-foreground border-border' },
-  pending_review: { label: 'Pending review',  className: 'bg-warning-soft text-warning border-warning/30' },
+  pending_review: { label: 'Needs review',    className: 'bg-warning-soft text-warning border-warning/30' },
   active:         { label: 'Active',          className: 'bg-info-soft text-info border-info/20' },
   completed:      { label: 'Completed',       className: 'bg-success-soft text-success border-success/20' },
   cancelled:      { label: 'Cancelled',       className: 'bg-muted text-muted-foreground/70 border-border line-through decoration-muted-foreground/40' },
@@ -18,7 +18,7 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   scheduled:            { label: 'Scheduled',          className: 'bg-info-soft text-info border-info/20' },
   confirmation_pending: { label: 'Awaiting confirmation', className: 'bg-warning-soft text-warning border-warning/30' },
   confirmed:            { label: 'Confirmed',          className: 'bg-success-soft text-success border-success/20' },
-  reschedule_pending:   { label: 'Reschedule pending', className: 'bg-warning-soft text-warning border-warning/30' },
+  reschedule_pending:   { label: 'Asked to reschedule', className: 'bg-warning-soft text-warning border-warning/30' },
   rescheduled:          { label: 'Rescheduled',        className: 'bg-teal-soft text-teal-foreground border-teal/30' },
   missed:               { label: 'Missed',             className: 'bg-danger-soft text-danger border-danger/20' },
 }

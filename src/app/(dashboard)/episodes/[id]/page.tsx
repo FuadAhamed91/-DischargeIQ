@@ -2,35 +2,36 @@ export const dynamic = 'force-dynamic'
 
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
+import { formatDistanceToNowStrict } from 'date-fns'
 import { createClient } from '@/lib/supabase/server'
 import { requireSession } from '@/lib/auth/session'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
+import { buttonVariants } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Progress } from '@/components/ui/progress'
-import { RiskBadge } from '@/components/shared/risk-badge'
 import { StatusBadge } from '@/components/shared/status-badge'
-import { LanguageBadge } from '@/components/shared/language-badge'
 import { EpisodeTimeline } from '@/components/patients/episode-timeline'
-import { MedicationAdherence } from '@/components/patients/medication-adherence'
 import { ConversationTranscript, type TranscriptMessage, type SharedNumberPatient } from '@/components/patients/conversation-transcript'
 import { summariseNumberSession } from '@/lib/whatsapp/number-session'
-import { ArrowLeft, Pencil, User, Calendar, Pill, AlertTriangle, ChevronRight, Mic, Bot, Activity, MessageCircle } from 'lucide-react'
+import { ArrowLeft, Pencil, Pill, AlertTriangle, ChevronRight, CalendarDays, FileText, MessageCircle, ClipboardList, History, Upload } from 'lucide-react'
 import { fmt } from '@/lib/format'
+import { cn } from '@/lib/utils'
 import { readConversationState } from '@/lib/whatsapp/fsm'
 import { LiveRefresh } from '@/components/shared/live-refresh'
 import { CarePlanDeliveryBanner, CarePlanResendButton } from '@/components/episodes/care-plan-delivery'
 import { RiskLevelControl } from '@/components/episodes/risk-level-control'
+import { PatientAlerts, type PatientAlert } from '@/components/episodes/patient-alerts'
 import { CARE_PLAN_KIND, summariseCarePlanMessage } from '@/lib/whatsapp/care-plan'
-import type { RiskLevel, EpisodeStatus, SummaryStatus, LanguageCode } from '@/types/enums'
+import { SUPPORTED_LANGUAGES } from '@/types/enums'
+import type { RiskLevel, EpisodeStatus, SummaryStatus, LanguageCode, AppointmentStatus } from '@/types/enums'
 import type { Medication, FollowUpRequirement } from '@/types/database'
 
 export async function generateMetadata() {
-  return { title: 'Episode Detail' }
+  return { title: 'Patient' }
 }
 
+const OPEN_EPISODE = ['draft', 'pending_review', 'active']
+
+/** A patient's page: who they are, what needs a nurse now, and three tabs — the conversation, the care plan, and everything that happened. */
 export default async function EpisodeDetailPage({
   params,
 }: {
@@ -39,53 +40,48 @@ export default async function EpisodeDetailPage({
   const { hospital, profile } = await requireSession()
   const tz = hospital.timezone
   const { id } = await params
-  const canMessage = ['super_admin', 'hospital_admin', 'discharge_coordinator', 'nurse', 'case_manager'].includes(profile.role)
+  const canAct = ['super_admin', 'hospital_admin', 'discharge_coordinator', 'nurse', 'case_manager'].includes(profile.role)
   const supabase = await createClient()
 
   // Everything keys off the route id, so the episode row and its satellite
-  // queries go out together: one round trip instead of three.
+  // queries go out together: one round trip instead of several.
   const [
     { data: episode },
     { data: timelineEvents },
-    { data: triageAssessments },
-    { data: aiInteractions },
     { data: reminderJobs },
-    { count: positiveResponses },
+    { count: answeredCount },
     { data: appointments },
     { data: conversation },
     { data: transcriptRows },
   ] = await Promise.all([
     supabase
-    .from('care_episodes')
-    .select(`
-      *,
-      patients(*),
-      profiles!care_episodes_assigned_nurse_id_fkey(id, full_name),
-      discharge_summaries(
-        id, status, approved_at, nurse_notes,
-        emergency_symptoms, lifestyle_instructions, restrictions, activities,
-        medications(*),
-        follow_up_requirements(*)
-      ),
-      discharge_documents(id, original_filename, extraction_status, created_at),
-      alerts(id, type, severity, status, created_at)
-    `)
-    .eq('id', id)
-    .single(),
+      .from('care_episodes')
+      .select(`
+        *,
+        patients(*),
+        profiles!care_episodes_assigned_nurse_id_fkey(id, full_name),
+        discharge_summaries(
+          id, status, approved_at, nurse_notes,
+          emergency_symptoms, lifestyle_instructions, restrictions, activities,
+          medications(*),
+          follow_up_requirements(*)
+        ),
+        discharge_documents(id, original_filename, created_at),
+        alerts(id, type, severity, status, created_at)
+      `)
+      .eq('id', id)
+      .single(),
     supabase.from('patient_timeline_events').select('id, event_type, payload, risk_level, created_at').eq('episode_id', id).order('created_at', { ascending: false }).limit(50),
-    supabase.from('triage_assessments').select('id, risk_level, inbound_text, matched_symptoms, reasoning, created_at').eq('episode_id', id).order('created_at', { ascending: false }).limit(20),
-    supabase.from('ai_interactions').select('id, input_text, output_text, confidence, escalated, model, created_at').eq('episode_id', id).order('created_at', { ascending: false }).limit(20),
-    supabase.from('reminder_jobs').select('status, schedule_id').eq('episode_id', id),
+    supabase.from('reminder_jobs').select('status').eq('episode_id', id),
     supabase.from('patient_timeline_events').select('*', { count: 'exact', head: true }).eq('episode_id', id).eq('event_type', 'reminder_response'),
-    supabase.from('appointments').select('id, specialty, scheduled_at, status, time_tbc').eq('episode_id', id).order('scheduled_at', { ascending: true }),
+    supabase.from('appointments').select('id, specialty, scheduled_at, status, time_tbc, location, follow_up_id').eq('episode_id', id).order('scheduled_at', { ascending: true }),
     supabase.from('whatsapp_conversations').select('id, conversation_state, last_message_at').eq('episode_id', id).maybeSingle(),
-    // Transcript (oldest first, capped; the component streams new ones in) —
-    // joined through the conversation so it needs no second trip.
+    // The newest 200 messages (a long conversation would otherwise show its oldest), put back in order below.
     supabase
       .from('whatsapp_messages')
       .select('id, direction, message_type, content, status, metadata, media_storage_path, created_at, whatsapp_conversations!inner(episode_id)')
       .eq('whatsapp_conversations.episode_id', id)
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
       .limit(200),
   ])
 
@@ -95,18 +91,18 @@ export default async function EpisodeDetailPage({
     const { whatsapp_conversations, ...m } = row
     void whatsapp_conversations
     return m as TranscriptMessage
-  })
+  }).reverse()
   const conversationState = readConversationState(conversation?.conversation_state)
   // Whether the care plan actually reached the patient (Twilio delivery receipts land on the message row).
   const lastCarePlanRow = [...transcript].reverse().find((m) => m.direction === 'outbound' && m.metadata?.kind === CARE_PLAN_KIND)
   const carePlanDelivery = lastCarePlanRow ? summariseCarePlanMessage(lastCarePlanRow) : null
 
-  const patient = episode.patients as { id: string; full_name: string; phone_e164: string; preferred_language: string; mrn: string; date_of_birth: string | null }
+  const patient = episode.patients as { id: string; full_name: string; phone_e164: string; preferred_language: string; mrn: string }
+  const firstName = patient.full_name.split(' ')[0]
 
-  // Shared WhatsApp number: other patients with an open episode on the same
-  // number, and what the number's routing session currently remembers. Both
-  // key off the patient's phone, so they wait for the episode row.
-  const [{ data: sharedRows }, { data: numberSessionRow }] = await Promise.all([
+  // Shared WhatsApp number (other patients on it, what the routing remembers),
+  // and whether this patient has care plans before this one.
+  const [{ data: sharedRows }, { data: numberSessionRow }, { count: earlierCarePlans }] = await Promise.all([
     supabase
       .from('care_episodes')
       .select('id, patients!inner(id, full_name, phone_e164)')
@@ -120,6 +116,7 @@ export default async function EpisodeDetailPage({
       .eq('hospital_id', hospital.id)
       .eq('wa_phone', patient.phone_e164)
       .maybeSingle(),
+    supabase.from('care_episodes').select('id', { count: 'exact', head: true }).eq('patient_id', patient.id).neq('id', id),
   ])
   const sharedWith: SharedNumberPatient[] = (sharedRows ?? []).map((row) => {
     const p = (Array.isArray(row.patients) ? row.patients[0] : row.patients) as { id: string; full_name: string }
@@ -127,350 +124,146 @@ export default async function EpisodeDetailPage({
   })
   const numberSession = summariseNumberSession(numberSessionRow as Parameters<typeof summariseNumberSession>[0])
   const nurse = episode.profiles as { id: string; full_name: string } | null
-  // discharge_summaries.episode_id is UNIQUE, so PostgREST embeds ONE object (not an array).
-  // Accept either shape so the Summary tab renders regardless of the relationship cardinality.
+  // discharge_summaries.episode_id is UNIQUE, so PostgREST embeds ONE object (not an array). Accept either shape.
   const rawSummary = episode.discharge_summaries as unknown
   const summary = (Array.isArray(rawSummary) ? rawSummary[0] : rawSummary) as {
     id: string; status: SummaryStatus; approved_at: string | null; nurse_notes: string | null;
     emergency_symptoms: string[]; lifestyle_instructions: string[]; restrictions: string[]; activities: string[];
     medications: Medication[]; follow_up_requirements: FollowUpRequirement[]
   } | null
-  const documents = (episode.discharge_documents ?? []) as { id: string; original_filename: string; extraction_status: string; created_at: string }[]
-  const openAlerts = ((episode.alerts ?? []) as { id: string; type: string; severity: string; status: string; created_at: string }[]).filter((a) => a.status === 'open')
+  const documents = (episode.discharge_documents ?? []) as { id: string; original_filename: string; created_at: string }[]
+  const openAlerts = ((episode.alerts ?? []) as (PatientAlert & { status: string })[]).filter((a) => a.status === 'open')
 
-  // Compliance score
-  const totalJobs = reminderJobs?.length ?? 0
-  const posRes = positiveResponses ?? 0
-  const reminderRate = totalJobs > 0 ? Math.round((posRes / totalJobs) * 100) : null
-  const redTriages = triageAssessments?.filter((t) => t.risk_level === 'red').length ?? 0
-  const totalTriages = triageAssessments?.length ?? 0
-  const riskScore = totalTriages > 0 ? Math.round(((totalTriages - redTriages) / totalTriages) * 100) : 80
-  const completedAppts = appointments?.filter((a) => a.status === 'confirmed' || a.status === 'completed').length ?? 0
-  const totalAppts = appointments?.length ?? 0
-  const apptRate = totalAppts > 0 ? Math.round((completedAppts / totalAppts) * 100) : 80
-  const complianceScore = episode.compliance_score != null
-    ? Number(episode.compliance_score)
-    : reminderRate != null
-      ? Math.round(reminderRate * 0.6 + riskScore * 0.3 + apptRate * 0.1)
-      : null
+  // At a glance
+  const checkinsSent = (reminderJobs ?? []).filter((j) => j.status === 'sent').length
+  const checkinsAnswered = Math.min(answeredCount ?? 0, checkinsSent)
+  // Server-rendered once per request: "now" is the request time.
+  const since = new Date().getTime() - 12 * 3600_000
+  const upcoming = (appointments ?? []).filter((a) => Date.parse(a.scheduled_at) >= since && !['cancelled', 'missed', 'completed'].includes(a.status))
+  const nextAppointment = upcoming[0] ?? null
+  const lastInbound = [...transcript].reverse().find((m) => m.direction === 'inbound') ?? null
+
+  const episodeOpen = OPEN_EPISODE.includes(episode.status)
+  const canMessage = canAct && ['pending_review', 'active'].includes(episode.status)
+  // One main button, when there is something to do before the patient hears from us.
+  const nextStep = !episodeOpen || !canAct ? null
+    : !summary ? { label: 'Upload discharge letter', icon: Upload }
+      : summary.status === 'draft' || summary.status === 'pending_review' ? { label: 'Review care plan', icon: Pencil }
+        : summary.status === 'approved' ? { label: 'Send care plan', icon: Pencil }
+          : null
+  const defaultTab = summary?.status === 'sent' ? 'conversation' : 'care-plan'
+
+  const sentOn = carePlanDelivery?.createdAt ?? null
+  const delivered = carePlanDelivery?.status === 'delivered' || carePlanDelivery?.status === 'read'
+  const planStatus = !summary ? null
+    : summary.status === 'sent'
+      ? `Sent to ${firstName}${sentOn ? ` on ${fmt(sentOn, 'd MMM yyyy', tz)}` : ''} · ${delivered ? (carePlanDelivery?.status === 'read' ? 'read' : 'delivered') : carePlanDelivery?.status === 'failed' ? 'not delivered' : 'waiting for WhatsApp to confirm delivery'}`
+      : summary.status === 'approved' ? 'Approved — not sent to the patient yet'
+        : 'Waiting for a nurse to review — nothing has been sent to the patient'
+  const bookedFollowUps = new Set((appointments ?? []).map((a) => a.follow_up_id).filter(Boolean))
+  const needsDate = (summary?.follow_up_requirements ?? []).filter((f) => !bookedFollowUps.has(f.id))
+  const instructions = summary
+    ? [
+        { title: 'Activity', items: summary.activities },
+        { title: 'Avoid', items: summary.restrictions },
+        { title: 'Lifestyle', items: summary.lifestyle_instructions },
+      ].filter((g) => g.items.length > 0)
+    : []
 
   return (
-    <div className="space-y-5 max-w-5xl">
-      {/* Patient-side events (confirmations, check-in answers, triage) re-render the KPIs and tabs live */}
+    <div className="max-w-5xl space-y-5">
+      {/* Patient-side events (confirmations, check-in answers, triage, alerts) re-render the page live */}
       <LiveRefresh episodeId={id} events={['appointment_confirmed', 'appointment_rescheduled', 'reminder_response', 'triage_completed', 'escalation_created', 'summary_sent', 'risk_changed']} />
       <Link href="/patients" className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="w-3.5 h-3.5 mr-1.5" /> All patients
+        <ArrowLeft className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" /> Patients
       </Link>
 
-      {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{patient.full_name}</h1>
-          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-            <Badge variant="outline" className="font-mono text-xs">{patient.mrn}</Badge>
-            <LanguageBadge language={patient.preferred_language as LanguageCode} />
-            <StatusBadge status={episode.status as EpisodeStatus} />
-            <RiskBadge level={episode.current_risk_level as RiskLevel} />
+      {/* Who */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-semibold tracking-tight">{patient.full_name}</h1>
+            {episode.status !== 'active' && <StatusBadge status={episode.status as EpisodeStatus} />}
           </div>
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+            <span>{SUPPORTED_LANGUAGES[patient.preferred_language as LanguageCode] ?? patient.preferred_language}</span>
+            <span aria-hidden="true">·</span>
+            <span className="tnum">{patient.phone_e164}</span>
+            <span aria-hidden="true">·</span>
+            <span>MRN <span className="font-mono">{patient.mrn}</span></span>
+            {episode.discharge_date && <><span aria-hidden="true">·</span><span>Discharged {fmt(episode.discharge_date, 'd MMM yyyy', tz)}</span></>}
+            <span aria-hidden="true">·</span>
+            <span>Nurse: {nurse?.full_name ?? 'unassigned'}</span>
+            {(earlierCarePlans ?? 0) > 0 && (
+              <>
+                <span aria-hidden="true">·</span>
+                <Link href={`/patients/${patient.id}`} className="underline underline-offset-2 hover:text-foreground">
+                  {earlierCarePlans} earlier care plan{earlierCarePlans === 1 ? '' : 's'}
+                </Link>
+              </>
+            )}
+          </p>
         </div>
-        {summary && summary.status !== 'sent' && (
-          <Link href={`/episodes/${id}/review`}>
-            <Button style={{ backgroundColor: 'var(--brand)' }} size="sm">
-              <Pencil className="w-3.5 h-3.5 mr-1.5" />
-              {summary.status === 'approved' ? 'View summary' : 'Review summary'}
-            </Button>
-          </Link>
-        )}
+        <div className="flex flex-wrap items-center gap-4">
+          <div>
+            <p className="text-xs text-muted-foreground">Risk</p>
+            <RiskLevelControl episodeId={id} level={episode.current_risk_level as RiskLevel} canChange={canMessage} />
+          </div>
+          {nextStep && (
+            <Link href={`/episodes/${id}/review`} className={cn(buttonVariants())}>
+              <nextStep.icon className="h-4 w-4" aria-hidden="true" /> {nextStep.label}
+            </Link>
+          )}
+        </div>
       </div>
 
-      {/* The care plan was accepted by WhatsApp but never reached the patient */}
+      {/* What needs a nurse now */}
       {carePlanDelivery?.status === 'failed' && (
         <CarePlanDeliveryBanner episodeId={id} delivery={carePlanDelivery} patientName={patient.full_name} timezone={tz} />
       )}
+      {openAlerts.length > 0 && <PatientAlerts alerts={openAlerts} timezone={tz} />}
 
-      {/* Open alerts banner */}
-      {openAlerts.length > 0 && (
-        <div className="flex items-center gap-3 p-4 bg-danger-soft border border-danger/30 rounded-lg">
-          <AlertTriangle className="w-5 h-5 text-danger shrink-0" />
-          <div className="flex-1">
-            <p className="text-sm font-medium text-danger">{openAlerts.length} open alert{openAlerts.length > 1 ? 's' : ''}</p>
-            <p className="text-xs text-danger">Review alerts immediately</p>
-          </div>
-          <Link href="/alerts"><Button size="sm" variant="destructive">View alerts</Button></Link>
+      {/* At a glance */}
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-3 rounded-lg border bg-card px-4 py-3 text-sm sm:grid-cols-3">
+        <div>
+          <dt className="text-xs text-muted-foreground">Nightly check-ins</dt>
+          <dd className="mt-0.5 font-medium">{checkinsSent === 0 ? 'None sent yet' : `${checkinsAnswered} of ${checkinsSent} answered`}</dd>
         </div>
-      )}
+        <div>
+          <dt className="text-xs text-muted-foreground">Next appointment</dt>
+          <dd className="mt-0.5 font-medium">
+            {nextAppointment
+              ? <>{nextAppointment.specialty} · {nextAppointment.time_tbc
+                  ? <>due by {fmt(nextAppointment.scheduled_at, 'd MMM', tz)} <span className="font-normal text-muted-foreground">(time to confirm)</span></>
+                  : fmt(nextAppointment.scheduled_at, 'EEE d MMM, HH:mm', tz)}</>
+              : <span className="font-normal text-muted-foreground">None booked</span>}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Last message from {firstName}</dt>
+          <dd className="mt-0.5 font-medium">
+            {lastInbound ? `${formatDistanceToNowStrict(new Date(lastInbound.created_at))} ago` : <span className="font-normal text-muted-foreground">No messages yet</span>}
+          </dd>
+        </div>
+      </dl>
 
-      {/* Top stats row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card className="py-0">
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Compliance</p>
-            <p className={`text-2xl font-bold mt-0.5 ${complianceScore === null ? 'text-muted-foreground' : complianceScore >= 80 ? 'text-success' : complianceScore >= 50 ? 'text-warning' : 'text-danger'}`}>
-              {complianceScore !== null ? `${complianceScore}%` : '—'}
-            </p>
-            {complianceScore !== null && <Progress value={complianceScore} className="h-1 mt-1.5" />}
-          </CardContent>
-        </Card>
-        <Card className="py-0">
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Risk level</p>
-            <RiskLevelControl
-              episodeId={id}
-              level={episode.current_risk_level as RiskLevel}
-              canChange={canMessage && ['pending_review', 'active'].includes(episode.status)}
-            />
-            <p className="text-xs text-muted-foreground mt-1">{totalTriages} triage assessments</p>
-          </CardContent>
-        </Card>
-        <Card className="py-0">
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Check-ins</p>
-            <p className={`text-2xl font-bold mt-0.5 ${reminderRate === null ? 'text-muted-foreground' : reminderRate >= 70 ? 'text-success' : 'text-warning'}`}>
-              {reminderRate !== null ? `${reminderRate}%` : '—'}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">{posRes}/{totalJobs} responded</p>
-          </CardContent>
-        </Card>
-        <Card className="py-0">
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Appointments</p>
-            <p className="text-2xl font-bold mt-0.5">{completedAppts}/{totalAppts}</p>
-            <p className="text-xs text-muted-foreground mt-1">confirmed</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Main tabs */}
-      <Tabs defaultValue="summary">
-        <TabsList className="flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto rounded-lg p-1 [&>button]:shrink-0 [&>button]:whitespace-nowrap [&>button]:px-3 [&>button]:py-1.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <TabsTrigger value="summary">Summary</TabsTrigger>
-          <TabsTrigger value="conversation">
-            Conversation
-            {(transcript?.length ?? 0) > 0 && <span className="ml-1.5 text-xs text-muted-foreground">{transcript!.length}</span>}
+      <Tabs defaultValue={defaultTab}>
+        <TabsList variant="line" className="w-full justify-start border-b pb-0">
+          <TabsTrigger value="conversation" className="flex-none px-3">
+            <MessageCircle aria-hidden="true" /> Conversation
+            {transcript.length > 0 && <span className="text-xs text-muted-foreground tnum">{transcript.length}</span>}
           </TabsTrigger>
-          <TabsTrigger value="timeline">Timeline</TabsTrigger>
-          <TabsTrigger value="triage">
-            Triage
-            {redTriages > 0 && <span className="ml-1.5 w-4 h-4 rounded-full bg-danger text-danger-foreground text-xs flex items-center justify-center">{redTriages}</span>}
-          </TabsTrigger>
-          <TabsTrigger value="chat">AI Chat</TabsTrigger>
+          <TabsTrigger value="care-plan" className="flex-none px-3"><ClipboardList aria-hidden="true" /> Care plan</TabsTrigger>
+          <TabsTrigger value="activity" className="flex-none px-3"><History aria-hidden="true" /> Activity</TabsTrigger>
         </TabsList>
 
-        {/* ── SUMMARY TAB ─────────────────────────────────────────── */}
-        <TabsContent value="summary" className="mt-4">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-            <div className="space-y-4">
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Episode Info</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3 text-sm">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-muted-foreground" />
-                    <div>
-                      <p className="text-muted-foreground text-xs">Discharge date</p>
-                      <p className="font-medium">{fmt(episode.discharge_date, 'dd MMM yyyy', tz)}</p>
-                    </div>
-                  </div>
-                  <Separator />
-                  <div className="flex items-center gap-2">
-                    <User className="w-4 h-4 text-muted-foreground" />
-                    <div>
-                      <p className="text-muted-foreground text-xs">Assigned nurse</p>
-                      <p className="font-medium">{nurse?.full_name ?? 'Unassigned'}</p>
-                    </div>
-                  </div>
-                  <Separator />
-                  <MedicationAdherence
-                    medications={summary?.medications ?? []}
-                    reminderJobs={reminderJobs ?? []}
-                    positiveResponses={posRes}
-                  />
-                </CardContent>
-              </Card>
-
-              {/* Documents */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Documents</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {documents.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">No documents uploaded yet</p>
-                  ) : (
-                    documents.map((doc) => (
-                      <div key={doc.id} className="flex items-center justify-between py-1">
-                        <div>
-                          <p className="text-sm font-medium truncate max-w-[160px]">{doc.original_filename}</p>
-                          <Badge variant="secondary" className="text-xs">{doc.extraction_status}</Badge>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                  {!summary && (
-                    <Link href={`/episodes/${id}/review`} className="block mt-2">
-                      <Button variant="outline" size="sm" className="w-full text-xs">Upload discharge PDF</Button>
-                    </Link>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
-            <div className="lg:col-span-2 space-y-4">
-              {!summary ? (
-                <Card>
-                  <CardContent className="py-16 text-center">
-                    <Pill className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-                    <p className="font-medium">No discharge summary yet</p>
-                    <p className="text-sm text-muted-foreground mb-4">Upload the discharge PDF to extract the summary</p>
-                    <Link href={`/episodes/${id}/review`}><Button style={{ backgroundColor: 'var(--brand)' }} size="sm">Upload PDF</Button></Link>
-                  </CardContent>
-                </Card>
-              ) : (
-                <>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <StatusBadge status={summary.status} />
-                      {summary.approved_at && <span className="text-xs text-muted-foreground">Approved {fmt(summary.approved_at, 'dd MMM yyyy', tz)}</span>}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {/* Sent, but WhatsApp never confirmed it reached the patient (old message, or no receipt yet) */}
-                      {summary.status === 'sent' && carePlanDelivery?.status !== 'delivered' && carePlanDelivery?.status !== 'read' && carePlanDelivery?.status !== 'failed' && (
-                        <CarePlanResendButton episodeId={id} />
-                      )}
-                      <Link href={`/episodes/${id}/review`}><Button variant="outline" size="sm"><Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit</Button></Link>
-                    </div>
-                  </div>
-
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-base flex items-center gap-2"><Pill className="w-4 h-4" /> Medications ({summary.medications.length})</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      {summary.medications.length === 0 ? <p className="text-sm text-muted-foreground">No medications</p> : (
-                        <div className="divide-y">
-                          {summary.medications.map((med) => (
-                            <div key={med.id} className="py-3 first:pt-0 last:pb-0">
-                              <div className="flex items-start justify-between">
-                                <div>
-                                  <p className="font-medium text-sm">{med.name}</p>
-                                  <p className="text-xs text-muted-foreground">{med.dosage} · {med.frequency}</p>
-                                  {med.instructions && <p className="text-xs text-muted-foreground mt-0.5">{med.instructions}</p>}
-                                </div>
-                                <div className="flex gap-1 flex-wrap justify-end">
-                                  {(med.reminder_times ?? []).map((t) => <Badge key={t} variant="secondary" className="text-xs tnum">{String(t).slice(0, 5)}</Badge>)}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  {summary.emergency_symptoms.length > 0 && (
-                    <Card className="border-danger/30 bg-danger-soft">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-base text-danger flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> Emergency Warning Signs</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <ul className="space-y-1.5">
-                          {summary.emergency_symptoms.map((s, i) => (
-                            <li key={i} className="flex items-start gap-2 text-sm text-danger">
-                              <span className="w-1.5 h-1.5 rounded-full bg-danger mt-1.5 shrink-0" />{s}
-                            </li>
-                          ))}
-                        </ul>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {summary.follow_up_requirements.length > 0 && (
-                    <Card>
-                      <CardHeader className="pb-3"><CardTitle className="text-base">Follow-up Appointments</CardTitle></CardHeader>
-                      <CardContent className="space-y-2">
-                        {summary.follow_up_requirements.map((fu) => (
-                          <div key={fu.id} className="flex items-start justify-between py-2 border-b last:border-0">
-                            <div>
-                              <p className="font-medium text-sm">{fu.specialty}</p>
-                              {fu.instructions && <p className="text-xs text-muted-foreground">{fu.instructions}</p>}
-                            </div>
-                            {fu.deadline && <Badge variant="outline" className="text-xs shrink-0">By {fmt(fu.deadline, 'dd MMM yyyy', tz)}</Badge>}
-                          </div>
-                        ))}
-                      </CardContent>
-                    </Card>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </TabsContent>
-
-        {/* ── TIMELINE TAB ─────────────────────────────────────────── */}
-        <TabsContent value="timeline" className="mt-4">
-          <Card>
-            <CardHeader className="pb-4">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Activity className="w-4 h-4" /> Patient Timeline
-                <span className="text-xs font-normal text-muted-foreground ml-auto">Live updates</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <EpisodeTimeline initialEvents={(timelineEvents ?? []) as unknown as Parameters<typeof EpisodeTimeline>[0]['initialEvents']} episodeId={id} timezone={tz} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ── TRIAGE TAB ─────────────────────────────────────────── */}
-        <TabsContent value="triage" className="mt-4">
-          <Card>
-            <CardHeader className="pb-4">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Mic className="w-4 h-4" /> Voice Triage History
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {(!triageAssessments || triageAssessments.length === 0) ? (
-                <p className="text-sm text-muted-foreground text-center py-6">No triage assessments yet.</p>
-              ) : (
-                <div className="space-y-4">
-                  {triageAssessments.map((t) => (
-                    <div key={t.id} className={`p-4 rounded-lg border border-l-4 ${t.risk_level === 'red' ? 'border-l-danger bg-danger-soft/40' : t.risk_level === 'yellow' ? 'border-l-warning bg-warning-soft/40' : 'border-l-success bg-success-soft/40'}`}>
-                      <div className="flex items-center justify-between mb-2">
-                        <Badge variant="outline" className={`text-[11px] font-semibold ${t.risk_level === 'red' ? 'bg-danger-soft text-danger border-danger/20' : t.risk_level === 'yellow' ? 'bg-warning-soft text-warning border-warning/30' : 'bg-success-soft text-success border-success/20'}`}>
-                          {t.risk_level === 'red' ? 'Red risk' : t.risk_level === 'yellow' ? 'Yellow risk' : 'Green'}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">{fmt(t.created_at, 'dd MMM yyyy HH:mm', tz)}</span>
-                      </div>
-                      {t.inbound_text && <p className="text-sm italic mb-2">&ldquo;{t.inbound_text.slice(0, 200)}&rdquo;</p>}
-                      {t.reasoning && <p className="text-xs text-muted-foreground">{t.reasoning}</p>}
-                      {Array.isArray(t.matched_symptoms) && t.matched_symptoms.length > 0 && (
-                        <div className="flex gap-1 flex-wrap mt-2">
-                          {(t.matched_symptoms as string[]).map((s, i) => <Badge key={i} variant="outline" className="text-xs">{s}</Badge>)}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ── AI CHAT TAB ─────────────────────────────────────────── */}
-        {/* ── CONVERSATION TAB ────────────────────────────────────── */}
+        {/* ── CONVERSATION ─────────────────────────────────────────── */}
         <TabsContent value="conversation" className="mt-4">
           <Card>
-            <CardHeader className="pb-4">
-              <CardTitle className="text-base flex items-center gap-2">
-                <MessageCircle className="w-4 h-4" /> WhatsApp Conversation
-              </CardTitle>
-            </CardHeader>
             <CardContent>
               <ConversationTranscript
                 episodeId={id}
-                initialMessages={(transcript ?? []) as TranscriptMessage[]}
+                initialMessages={transcript}
                 conversationId={conversation?.id ?? null}
                 patientId={patient.id}
                 patientName={patient.full_name}
@@ -479,80 +272,181 @@ export default async function EpisodeDetailPage({
                 conversationState={conversationState}
                 sharedWith={sharedWith}
                 numberSession={numberSession}
-                canSend={canMessage && ['pending_review', 'active'].includes(episode.status)}
+                canSend={canMessage}
                 currentUserId={profile.id}
               />
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="chat" className="mt-4">
-          <Card>
-            <CardHeader className="pb-4">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Bot className="w-4 h-4" /> AI Chat Log
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {(!aiInteractions || aiInteractions.length === 0) ? (
-                <p className="text-sm text-muted-foreground text-center py-6">No AI interactions yet.</p>
-              ) : (
+        {/* ── CARE PLAN ────────────────────────────────────────────── */}
+        <TabsContent value="care-plan" className="mt-4">
+          {!summary ? (
+            <Card>
+              <CardContent className="py-14 text-center">
+                <FileText className="mx-auto mb-3 h-9 w-9 text-muted-foreground" aria-hidden="true" />
+                <p className="font-medium">{episodeOpen ? 'No care plan yet' : 'No care plan was recorded'}</p>
+                <p className="mb-4 text-sm text-muted-foreground">
+                  {episodeOpen ? 'Upload the discharge letter and the care plan is filled in from it.' : 'This patient’s follow-up has ended.'}
+                </p>
+                {canAct && episodeOpen && (
+                  <Link href={`/episodes/${id}/review`} className={cn(buttonVariants({ size: 'sm' }))}>
+                    <Upload className="h-4 w-4" aria-hidden="true" /> Upload discharge letter
+                  </Link>
+                )}
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card px-4 py-3">
+                <div className="flex items-center gap-2 text-sm">
+                  <StatusBadge status={summary.status} />
+                  <span className="text-muted-foreground">{planStatus}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {/* Sent, but WhatsApp never confirmed it reached the patient (old message, or no receipt yet) */}
+                  {summary.status === 'sent' && !delivered && carePlanDelivery?.status !== 'failed' && <CarePlanResendButton episodeId={id} />}
+                  {canAct && (
+                    <Link href={`/episodes/${id}/review`} className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>
+                      <Pencil className="h-3.5 w-3.5" aria-hidden="true" /> {summary.status === 'sent' ? 'Edit' : 'Review'}
+                    </Link>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                <div className="space-y-4 lg:col-span-2">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-base"><Pill className="h-4 w-4" aria-hidden="true" /> Medicines <span className="text-sm font-normal text-muted-foreground">{summary.medications.length}</span></CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {summary.medications.length === 0 ? <p className="text-sm text-muted-foreground">No medicines</p> : (
+                        <ul className="divide-y">
+                          {summary.medications.map((med) => (
+                            <li key={med.id} className="py-2.5 first:pt-0 last:pb-0">
+                              <p className="text-sm font-medium">{med.name} <span className="font-normal text-muted-foreground">{med.dosage}</span></p>
+                              <p className="text-xs text-muted-foreground">{med.frequency}{med.instructions ? ` — ${med.instructions}` : ''}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {summary.emergency_symptoms.length > 0 && (
+                    <Card className="border-danger/30 bg-danger-soft">
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2 text-base text-danger"><AlertTriangle className="h-4 w-4" aria-hidden="true" /> Warning signs — go to emergency</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <ul className="space-y-1.5">
+                          {summary.emergency_symptoms.map((s, i) => (
+                            <li key={i} className="flex items-start gap-2 text-sm text-danger">
+                              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-danger" aria-hidden="true" />{s}
+                            </li>
+                          ))}
+                        </ul>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {instructions.length > 0 && (
+                    <Card>
+                      <CardHeader><CardTitle className="text-base">Instructions</CardTitle></CardHeader>
+                      <CardContent className="space-y-3">
+                        {instructions.map((g) => (
+                          <div key={g.title}>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{g.title}</p>
+                            <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm">
+                              {g.items.map((item, i) => <li key={i}>{item}</li>)}
+                            </ul>
+                          </div>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {summary.nurse_notes && (
+                    <Card>
+                      <CardHeader><CardTitle className="text-base">Nurse notes</CardTitle></CardHeader>
+                      <CardContent><p className="whitespace-pre-wrap text-sm">{summary.nurse_notes}</p></CardContent>
+                    </Card>
+                  )}
+                </div>
+
                 <div className="space-y-4">
-                  {aiInteractions.map((ai) => (
-                    <div key={ai.id} className="space-y-2 p-4 rounded-lg bg-muted/40 border">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs">{ai.model}</Badge>
-                        {ai.escalated && <Badge variant="destructive" className="text-xs">Escalated</Badge>}
-                        {ai.confidence != null && (
-                          <Badge variant="secondary" className="text-xs">{Math.round(Number(ai.confidence) * 100)}% confidence</Badge>
-                        )}
-                        <span className="text-xs text-muted-foreground ml-auto">{fmt(ai.created_at, 'dd MMM HH:mm', tz)}</span>
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-xs text-muted-foreground font-medium">Patient asked:</p>
-                        <p className="text-sm">{ai.input_text}</p>
-                      </div>
-                      {ai.output_text && (
-                        <div className="space-y-1 border-t pt-2">
-                          <p className="text-xs text-muted-foreground font-medium">AI responded:</p>
-                          <p className="text-sm text-brand">{ai.output_text}</p>
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between">
+                      <CardTitle className="flex items-center gap-2 text-base"><CalendarDays className="h-4 w-4" aria-hidden="true" /> Appointments</CardTitle>
+                      <Link href="/appointments" className="text-xs text-brand hover:underline">All</Link>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {(appointments ?? []).length === 0 && needsDate.length === 0 && <p className="text-sm text-muted-foreground">No follow-up appointments.</p>}
+                      {(appointments ?? []).length > 0 && (
+                        <ul className="-mx-2">
+                          {(appointments ?? []).map((appt) => (
+                            <li key={appt.id}>
+                              <Link href={`/episodes/${id}/appointments/${appt.id}`} className="flex items-center justify-between gap-2 rounded-md px-2 py-2 transition-colors hover:bg-muted/60">
+                                <span className="min-w-0">
+                                  <span className="block truncate text-sm font-medium">{appt.specialty}</span>
+                                  <span className="block text-xs text-muted-foreground">
+                                    {appt.time_tbc ? <>Due by {fmt(appt.scheduled_at, 'd MMM yyyy', tz)} · time to confirm</> : fmt(appt.scheduled_at, 'EEE d MMM, HH:mm', tz)}
+                                  </span>
+                                </span>
+                                <span className="flex shrink-0 items-center gap-1">
+                                  <StatusBadge status={appt.status as AppointmentStatus} />
+                                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+                                </span>
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {needsDate.length > 0 && (
+                        <div className="rounded-md border border-dashed px-3 py-2">
+                          <p className="text-xs font-medium text-warning">Needs a date</p>
+                          <ul className="mt-1 space-y-1">
+                            {needsDate.map((f) => (
+                              <li key={f.id} className="text-sm">{f.specialty}{f.instructions && <span className="block text-xs text-muted-foreground">{f.instructions}</span>}</li>
+                            ))}
+                          </ul>
+                          {canAct && <Link href={`/episodes/${id}/review`} className="mt-1 inline-block text-xs text-brand hover:underline">Add a date in the care plan</Link>}
                         </div>
                       )}
-                    </div>
-                  ))}
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader><CardTitle className="flex items-center gap-2 text-base"><FileText className="h-4 w-4" aria-hidden="true" /> Discharge letter</CardTitle></CardHeader>
+                    <CardContent>
+                      {documents.length === 0 ? <p className="text-sm text-muted-foreground">Entered by hand — no letter uploaded.</p> : (
+                        <ul className="space-y-1">
+                          {documents.map((doc) => (
+                            <li key={doc.id} className="text-sm">
+                              <span className="block truncate font-medium" title={doc.original_filename}>{doc.original_filename}</span>
+                              <span className="text-xs text-muted-foreground">Uploaded {fmt(doc.created_at, 'd MMM yyyy', tz)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </CardContent>
+                  </Card>
                 </div>
-              )}
+              </div>
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ── ACTIVITY ─────────────────────────────────────────────── */}
+        <TabsContent value="activity" className="mt-4">
+          <Card>
+            <CardContent>
+              <EpisodeTimeline initialEvents={(timelineEvents ?? []) as unknown as Parameters<typeof EpisodeTimeline>[0]['initialEvents']} episodeId={id} timezone={tz} />
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
-
-      {/* Appointments quick-view */}
-      {appointments && appointments.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3 flex flex-row items-center justify-between">
-            <CardTitle className="text-base flex items-center gap-2"><Calendar className="w-4 h-4" /> Appointments</CardTitle>
-            <Link href="/appointments" className="text-xs text-brand hover:underline flex items-center gap-0.5">
-              Manage <ChevronRight className="w-3 h-3" />
-            </Link>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {appointments.slice(0, 3).map((appt) => (
-                <Link key={appt.id} href={`/episodes/${id}/appointments/${appt.id}`} className="flex items-center justify-between py-1.5 border-b last:border-0 hover:bg-muted/40 rounded-sm">
-                  <div>
-                    <p className="text-sm font-medium">{appt.specialty}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {appt.time_tbc ? <>Due by {fmt(appt.scheduled_at, 'dd MMM yyyy', tz)} · time to confirm</> : fmt(appt.scheduled_at, 'dd MMM yyyy HH:mm', tz)}
-                    </p>
-                  </div>
-                  <StatusBadge status={appt.status as EpisodeStatus} />
-                </Link>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   )
 }

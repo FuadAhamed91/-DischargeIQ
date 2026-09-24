@@ -26,19 +26,19 @@ interface EventConfig {
 }
 
 const EVENT_CONFIG: Record<string, EventConfig> = {
-  discharge_uploaded:    { icon: Upload,        color: 'text-info',   bg: 'bg-info-soft',   label: 'Discharge PDF uploaded' },
-  extraction_completed:  { icon: FileText,      color: 'text-info',   bg: 'bg-info-soft',   label: 'AI extraction completed' },
-  summary_approved:      { icon: ClipboardCheck,color: 'text-brand',  bg: 'bg-brand-soft',  label: 'Summary approved' },
-  summary_sent:          { icon: Send,          color: 'text-teal',  bg: 'bg-teal-soft',    label: 'Summary sent to patient' },
+  discharge_uploaded:    { icon: Upload,        color: 'text-info',   bg: 'bg-info-soft',   label: 'Discharge letter uploaded' },
+  extraction_completed:  { icon: FileText,      color: 'text-info',   bg: 'bg-info-soft',   label: 'Discharge letter read' },
+  summary_approved:      { icon: ClipboardCheck,color: 'text-brand',  bg: 'bg-brand-soft',  label: 'Care plan approved' },
+  summary_sent:          { icon: Send,          color: 'text-teal',  bg: 'bg-teal-soft',    label: 'Care plan sent to patient' },
   whatsapp_inbound:      { icon: MessageCircle, color: 'text-muted-foreground',   bg: 'bg-muted',   label: 'Patient message received' },
   whatsapp_outbound:     { icon: Send,          color: 'text-muted-foreground',   bg: 'bg-muted',   label: 'Message sent to patient' },
-  reminder_sent:         { icon: Bell,          color: 'text-warning',  bg: 'bg-warning-soft',   label: 'Reminder sent' },
-  reminder_response:     { icon: CheckCircle,   color: 'text-success',  bg: 'bg-success-soft',   label: 'Patient responded to reminder' },
+  reminder_sent:         { icon: Bell,          color: 'text-warning',  bg: 'bg-warning-soft',   label: 'Check-in sent' },
+  reminder_response:     { icon: CheckCircle,   color: 'text-success',  bg: 'bg-success-soft',   label: 'Check-in answered' },
   appointment_confirmed: { icon: Calendar,      color: 'text-success',  bg: 'bg-success-soft',   label: 'Appointment confirmed' },
   appointment_rescheduled:{ icon: Calendar,     color: 'text-warning',  bg: 'bg-warning-soft',   label: 'Appointment rescheduled' },
-  triage_completed:      { icon: Stethoscope,   color: 'text-brand', bg: 'bg-brand-soft',  label: 'Triage completed' },
-  ai_response:           { icon: Bot,           color: 'text-brand',  bg: 'bg-brand-soft',  label: 'AI answered patient question' },
-  escalation_created:    { icon: AlertTriangle, color: 'text-danger',    bg: 'bg-danger-soft',     label: 'Escalation created' },
+  triage_completed:      { icon: Stethoscope,   color: 'text-brand', bg: 'bg-brand-soft',  label: 'Symptom check' },
+  ai_response:           { icon: Bot,           color: 'text-brand',  bg: 'bg-brand-soft',  label: 'Assistant answered a question' },
+  escalation_created:    { icon: AlertTriangle, color: 'text-danger',    bg: 'bg-danger-soft',     label: 'Nurse needed' },
   alert_acknowledged:    { icon: CheckCircle,   color: 'text-success',  bg: 'bg-success-soft',   label: 'Alert acknowledged' },
   risk_changed:          { icon: Activity,      color: 'text-brand',    bg: 'bg-brand-soft',     label: 'Risk level changed by a nurse' },
 }
@@ -48,14 +48,14 @@ const EVENT_CONFIG: Record<string, EventConfig> = {
 // (migration 00003) for EVERY alert, triage or not ({ alert_id, alert_type, severity }).
 const TRIAGE_CONFIG: Record<'alert' | 'voice' | 'symptom_report', EventConfig> = {
   alert:          { icon: BellRing,    color: 'text-danger', bg: 'bg-danger-soft', label: 'Alert raised' },
-  voice:          { icon: Mic,         color: 'text-brand',  bg: 'bg-brand-soft',  label: 'Voice note triaged' },
-  symptom_report: { icon: Stethoscope, color: 'text-brand',  bg: 'bg-brand-soft',  label: 'Symptom report triaged' },
+  voice:          { icon: Mic,         color: 'text-brand',  bg: 'bg-brand-soft',  label: 'Symptom check — voice note' },
+  symptom_report: { icon: Stethoscope, color: 'text-brand',  bg: 'bg-brand-soft',  label: 'Symptom check — message' },
 }
 
 const ALERT_TYPES: Record<string, string> = {
-  risk_red: 'Red risk',
-  risk_yellow: 'Yellow risk',
-  escalation: 'Escalation',
+  risk_red: 'Urgent symptom',
+  risk_yellow: 'Symptom to check',
+  escalation: 'Needs a nurse',
   missed_medication: 'Missed medicines',
   delivery_failed: 'Message not delivered',
   unconfirmed_appointment: 'Appointment not confirmed',
@@ -212,7 +212,7 @@ export function EpisodeTimeline({ initialEvents, episodeId, timezone = DEFAULT_T
               </div>
               {summary && <p className="text-xs text-muted-foreground mt-0.5">{summary}</p>}
               <p className="text-xs text-muted-foreground/60 mt-0.5">
-                {new Date(event.created_at).toLocaleString('en-GB')}
+                {fmt(event.created_at, 'd MMM yyyy, HH:mm', timezone)}
               </p>
             </div>
           </div>

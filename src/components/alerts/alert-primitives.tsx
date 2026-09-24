@@ -26,12 +26,12 @@ export const SEVERITY: Record<Severity, {
 }
 
 export const ALERT_TYPE_LABELS: Record<string, string> = {
-  risk_red: 'Red risk — triage',
-  risk_yellow: 'Yellow risk — triage',
-  escalation: 'Escalated to nurse',
+  risk_red: 'Urgent symptom reported',
+  risk_yellow: 'Symptom to check',
+  escalation: 'Needs a nurse',
   missed_appointment: 'Missed appointment',
   unconfirmed_appointment: 'Appointment not confirmed',
-  missed_medication: 'Missed medication',
+  missed_medication: 'Missed medicines',
   delivery_failed: 'WhatsApp message not delivered',
 }
 

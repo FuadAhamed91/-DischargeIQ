@@ -2,57 +2,68 @@
 
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard, Users, FileText, Calendar, Bell, BarChart3, Settings, HeartPulse,
+  LayoutDashboard, Users, Calendar, Bell, BarChart3, Settings, HeartPulse,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { siteConfig } from '@/config/site'
 import { NavLink } from './nav-link'
 import type { UserRole } from '@/types/enums'
 
-interface NavItem {
+export interface NavItem {
   label: string
   href: string
   icon: React.ElementType
+  /** Other paths that belong to this section — a patient's page lives under /episodes. */
+  alsoActiveOn?: string[]
   roles?: UserRole[]
 }
 
-interface NavGroup {
-  label: string
-  items: NavItem[]
-}
-
-export const NAV_GROUPS: NavGroup[] = [
-  {
-    label: 'Care',
-    items: [
-      { label: 'Overview', href: '/', icon: LayoutDashboard },
-      { label: 'Patients', href: '/patients', icon: Users },
-      { label: 'Episodes', href: '/episodes', icon: FileText },
-      { label: 'Appointments', href: '/appointments', icon: Calendar },
-    ],
-  },
-  {
-    label: 'Monitoring',
-    items: [
-      { label: 'Alerts', href: '/alerts', icon: Bell },
-      { label: 'Analytics', href: '/analytics', icon: BarChart3 },
-    ],
-  },
-  {
-    label: 'Administration',
-    items: [
-      { label: 'Settings', href: '/settings', icon: Settings },
-    ],
-  },
+/** The everyday screens, in the order a nurse reaches for them. Settings sits apart, at the bottom. */
+export const NAV_ITEMS: NavItem[] = [
+  { label: 'Overview', href: '/', icon: LayoutDashboard },
+  { label: 'Patients', href: '/patients', icon: Users, alsoActiveOn: ['/episodes'] },
+  { label: 'Alerts', href: '/alerts', icon: Bell },
+  { label: 'Appointments', href: '/appointments', icon: Calendar },
+  { label: 'Analytics', href: '/analytics', icon: BarChart3 },
 ]
 
-export function isNavActive(pathname: string, href: string) {
-  return href === '/' ? pathname === '/' : pathname.startsWith(href)
+export const SETTINGS_ITEM: NavItem = { label: 'Settings', href: '/settings', icon: Settings }
+
+export function isNavActive(pathname: string, item: NavItem) {
+  if (item.href === '/') return pathname === '/'
+  return [item.href, ...(item.alsoActiveOn ?? [])].some((p) => pathname === p || pathname.startsWith(`${p}/`))
+}
+
+export function visibleNavItems(role: UserRole): NavItem[] {
+  return NAV_ITEMS.filter((i) => !i.roles || i.roles.includes(role))
 }
 
 interface SidebarProps {
   role: UserRole
   hospitalName: string
+}
+
+function SidebarLink({ item, pathname }: { item: NavItem; pathname: string }) {
+  const active = isNavActive(pathname, item)
+  const Icon = item.icon
+  return (
+    <NavLink
+      href={item.href}
+      aria-current={active ? 'page' : undefined}
+      title={item.label}
+      className={cn(
+        'relative flex h-10 items-center justify-center gap-3 rounded-md text-sm font-medium transition-colors duration-150 lg:justify-start lg:px-3',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring',
+        active
+          ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+          : 'text-sidebar-foreground hover:bg-muted hover:text-foreground',
+      )}
+    >
+      {active && <span aria-hidden="true" className="absolute bottom-1.5 left-0 top-1.5 w-0.5 rounded-full bg-sidebar-primary" />}
+      <Icon className={cn('h-4 w-4 shrink-0', active ? 'text-sidebar-primary' : 'text-muted-foreground')} aria-hidden="true" />
+      <span className="sr-only lg:not-sr-only">{item.label}</span>
+    </NavLink>
+  )
 }
 
 /**
@@ -79,48 +90,16 @@ export function Sidebar({ role, hospitalName }: SidebarProps) {
         </div>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-2 py-3 lg:space-y-5 lg:px-3 lg:py-4">
-        {NAV_GROUPS.map((group) => {
-          const items = group.items.filter((i) => !i.roles || i.roles.includes(role))
-          if (items.length === 0) return null
-          return (
-            <div key={group.label} className="not-first:mt-3 not-first:border-t not-first:border-sidebar-border not-first:pt-3 lg:not-first:mt-0 lg:not-first:border-0 lg:not-first:pt-0">
-              <p className="mb-1.5 hidden px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80 lg:block">{group.label}</p>
-              <ul className="space-y-0.5">
-                {items.map((item) => {
-                  const active = isNavActive(pathname, item.href)
-                  const Icon = item.icon
-                  return (
-                    <li key={item.href}>
-                      <NavLink
-                        href={item.href}
-                        aria-current={active ? 'page' : undefined}
-                        title={item.label}
-                        className={cn(
-                          'relative flex h-10 items-center justify-center gap-3 rounded-md text-sm font-medium transition-colors duration-150 lg:h-9 lg:justify-start lg:px-3',
-                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring',
-                          active
-                            ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                            : 'text-sidebar-foreground hover:bg-muted hover:text-foreground',
-                        )}
-                      >
-                        {active && <span aria-hidden="true" className="absolute bottom-1.5 left-0 top-1.5 w-0.5 rounded-full bg-sidebar-primary" />}
-                        <Icon className={cn('h-4 w-4 shrink-0', active ? 'text-sidebar-primary' : 'text-muted-foreground')} aria-hidden="true" />
-                        <span className="sr-only lg:not-sr-only">{item.label}</span>
-                      </NavLink>
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-          )
-        })}
+      <nav className="flex flex-1 flex-col overflow-y-auto px-2 py-3 lg:px-3 lg:py-4">
+        <ul className="space-y-1">
+          {visibleNavItems(role).map((item) => (
+            <li key={item.href}><SidebarLink item={item} pathname={pathname} /></li>
+          ))}
+        </ul>
+        <ul className="mt-auto border-t border-sidebar-border pt-3">
+          <li><SidebarLink item={SETTINGS_ITEM} pathname={pathname} /></li>
+        </ul>
       </nav>
-
-      <div className="hidden border-t border-sidebar-border px-4 py-3 lg:block">
-        <p className="text-[11px] text-muted-foreground">{siteConfig.name} · v0.1</p>
-      </div>
     </aside>
   )
 }

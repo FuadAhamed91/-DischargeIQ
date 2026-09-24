@@ -297,12 +297,17 @@ come from clinic days, not a live clinic calendar, and there is no hospital PAS 
 
 | Route | Purpose |
 |---|---|
-| `/` | Overview: KPIs, recent alerts, live alert banner |
-| `/patients`, `/patients/[id]` | Patient list and profile |
-| `/episodes/new`, `/episodes/[id]`, `/episodes/[id]/review` | Document-first intake (drop PDF → pre-filled form), episode detail (Summary · Conversation with "Show English" · Timeline · Triage · AI Chat), review/approve |
+| `/` | Overview: four headline numbers, **Needs attention** (open alerts, most urgent first, live), today's check-ins and appointments |
+| `/patients` | One row per care plan (episode), red first; filters Active · Needs review · Draft · Completed · All; search; open-alert count per row. `/episodes` redirects here |
+| `/episodes/[id]` | The patient page: header with risk (and **Change**), this patient's open alerts with Acknowledge / Resolve, an at-a-glance line, and three tabs — **Conversation** (with Show English / Translate), **Care plan**, **Activity** |
+| `/episodes/new`, `/episodes/[id]/review` | **Add patient** (drop the discharge letter → pre-filled form) and review / approve / send the care plan |
+| `/patients/[id]` | A patient's history — earlier care plans (linked from the patient page when there are any) |
 | `/appointments` | Appointment status across the hospital |
 | `/alerts` | Open / acknowledged / resolved alerts, realtime |
-| `/analytics` | Compliance trend, risk distribution, alert activity, appointment funnel |
+| `/analytics` | Patients, check-ins answered, appointments confirmed, open alerts — counted, nothing estimated — and four charts |
+
+Screens use the words a nurse uses: care plan (not episode), symptom check (not triage), nightly
+check-in (not reminder), *Needs review*, *Needs a nurse*.
 | `/settings` | Hospital settings |
 
 Realtime (`postgres_changes`) is enabled for `alerts`, `patient_timeline_events`, `whatsapp_messages` and `whatsapp_number_sessions`.

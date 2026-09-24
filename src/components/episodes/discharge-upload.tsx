@@ -66,7 +66,7 @@ export function DischargeUpload({ episodeId, onUploadComplete }: DischargeUpload
       const extractData = await extractRes.json()
 
       if (!extractRes.ok) {
-        throw new Error(extractData.error ?? 'Extraction failed')
+        throw new Error(extractData.error ?? 'Could not read the letter')
       }
 
       setState('done')
@@ -92,7 +92,7 @@ export function DischargeUpload({ episodeId, onUploadComplete }: DischargeUpload
     idle: '',
     uploading: 'Uploading PDF…',
     extracting: 'AI is extracting clinical data…',
-    done: 'Extraction complete',
+    done: 'Letter read',
     error: 'Something went wrong',
   }
 
@@ -126,7 +126,7 @@ export function DischargeUpload({ episodeId, onUploadComplete }: DischargeUpload
         {state === 'done' ? (
           <div className="flex flex-col items-center gap-2">
             <CheckCircle className="w-10 h-10 text-success" />
-            <p className="font-medium text-success">Extraction complete</p>
+            <p className="font-medium text-success">Letter read</p>
             <p className="text-sm text-muted-foreground">Review the extracted summary below</p>
           </div>
         ) : (state === 'uploading' || state === 'extracting') ? (

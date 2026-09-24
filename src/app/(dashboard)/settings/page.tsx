@@ -166,7 +166,7 @@ export default async function SettingsPage() {
                 <p className="flex items-center gap-1.5 text-muted-foreground">
                   <Users className="w-3.5 h-3.5" aria-hidden="true" />
                   {sharedNumbers.length === 0
-                    ? 'No number is shared by more than one open episode.'
+                    ? 'No number is shared by more than one patient.'
                     : `${sharedNumbers.length} ${sharedNumbers.length === 1 ? 'number is' : 'numbers are'} shared by more than one open episode — messages from them are routed by context, and the sender is asked when it is unclear.`}
                 </p>
                 {sharedNumbers.length > 0 && (

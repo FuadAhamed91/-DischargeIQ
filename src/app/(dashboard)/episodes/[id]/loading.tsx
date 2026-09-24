@@ -4,7 +4,7 @@ import { StatCardSkeleton } from '@/components/shared/skeletons'
 
 export default function EpisodeLoading() {
   return (
-    <div className="space-y-5 max-w-5xl" aria-busy="true" aria-label="Loading episode">
+    <div className="space-y-5 max-w-5xl" aria-busy="true" aria-label="Loading patient">
       <Skeleton className="h-4 w-24" />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-2">

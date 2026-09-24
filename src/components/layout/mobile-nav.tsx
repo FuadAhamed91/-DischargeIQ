@@ -6,7 +6,8 @@ import { usePathname } from 'next/navigation'
 import { X, Menu, HeartPulse } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { siteConfig } from '@/config/site'
-import { NAV_GROUPS, isNavActive } from './sidebar'
+import { SETTINGS_ITEM, isNavActive, visibleNavItems } from './sidebar'
+import type { NavItem } from './sidebar'
 import type { UserRole } from '@/types/enums'
 
 export function MobileNav({ role, hospitalName }: { role: UserRole; hospitalName?: string }) {
@@ -22,6 +23,29 @@ export function MobileNav({ role, hospitalName }: { role: UserRole; hospitalName
     document.body.style.overflow = 'hidden'
     return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev }
   }, [open])
+
+  const drawerLink = (item: NavItem) => {
+    const active = isNavActive(pathname, item)
+    const Icon = item.icon
+    return (
+      <Link
+        href={item.href}
+        onClick={() => setOpen(false)}
+        aria-current={active ? 'page' : undefined}
+        tabIndex={open ? 0 : -1}
+        className={cn(
+          'relative flex items-center gap-3 rounded-md px-3 py-3 text-sm font-medium transition-colors duration-200',
+          active
+            ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+            : 'text-sidebar-foreground hover:bg-muted hover:text-foreground',
+        )}
+      >
+        {active && <span aria-hidden="true" className="absolute bottom-2 left-0 top-2 w-0.5 rounded-full bg-sidebar-primary" />}
+        <Icon className={cn('h-4 w-4 shrink-0', active ? 'text-sidebar-primary' : 'text-muted-foreground')} aria-hidden="true" />
+        {item.label}
+      </Link>
+    )
+  }
 
   return (
     <>
@@ -75,42 +99,15 @@ export function MobileNav({ role, hospitalName }: { role: UserRole; hospitalName
           </button>
         </div>
 
-        <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
-          {NAV_GROUPS.map((group) => {
-            const items = group.items.filter((i) => !i.roles || i.roles.includes(role))
-            if (items.length === 0) return null
-            return (
-              <div key={group.label}>
-                <p className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80">{group.label}</p>
-                <ul className="space-y-0.5">
-                  {items.map((item) => {
-                    const active = isNavActive(pathname, item.href)
-                    const Icon = item.icon
-                    return (
-                      <li key={item.href}>
-                        <Link
-                          href={item.href}
-                          onClick={() => setOpen(false)}
-                          aria-current={active ? 'page' : undefined}
-                          tabIndex={open ? 0 : -1}
-                          className={cn(
-                            'relative flex items-center gap-3 rounded-md px-3 py-3 text-sm font-medium transition-colors duration-200',
-                            active
-                              ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                              : 'text-sidebar-foreground hover:bg-muted hover:text-foreground',
-                          )}
-                        >
-                          {active && <span aria-hidden="true" className="absolute bottom-2 left-0 top-2 w-0.5 rounded-full bg-sidebar-primary" />}
-                          <Icon className={cn('h-4 w-4 shrink-0', active ? 'text-sidebar-primary' : 'text-muted-foreground')} aria-hidden="true" />
-                          {item.label}
-                        </Link>
-                      </li>
-                    )
-                  })}
-                </ul>
-              </div>
-            )
-          })}
+        <nav className="flex flex-1 flex-col overflow-y-auto px-3 py-4">
+          <ul className="space-y-0.5">
+            {visibleNavItems(role).map((item) => (
+              <li key={item.href}>{drawerLink(item)}</li>
+            ))}
+          </ul>
+          <ul className="mt-auto border-t border-sidebar-border pt-3">
+            <li>{drawerLink(SETTINGS_ITEM)}</li>
+          </ul>
         </nav>
       </aside>
     </>

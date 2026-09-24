@@ -15,7 +15,7 @@ import { fmt } from '@/lib/format'
 import type { RiskLevel, EpisodeStatus, LanguageCode } from '@/types/enums'
 
 export async function generateMetadata() {
-  return { title: 'Patient Profile' }
+  return { title: 'Patient history' }
 }
 
 export default async function PatientDetailPage({
@@ -67,7 +67,7 @@ export default async function PatientDetailPage({
     <div className="space-y-5 max-w-4xl">
       {/* Back */}
       <Link href="/patients" className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="w-3.5 h-3.5 mr-1.5" /> All patients
+        <ArrowLeft className="w-3.5 h-3.5 mr-1.5" /> Patients
       </Link>
 
       {/* Header */}
@@ -98,9 +98,9 @@ export default async function PatientDetailPage({
           </div>
         </div>
         <Link href="/episodes/new">
-          <Button style={{ backgroundColor: 'var(--brand)' }} size="sm">
+          <Button size="sm">
             <Plus className="w-3.5 h-3.5 mr-1.5" />
-            New episode
+            New care plan
           </Button>
         </Link>
       </div>
@@ -129,7 +129,7 @@ export default async function PatientDetailPage({
               <p className="font-medium">{fmt(patient.created_at, 'dd MMM yyyy', tz)}</p>
             </div>
             <div>
-              <span className="text-muted-foreground">Total episodes</span>
+              <span className="text-muted-foreground">Care plans</span>
               <p className="font-medium">{episodes.length}</p>
             </div>
           </CardContent>
@@ -138,14 +138,14 @@ export default async function PatientDetailPage({
         {/* Episodes */}
         <div className="md:col-span-2 space-y-3">
           <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-            Care Episodes
+            Care plans
           </h2>
 
           {episodes.length === 0 ? (
             <Card>
               <CardContent className="py-10 text-center">
                 <FileText className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
-                <p className="text-sm text-muted-foreground">No episodes yet</p>
+                <p className="text-sm text-muted-foreground">No care plans yet</p>
               </CardContent>
             </Card>
           ) : (
@@ -164,14 +164,7 @@ export default async function PatientDetailPage({
                           Discharged {fmt(ep.discharge_date, 'dd MMM yyyy', tz)}
                         </div>
                       </div>
-                      <div className="text-right">
-                        {ep.compliance_score !== null && (
-                          <div>
-                            <p className="text-lg font-bold">{ep.compliance_score.toFixed(0)}%</p>
-                            <p className="text-xs text-muted-foreground">compliance</p>
-                          </div>
-                        )}
-                      </div>
+
                     </div>
                   </CardContent>
                 </Card>

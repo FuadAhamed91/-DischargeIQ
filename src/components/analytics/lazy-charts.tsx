@@ -21,7 +21,7 @@ function ChartSkeleton({ height = 260, label }: { height?: number; label: string
 
 export const ComplianceChart = dynamic(
   () => import('./compliance-chart').then((m) => m.ComplianceChart),
-  { ssr: false, loading: () => <ChartSkeleton height={220} label="Compliance trend chart" /> },
+  { ssr: false, loading: () => <ChartSkeleton height={220} label="Check-in trend chart" /> },
 )
 
 export const RiskDonut = dynamic(

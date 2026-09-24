@@ -34,7 +34,7 @@ export default async function AlertsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Alerts</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Real-time patient alerts — triage results, unconfirmed appointments, and escalations
+          Patients who need a nurse — reported symptoms, missed medicines, unconfirmed appointments and messages that did not arrive
         </p>
       </div>
 
@@ -42,7 +42,7 @@ export default async function AlertsPage() {
         <EmptyState
           icon={Bell}
           title="No alerts"
-          description="Patient alerts will appear here when triage results, missed appointments, or escalations occur."
+          description="Alerts appear here the moment a patient needs a nurse."
         />
       ) : (
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

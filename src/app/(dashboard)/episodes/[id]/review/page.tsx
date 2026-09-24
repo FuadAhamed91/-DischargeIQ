@@ -12,7 +12,7 @@ import { DischargeUpload } from '@/components/episodes/discharge-upload'
 import type { SummaryStatus } from '@/types/enums'
 
 export async function generateMetadata() {
-  return { title: 'Review Discharge Summary' }
+  return { title: 'Review care plan' }
 }
 
 export default async function ReviewPage({
@@ -60,12 +60,12 @@ export default async function ReviewPage({
   return (
     <div className="max-w-4xl space-y-5">
       <Link href={`/episodes/${id}`} className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="w-3.5 h-3.5 mr-1.5" /> Back to episode
+        <ArrowLeft className="w-3.5 h-3.5 mr-1.5" /> Back to {patient.full_name}
       </Link>
 
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Review Discharge Summary</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Review care plan</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {patient.full_name} · MRN {patient.mrn}
           </p>
@@ -73,7 +73,7 @@ export default async function ReviewPage({
         {summary && (
           <div className="flex items-center gap-2">
             <StatusBadge status={summary.status} />
-            <span className="text-xs text-muted-foreground">v{summary.version}</span>
+            {summary.version > 1 && <span className="text-xs text-muted-foreground">Version {summary.version}</span>}
           </div>
         )}
       </div>
@@ -83,10 +83,10 @@ export default async function ReviewPage({
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <FileText className="w-4 h-4" /> Upload Discharge PDF
+              <FileText className="w-4 h-4" /> Upload the discharge letter
             </CardTitle>
             <CardDescription>
-              Upload the patient’s discharge document. AI will extract medications, instructions, and emergency symptoms automatically.
+              Drop the PDF and the medicines, instructions, appointments and warning signs are filled in for you to check.
             </CardDescription>
           </CardHeader>
           <CardContent>

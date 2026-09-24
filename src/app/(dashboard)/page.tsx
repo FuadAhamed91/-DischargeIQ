@@ -5,7 +5,7 @@ import { requireSession } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
 import { fmt } from '@/lib/format'
 import { fromZonedTime } from 'date-fns-tz'
-import { Users, Bell, CalendarCheck, TrendingUp, Send, CalendarDays, ArrowRight } from 'lucide-react'
+import { Users, Bell, CalendarCheck, MessageSquareReply, Moon, CalendarDays, ArrowRight, Plus } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { RealtimeAlertsBanner } from '@/components/alerts/realtime-alerts-banner'
@@ -15,6 +15,9 @@ import type { AppointmentStatus } from '@/types/enums'
 
 export const metadata = { title: 'Overview' }
 
+const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
+
+/** The first screen of the day: who needs a nurse now, then what is happening today. */
 export default async function OverviewPage() {
   const { profile, hospital } = await requireSession()
   const supabase = await createClient()
@@ -27,16 +30,17 @@ export default async function OverviewPage() {
   const dayStart = fromZonedTime(`${todayLocal}T00:00:00`, tz)
   const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000)
   const weekAhead = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-  const weekAgo = fmt(new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd', tz)
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
 
   // Everything the page needs, in one round-trip batch
   const [
     { count: activePatients },
     { count: openAlerts },
     { count: criticalAlerts },
-    { count: pendingAppointments },
-    { data: recentAlerts },
-    { data: snapshots },
+    { count: toConfirm },
+    { data: openAlertRows },
+    { count: checkinsSent },
+    { count: checkinsAnswered },
     { data: todaysJobs },
     { data: upcoming },
   ] = await Promise.all([
@@ -46,10 +50,9 @@ export default async function OverviewPage() {
     supabase.from('appointments').select('*', { count: 'exact', head: true }).eq('hospital_id', hid).eq('status', 'confirmation_pending'),
     supabase.from('alerts')
       .select('id, type, severity, status, created_at, episode_id, care_episodes(id, patients(full_name, mrn))')
-      .eq('hospital_id', hid).order('created_at', { ascending: false }).limit(5),
-    supabase.from('compliance_snapshots')
-      .select('reminder_response_rate, medication_adherence')
-      .eq('hospital_id', hid).gte('snapshot_date', weekAgo),
+      .eq('hospital_id', hid).eq('status', 'open').order('created_at', { ascending: false }).limit(20),
+    supabase.from('reminder_jobs').select('*', { count: 'exact', head: true }).eq('hospital_id', hid).eq('status', 'sent').gte('fire_at', weekAgo),
+    supabase.from('patient_timeline_events').select('*', { count: 'exact', head: true }).eq('hospital_id', hid).eq('event_type', 'reminder_response').gte('created_at', weekAgo),
     supabase.from('reminder_jobs')
       .select('status')
       .eq('hospital_id', hid).gte('fire_at', dayStart.toISOString()).lt('fire_at', dayEnd.toISOString()),
@@ -59,12 +62,17 @@ export default async function OverviewPage() {
       .not('status', 'in', '(cancelled,missed)').order('scheduled_at', { ascending: true }).limit(5),
   ])
 
-  // Compliance: mean response rate over the last 7 days of snapshots
-  const rates = (snapshots ?? []).map((s) => Number(s.reminder_response_rate)).filter((n) => !Number.isNaN(n))
-  const compliance = rates.length ? Math.round(rates.reduce((a, b) => a + b, 0) / rates.length) : null
+  // Most urgent first, newest first within a severity.
+  const needsAttention = [...(openAlertRows ?? [])].sort((a, b) =>
+    (SEVERITY_RANK[a.severity as string] ?? 9) - (SEVERITY_RANK[b.severity as string] ?? 9)
+    || String(b.created_at).localeCompare(String(a.created_at)))
+
+  const sent7 = checkinsSent ?? 0
+  const answered7 = Math.min(checkinsAnswered ?? 0, sent7)
+  const replyRate = sent7 > 0 ? Math.round((answered7 / sent7) * 100) : null
 
   const jobs = todaysJobs ?? []
-  const reminders = {
+  const tonight = {
     total: jobs.length,
     sent: jobs.filter((j) => j.status === 'sent').length,
     failed: jobs.filter((j) => j.status === 'failed').length,
@@ -75,8 +83,8 @@ export default async function OverviewPage() {
   const stats = [
     { label: 'Active patients', value: activePatients ?? 0, icon: Users, tone: 'brand', href: '/patients' },
     { label: 'Open alerts', value: openAlerts ?? 0, icon: Bell, tone: critical ? 'danger' : (openAlerts ?? 0) > 0 ? 'warning' : 'brand', href: '/alerts', urgent: critical, sub: critical ? `${criticalAlerts} critical` : undefined },
-    { label: 'Pending confirmations', value: pendingAppointments ?? 0, icon: CalendarCheck, tone: 'brand', href: '/appointments' },
-    { label: 'Compliance (7 days)', value: compliance == null ? '—' : `${compliance}%`, icon: TrendingUp, tone: compliance == null ? 'muted' : compliance >= 75 ? 'success' : compliance >= 50 ? 'warning' : 'danger', href: '/analytics', sub: compliance == null ? 'No responses recorded yet' : 'Reminder response rate' },
+    { label: 'Appointments to confirm', value: toConfirm ?? 0, icon: CalendarCheck, tone: 'brand', href: '/appointments' },
+    { label: 'Check-ins answered (7 days)', value: replyRate == null ? '—' : `${replyRate}%`, icon: MessageSquareReply, tone: replyRate == null ? 'muted' : replyRate >= 75 ? 'success' : replyRate >= 50 ? 'warning' : 'danger', href: '/analytics', sub: replyRate == null ? 'No check-ins sent this week' : `${answered7} of ${sent7} nightly check-ins` },
   ] as const
 
   const TONE: Record<string, { icon: string; value: string }> = {
@@ -94,7 +102,7 @@ export default async function OverviewPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="mt-1 text-sm text-muted-foreground">
             {hospital.name} · {fmt(now, 'EEEE, d MMMM', tz)}
           </p>
         </div>
@@ -102,12 +110,12 @@ export default async function OverviewPage() {
           href="/episodes/new"
           className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3.5 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
         >
-          New episode
+          <Plus className="h-4 w-4" aria-hidden="true" /> Add patient
         </Link>
       </div>
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
+      {/* Headline numbers — each one opens the screen behind it */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         {stats.map((stat) => {
           const Icon = stat.icon
           const tone = TONE[stat.tone]
@@ -116,12 +124,12 @@ export default async function OverviewPage() {
               <Card className={`h-full py-0 transition-shadow duration-200 group-hover:ring-brand/50 ${'urgent' in stat && stat.urgent ? 'ring-2 ring-danger/60' : ''}`}>
                 <CardContent className="p-4 sm:p-5">
                   <div className="flex items-start justify-between gap-3">
-                    <p className="text-sm font-medium text-muted-foreground leading-snug">{stat.label}</p>
+                    <p className="text-sm font-medium leading-snug text-muted-foreground">{stat.label}</p>
                     <span className={`shrink-0 rounded-lg p-2 ${tone.icon}`} aria-hidden="true">
                       <Icon className="h-4 w-4" />
                     </span>
                   </div>
-                  <p className={`mt-2 sm:mt-3 text-2xl sm:text-3xl font-semibold tracking-tight tnum ${tone.value}`}>{stat.value}</p>
+                  <p className={`mt-2 text-2xl font-semibold tracking-tight tnum sm:mt-3 sm:text-3xl ${tone.value}`}>{stat.value}</p>
                   {'sub' in stat && stat.sub && <p className="mt-1 text-xs text-muted-foreground">{stat.sub}</p>}
                 </CardContent>
               </Card>
@@ -130,18 +138,21 @@ export default async function OverviewPage() {
         })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Recent alerts */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {/* Needs attention */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="text-base">Recent alerts</CardTitle>
-            <Link href="/alerts" className="text-xs font-medium text-brand hover:underline inline-flex items-center gap-1">
-              View all <ArrowRight className="h-3 w-3" aria-hidden="true" />
+            <CardTitle className="text-base">
+              Needs attention
+              {needsAttention.length > 0 && <span className="ml-2 text-sm font-normal text-muted-foreground tnum">{openAlerts ?? needsAttention.length}</span>}
+            </CardTitle>
+            <Link href="/alerts" className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline">
+              All alerts <ArrowRight className="h-3 w-3" aria-hidden="true" />
             </Link>
           </CardHeader>
           <CardContent className="p-0">
             {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-            <RecentAlerts alerts={(recentAlerts ?? []) as any} hospitalId={hid} tz={tz} />
+            <RecentAlerts alerts={needsAttention as any} hospitalId={hid} tz={tz} openOnly limit={6} />
           </CardContent>
         </Card>
 
@@ -151,37 +162,41 @@ export default async function OverviewPage() {
             <CardTitle className="text-base">Today</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
-            {/* Reminder delivery */}
-            <section aria-labelledby="today-reminders">
+            <section aria-labelledby="today-checkins">
               <div className="flex items-center justify-between">
-                <h3 id="today-reminders" className="text-sm font-medium flex items-center gap-2">
-                  <Send className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> Reminders
+                <h3 id="today-checkins" className="flex items-center gap-2 text-sm font-medium">
+                  <Moon className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> Tonight’s check-ins
                 </h3>
-                <span className="text-xs text-muted-foreground tnum">{reminders.total} scheduled</span>
+                <span className="text-xs text-muted-foreground tnum">{tonight.total} scheduled</span>
               </div>
-              {reminders.total === 0 ? (
-                <p className="mt-2 text-sm text-muted-foreground">No reminders due today.</p>
+              {tonight.total === 0 ? (
+                <p className="mt-2 text-sm text-muted-foreground">No check-ins scheduled today.</p>
               ) : (
                 <>
                   <div className="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-muted" role="img"
-                       aria-label={`${reminders.sent} sent, ${reminders.failed} failed, ${reminders.pending} pending`}>
-                    <div className="bg-success" style={{ width: `${(reminders.sent / reminders.total) * 100}%` }} />
-                    <div className="bg-danger" style={{ width: `${(reminders.failed / reminders.total) * 100}%` }} />
+                       aria-label={`${tonight.sent} sent, ${tonight.failed} failed, ${tonight.pending} still to send`}>
+                    <div className="bg-success" style={{ width: `${(tonight.sent / tonight.total) * 100}%` }} />
+                    <div className="bg-danger" style={{ width: `${(tonight.failed / tonight.total) * 100}%` }} />
                   </div>
                   <dl className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                    <div><dt className="text-muted-foreground">Sent</dt><dd className="font-medium tnum">{reminders.sent}</dd></div>
-                    <div><dt className="text-muted-foreground">Failed</dt><dd className={`font-medium tnum ${reminders.failed ? 'text-danger' : ''}`}>{reminders.failed}</dd></div>
-                    <div><dt className="text-muted-foreground">Pending</dt><dd className="font-medium tnum">{reminders.pending}</dd></div>
+                    <div><dt className="text-muted-foreground">Sent</dt><dd className="font-medium tnum">{tonight.sent}</dd></div>
+                    <div><dt className="text-muted-foreground">Failed</dt><dd className={`font-medium tnum ${tonight.failed ? 'text-danger' : ''}`}>{tonight.failed}</dd></div>
+                    <div><dt className="text-muted-foreground">Still to send</dt><dd className="font-medium tnum">{tonight.pending}</dd></div>
                   </dl>
+                  {tonight.failed > 0 && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      <Badge variant="outline" className="mr-1.5 border-danger/40 text-danger">Failed</Badge>
+                      usually means the number cannot be reached on WhatsApp — the reason is on the patient’s conversation.
+                    </p>
+                  )}
                 </>
               )}
             </section>
 
-            {/* Upcoming appointments */}
             <section aria-labelledby="upcoming-appts">
               <div className="flex items-center justify-between">
-                <h3 id="upcoming-appts" className="text-sm font-medium flex items-center gap-2">
-                  <CalendarDays className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> Next 7 days
+                <h3 id="upcoming-appts" className="flex items-center gap-2 text-sm font-medium">
+                  <CalendarDays className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> Appointments, next 7 days
                 </h3>
                 <Link href="/appointments" className="text-xs font-medium text-brand hover:underline">All appointments</Link>
               </div>
@@ -193,9 +208,9 @@ export default async function OverviewPage() {
                     const patientName = (a.care_episodes as unknown as { patients: { full_name: string } | null } | null)?.patients?.full_name ?? 'Patient'
                     return (
                       <li key={a.id}>
-                        <Link href={`/episodes/${a.episode_id}/appointments/${a.id}`} className="flex items-center justify-between gap-3 py-2.5 rounded-md hover:bg-muted/60 -mx-2 px-2 transition-colors">
+                        <Link href={`/episodes/${a.episode_id}/appointments/${a.id}`} className="-mx-2 flex items-center justify-between gap-3 rounded-md px-2 py-2.5 transition-colors hover:bg-muted/60">
                           <div className="min-w-0">
-                            <p className="text-sm font-medium truncate">{patientName}</p>
+                            <p className="truncate text-sm font-medium">{patientName}</p>
                             <p className="text-xs text-muted-foreground">{a.specialty} · {fmt(a.scheduled_at, 'EEE d MMM, HH:mm', tz)}</p>
                           </div>
                           <StatusBadge status={a.status as AppointmentStatus} />
@@ -206,13 +221,6 @@ export default async function OverviewPage() {
                 </ul>
               )}
             </section>
-
-            {reminders.failed > 0 && (
-              <p className="text-xs text-muted-foreground">
-                <Badge variant="outline" className="mr-1.5 border-danger/40 text-danger">Failed</Badge>
-                reminders usually mean the number is not reachable on WhatsApp. Check the patient&apos;s conversation for the error.
-              </p>
-            )}
           </CardContent>
         </Card>
       </div>

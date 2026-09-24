@@ -59,8 +59,8 @@ interface ConversationTranscriptProps {
 }
 
 const STATE_LABELS: Record<string, string> = {
-  idle: 'Assistant on duty',
-  awaiting_reminder_response: 'Waiting for reminder reply',
+  idle: 'Assistant is answering',
+  awaiting_reminder_response: 'Waiting for a reply',
   awaiting_checkin_meds: 'Waiting for tonight’s medicines answer',
   awaiting_checkin_symptoms: 'Waiting for tonight’s symptoms answer',
   awaiting_appointment_confirm: 'Waiting for appointment confirmation',
@@ -492,12 +492,12 @@ export function ConversationTranscript({
 
   return (
     <div className="flex flex-col">
-      {/* Header */}
+      {/* Toolbar: who is answering, and the reading aids. (Name and number are in the page header.) */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{patientName}</p>
-          <p className="text-xs text-muted-foreground">{patientPhone} · WhatsApp</p>
-        </div>
+        <Badge variant="outline" className={cn('text-xs', attending ? 'border-brand/30 bg-brand-soft text-brand' : state.state === 'idle' ? 'text-muted-foreground' : 'border-warning/30 bg-warning-soft text-warning')}>
+          {attending ? <UserRound className="mr-1 h-3 w-3" aria-hidden="true" /> : <Bot className="mr-1 h-3 w-3" aria-hidden="true" />}
+          {stateLabel}
+        </Badge>
         <div className="flex flex-wrap items-center gap-2">
           {foreign && messages.length > 0 && (
             <Button
@@ -515,10 +515,6 @@ export function ConversationTranscript({
               {showEnglish ? 'Showing English' : 'Show English'}
             </Button>
           )}
-          <Badge variant="outline" className={cn('text-xs', attending ? 'border-brand/30 bg-brand-soft text-brand' : state.state === 'idle' ? 'text-muted-foreground' : 'border-warning/30 bg-warning-soft text-warning')}>
-            {attending ? <UserRound className="mr-1 h-3 w-3" aria-hidden="true" /> : <Bot className="mr-1 h-3 w-3" aria-hidden="true" />}
-            {stateLabel}
-          </Badge>
           {attending && canSend && (
             <Button type="button" variant="ghost" size="sm" onClick={handBack} disabled={handingBack} className="h-8 text-xs">
               {handingBack ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}

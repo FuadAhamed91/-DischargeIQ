@@ -24,9 +24,12 @@ interface RecentAlertsProps {
   alerts: Alert[]
   hospitalId: string
   tz: string
+  /** Only alerts nobody has handled yet: one leaves the list as soon as it is acknowledged or resolved. */
+  openOnly?: boolean
+  limit?: number
 }
 
-export function RecentAlerts({ alerts: initialAlerts, hospitalId, tz }: RecentAlertsProps) {
+export function RecentAlerts({ alerts: initialAlerts, hospitalId, tz, openOnly = false, limit = 5 }: RecentAlertsProps) {
   const [alerts, setAlerts] = useState(initialAlerts)
   const supabase = useMemo(() => createClient(), [])
 
@@ -34,28 +37,34 @@ export function RecentAlerts({ alerts: initialAlerts, hospitalId, tz }: RecentAl
     const channel = supabase
       .channel(`recent-alerts-${hospitalId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'alerts', filter: `hospital_id=eq.${hospitalId}` },
-        (payload) => { setAlerts((prev) => [payload.new as Alert, ...prev].slice(0, 5)) })
+        (payload) => { setAlerts((prev) => [payload.new as Alert, ...prev]) })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'alerts', filter: `hospital_id=eq.${hospitalId}` },
         (payload) => {
           const updated = payload.new as Partial<Alert> & { id: string }
-          setAlerts((prev) => prev.map((a) => (a.id === updated.id ? { ...a, ...updated, care_episodes: a.care_episodes } : a)))
+          setAlerts((prev) => openOnly && updated.status && updated.status !== 'open'
+            ? prev.filter((a) => a.id !== updated.id)
+            : prev.map((a) => (a.id === updated.id ? { ...a, ...updated, care_episodes: a.care_episodes } : a)))
         })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [hospitalId, supabase])
+  }, [hospitalId, openOnly, supabase])
 
   if (alerts.length === 0) {
     return (
       <div className="px-5 py-8 text-center">
-        <p className="text-sm font-medium">No alerts yet</p>
-        <p className="mt-1 text-xs text-muted-foreground">Triage results, escalations and missed appointments will show here.</p>
+        <p className="text-sm font-medium">{openOnly ? 'All clear' : 'No alerts yet'}</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {openOnly
+            ? 'No patient needs a nurse right now. New alerts appear here the moment they happen.'
+            : 'Reported symptoms, missed medicines and unconfirmed appointments show here.'}
+        </p>
       </div>
     )
   }
 
   return (
     <ul className="divide-y">
-      {alerts.slice(0, 5).map((alert) => {
+      {alerts.slice(0, limit).map((alert) => {
         const sev = severityOf(alert.severity)
         const Icon = SEVERITY[sev].icon
         const patient = alert.care_episodes?.patients

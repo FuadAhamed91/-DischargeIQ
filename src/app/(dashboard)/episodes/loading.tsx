@@ -6,7 +6,7 @@ const HEADER_WIDTHS = [112, 64, 48, 96, 80, 80]
 
 export default function EpisodesLoading() {
   return (
-    <div className="space-y-5" aria-busy="true" aria-label="Loading episodes">
+    <div className="space-y-5" aria-busy="true" aria-label="Loading patients">
       <PageHeaderSkeleton action />
       <ChipRowSkeleton count={4} />
       <Card className="overflow-hidden py-0">
