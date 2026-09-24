@@ -201,7 +201,7 @@ function englishGroups(list: TranscriptMessage[]): string[][] {
   return groups
 }
 
-/** Translate requests in flight at once; the rest follow as these come back. */
+/** Translate requests in flight at once, after the first; the rest follow as these come back. */
 const ENGLISH_REQUESTS_AT_ONCE = 4
 
 // "Show English" is a per-browser preference: a nurse who needs it needs it on every patient.
@@ -287,8 +287,13 @@ export function ConversationTranscript({
   // message whose Translate button was pressed.
   useEffect(() => {
     if (!missingKey || englishError) return
+    // The first answer carries the English for the whole transcript (the route
+    // reuses one translation for every copy of a text), so it goes on its own:
+    // four requests opening together would each read the same repeated
+    // check-in. Whatever is still missing afterwards fans out.
+    const atOnce = englishSettled === 0 ? 1 : ENGLISH_REQUESTS_AT_ONCE
     for (const group of missingKey.split('|')) {
-      if (englishInFlight.current >= ENGLISH_REQUESTS_AT_ONCE) break
+      if (englishInFlight.current >= atOnce) break
       const ids = group.split(',').filter((id) => !requestedEnglish.current.has(id))
       if (ids.length === 0) continue
       for (const id of ids) requestedEnglish.current.add(id)

@@ -262,8 +262,15 @@ every message in the patient's language has its own **Translate** button, and **
 the Conversation tab puts an English translation under all of them
 (`POST /api/v1/episodes/[id]/messages/translate`); each one is kept on its message
 (`metadata.translation_en`), so it is translated once and reaches other open transcripts through
-realtime. Show English fetches newest first, in small groups side by side, so the messages on
-screen fill in first; the preference is remembered per browser. Translation calls skip Gemini's
+realtime. English is kept **per text, not per message** (`lib/ai/transcript-english.ts`): a
+follow-up conversation is mostly repetition — one Tamil episode here holds 44 messages made of 8
+distinct texts, the nightly check-in over and over — so the model is asked once per sentence, the
+answer is written onto every copy, and a transcript whose texts are already known opens in English
+with no model call at all. Short answers with no letters ("1", "👍") are never sent. The first
+request goes alone because its answer carries the whole transcript; anything still missing follows
+in small groups, newest first, so the messages on screen fill in first. A busy key no longer costs
+the nurse the English the episode already has: the answer carries what is known and only the texts
+that could not be read come back untranslated. The preference is remembered per browser. Translation calls skip Gemini's
 thinking step (`generate(…, { noThinking: true })`, 2.5 Flash models only), which is most of a
 model call's wait. Translations need `GEMINI_API_KEY`; the fixed replies do not.
 

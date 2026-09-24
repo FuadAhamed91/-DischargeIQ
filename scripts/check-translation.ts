@@ -17,6 +17,8 @@ import { GenerativeModel, GoogleGenerativeAIFetchError } from '@google/generativ
 import type { GenerateContentRequest } from '@google/generative-ai'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { FakeDb } from './lib/fake-supabase'
+import { englishByText, keepByText, spreadEnglish, textsToTranslate } from '@/lib/ai/transcript-english'
+import type { TranscriptRow } from '@/lib/ai/transcript-english'
 import {
   translateNurseMessage,
   translateMessagesToEnglish,
@@ -298,6 +300,52 @@ async function main() {
   includes('medicines item for item: translated', plan, '• हि:Aspirin हि:150 mg — हि:once daily')
   includes('warning signs one short: all of them, as written', plan, '• Chest pain\n• Fainting')
   eq('an instruction she no longer has is not sent', plan.includes('Rest for two weeks'), false)
+
+  console.log('— the same sentence is read once, not once per message —')
+  // A real Tamil episode: 44 messages, 8 distinct texts — the nightly
+  // check-in nine times over, "1", "I am fine". Asking per message id asked
+  // for the same sentence nine times, and on a busy key left the nurse with a
+  // red banner over English the episode had already been told.
+  const CHECKIN = 'மாலை வணக்கம் Karthik 🌙'
+  const CHECKIN_EN = 'Good evening Karthik 🌙'
+  const FINE = 'நலமாக இருக்கிறேன்'
+  const msg = (id: string, content: string | null, en?: string): TranscriptRow =>
+    ({ id, content, metadata: en ? { translation_en: en, kind: 'checkin' } : {} })
+
+  // Newest first, as the route reads them.
+  const transcript: TranscriptRow[] = [
+    msg('m6', CHECKIN), msg('m5', FINE), msg('m4', '1'),
+    msg('m3', CHECKIN, CHECKIN_EN), msg('m2', FINE, 'I am fine'), msg('m1', 'வணக்கம் 👋', 'Hello 👋'),
+  ]
+  let known = englishByText(transcript)
+  eq('what the episode knows is keyed by text', [...known.values()].sort(), [CHECKIN_EN, 'Hello 👋', 'I am fine'])
+  eq('tonight’s check-in needs no model call at all', textsToTranslate(transcript, ['m6', 'm5', 'm4'], known), [])
+
+  let spread = spreadEnglish(transcript, known)
+  eq('every copy shows English, including ones nobody asked about', Object.keys(spread.translations).sort(), ['m1', 'm2', 'm3', 'm5', 'm6'])
+  eq('…the copy the nurse is looking at', spread.translations.m6, CHECKIN_EN)
+  eq('"1" is never sent: it is the answer in any language', textsToTranslate(transcript, ['m4'], new Map()), [])
+  eq('"1" has nothing to show', 'm4' in spread.translations, false)
+  eq('only the copies missing it are written back', spread.writes.map((w) => w.id).sort(), ['m5', 'm6'])
+
+  const fresh: TranscriptRow[] = [msg('n4', CHECKIN), msg('n3', CHECKIN), msg('n2', CHECKIN), msg('n1', FINE)]
+  known = englishByText(fresh)
+  const todo = textsToTranslate(fresh, ['n4', 'n3', 'n2', 'n1'], known)
+  eq('a transcript with no English yet: one entry per distinct text', [todo.map((t) => t.text), todo.map((t) => t.id)], [[CHECKIN, FINE], ['n4', 'n1']])
+  answer = englishModel
+  requests.length = 0
+  keepByText(todo, await translateMessagesToEnglish(todo), known)
+  eq('the model is asked for the two texts, not the four messages', [requests.length, JSON.parse(requests[0].prompt.slice(requests[0].prompt.indexOf('['))).length], [1, 2])
+  spread = spreadEnglish(fresh, known)
+  eq('one answer covers all three copies', [spread.translations.n4, spread.translations.n3, spread.translations.n2].map((en) => en?.startsWith('EN:')), [true, true, true])
+  eq('…and all four are stored', spread.writes.length, 4)
+
+  known = englishByText([msg('x1', CHECKIN)])
+  keepByText([{ id: 'x1', text: CHECKIN }], {}, known)
+  eq('a text the model left out stays untranslated', spreadEnglish([msg('x1', CHECKIN)], known).translations, {})
+  eq('blank messages are never sent', textsToTranslate([msg('b1', '   '), msg('b2', null)], ['b1', 'b2'], new Map()), [])
+  eq('an empty stored translation does not count as known', englishByText([msg('e1', FINE, '  ')]).size, 0)
+  eq('the same text is matched past its spacing', textsToTranslate([msg('s1', ` ${FINE} `)], ['s1'], englishByText([msg('s0', FINE, 'I am fine')])), [])
 
   console.log(fails === 0 ? '\nALL PASSED' : `\n${fails} FAILED`)
   process.exit(fails ? 1 : 0)
