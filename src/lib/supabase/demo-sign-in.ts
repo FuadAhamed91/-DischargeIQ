@@ -24,10 +24,16 @@ export function demoSignIn(supabase: AuthClient): Promise<boolean> {
 }
 
 async function signIn(supabase: AuthClient): Promise<boolean> {
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
-    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
-  })
+  // No service key (a fresh clone, a preview deployment without secrets):
+  // no demo sign-in, the login screen shows. createClient throws on an empty
+  // key, and outside the try that took every page down with it.
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !serviceKey) return false
   try {
+    const admin = createClient(url, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+    })
     if (!demoEmail) {
       // The first hospital admin: the account the demo is shown with.
       const { data: profile } = await admin
