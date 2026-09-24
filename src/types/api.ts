@@ -6,6 +6,8 @@ export interface ApiResponse<T = unknown> {
   data: T | null
   error: string | null
   message?: string
+  /** Machine-readable reason for an error the client handles specially, e.g. 'translation_failed'. */
+  code?: string
   meta?: ApiMeta
 }
 
@@ -20,8 +22,8 @@ export function apiSuccess<T>(data: T, meta?: ApiMeta): ApiResponse<T> {
   return { data, error: null, meta }
 }
 
-export function apiError(error: string, message?: string): ApiResponse<null> {
-  return { data: null, error, message }
+export function apiError(error: string, message?: string, code?: string): ApiResponse<null> {
+  return code ? { data: null, error, message, code } : { data: null, error, message }
 }
 
 // ------------------------------------

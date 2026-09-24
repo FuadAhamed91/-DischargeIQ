@@ -470,6 +470,7 @@ export default async function EpisodeDetailPage({
                 patientId={patient.id}
                 patientName={patient.full_name}
                 patientPhone={patient.phone_e164}
+                patientLanguage={patient.preferred_language as LanguageCode}
                 conversationState={conversationState}
                 sharedWith={sharedWith}
                 numberSession={numberSession}

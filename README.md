@@ -212,6 +212,20 @@ keywords still escalate instantly and voice notes are still triaged. "Hand back 
 (`PATCH { attending: false }`) or the 30-minute expiry returns the conversation to `idle`; the
 nightly check-in also takes over when it fires.
 
+**One language for the patient, English for the nurse.** Everything the patient receives is in their
+`preferred_language`: the fixed replies (emergency, "your care team will look at this", the
+episode-ended notice …) exist in all five languages, the assistant is told to answer in that
+language whatever language the patient writes in, and a nurse's message is translated before it
+is sent (`translateNurseMessage`, Gemini). The patient gets the translation; the transcript shows it
+with what the nurse typed underneath (`metadata.original_text`). If the translation fails, nothing
+is sent and the nurse chooses **Send as typed** — the untranslated text never goes out on its own.
+Unticking "Translate into …" under the message box sends exactly what was typed. For the nurse,
+**Show English** on the Conversation tab puts an English translation under every message
+(`POST /api/v1/episodes/[id]/messages/translate`); each one is kept on its message
+(`metadata.translation_en`), so it is translated once and reaches other open transcripts through
+realtime. The preference is remembered per browser. Translations need `GEMINI_API_KEY`; the fixed
+replies do not.
+
 ### 4. Appointments
 
 **From the letter, automatically.** Every dated follow-up in a discharge summary ("Cardiology
@@ -236,7 +250,7 @@ appointments as missed. The scheduling adapter is currently `manual` — no hosp
 |---|---|
 | `/` | Overview: KPIs, recent alerts, live alert banner |
 | `/patients`, `/patients/[id]` | Patient list and profile |
-| `/episodes/new`, `/episodes/[id]`, `/episodes/[id]/review` | Document-first intake (drop PDF → pre-filled form), episode detail (Summary · Conversation · Timeline · Triage · AI Chat), review/approve |
+| `/episodes/new`, `/episodes/[id]`, `/episodes/[id]/review` | Document-first intake (drop PDF → pre-filled form), episode detail (Summary · Conversation with "Show English" · Timeline · Triage · AI Chat), review/approve |
 | `/appointments` | Appointment status across the hospital |
 | `/alerts` | Open / acknowledged / resolved alerts, realtime |
 | `/analytics` | Compliance trend, risk distribution, alert activity, appointment funnel |
@@ -552,12 +566,13 @@ functions callable by `authenticated` (required — policies evaluate them as th
 npm run lint           # eslint — clean; CI runs it with --max-warnings=0
 npx tsc --noEmit       # typecheck
 npm run build          # production build (needs NEXT_PUBLIC_SUPABASE_* set; placeholders are fine)
-npm run check          # all five below
+npm run check          # all six below
 npm run check:intent   # table-driven checks: pre-intent classifier, escalation derivation, FSM (check-in, nurse chat, media), state parsing
 npm run check:routing  # shared-number routing: name prefixes, answers to "who is this about?", the decision order, expiries
 npm run check:webhook  # the inbound handler end to end against an in-memory Supabase and a captured Twilio (no keys, no network)
 npm run check:gemini   # 11 checks on the Gemini wrapper: retry on 429/503/network, model fallback, 403 fails fast, budget respected
 npm run check:delivery # Twilio status callbacks: sent → delivered → read ordering, failure reasons, one alert per message
+npm run check:translation # nurse message → patient's language, transcript → English: unwrapping, JSON parsing, batching, partial failure
 ```
 
 `scripts/lib/fake-supabase.ts` is the in-memory stand-in the webhook check runs on: enough of the
@@ -588,5 +603,7 @@ check the alert. For the shared-number flow, register a second patient on the sa
 - `compute_compliance_snapshot()` exists but is not yet scheduled; adherence figures come from
   `reminder_response` events directly.
 - Voice-note triage is implemented but has not been exercised against a live Twilio media URL recently.
-- Instant replies (acknowledgement/greeting/emergency) are localised for the five supported languages;
-  other short templates are English-only under the sandbox text fallback.
+- Every reply to a registered patient is in their language. Only "not registered" is English: it
+  goes to an unknown number, whose language nobody knows. Translations of nurse messages and of the
+  transcript are machine translations (Gemini) — the transcript labels them, and the nurse's
+  original is always kept beside what was sent.

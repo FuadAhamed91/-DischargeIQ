@@ -6,13 +6,21 @@ import { apiSuccess, apiError } from '@/types/api'
 import { sendAndLog } from '@/lib/whatsapp/outbound'
 import { NURSE_ATTENDING_MS } from '@/lib/whatsapp/fsm'
 import { rememberPatientIfShared } from '@/lib/whatsapp/number-session'
+import { translateNurseMessage } from '@/lib/ai/translation'
+import { GeminiUnavailableError } from '@/lib/ai/gemini'
+import { SUPPORTED_LANGUAGES } from '@/types/enums'
+import type { LanguageCode } from '@/types/enums'
 
 export const dynamic = 'force-dynamic'
+// Translation (Gemini, up to 15 s) comes before the Twilio send.
+export const maxDuration = 30
 
 const CLINICAL = new Set(['super_admin', 'hospital_admin', 'discharge_coordinator', 'nurse', 'case_manager'])
 
 const SendSchema = z.object({
   text: z.string().trim().min(1, 'Message is empty').max(1000, 'Keep messages under 1000 characters'),
+  /** Translate into the patient's language before sending (default). false sends the text exactly as typed. */
+  translate: z.boolean().default(true),
 })
 
 type Params = { params: Promise<{ id: string }> }
@@ -22,7 +30,7 @@ async function loadEpisode(episodeId: string) {
   const supabase = await createClient()
   const { data } = await supabase
     .from('care_episodes')
-    .select('id, hospital_id, patient_id, status, patients(full_name, phone_e164), hospitals(whatsapp_phone_number_id)')
+    .select('id, hospital_id, patient_id, status, patients(full_name, phone_e164, preferred_language), hospitals(whatsapp_phone_number_id)')
     .eq('id', episodeId)
     .maybeSingle()
   if (!data) return null
@@ -31,17 +39,20 @@ async function loadEpisode(episodeId: string) {
     hospital_id: data.hospital_id as string,
     patient_id: data.patient_id as string,
     status: data.status as string,
-    patient: data.patients as unknown as { full_name: string; phone_e164: string },
+    patient: data.patients as unknown as { full_name: string; phone_e164: string; preferred_language: LanguageCode | null },
     hospital: data.hospitals as unknown as { whatsapp_phone_number_id: string | null },
   }
 }
 
 /**
  * POST — a nurse writes to the patient on WhatsApp from the Conversation tab.
- * The message is logged on the transcript with who sent it, and the
- * conversation enters nurse_attending for 30 minutes so the assistant does
- * not answer the patient's replies over the nurse (emergency keywords and
- * voice-note triage still fire).
+ * Unless { translate: false }, the text is first translated into the
+ * patient's language: the patient receives the translation, and the
+ * transcript keeps what the nurse typed (metadata.original_text). When the
+ * translation fails nothing is sent — the nurse decides whether to send it
+ * as typed. The conversation then enters nurse_attending for 30 minutes so
+ * the assistant does not answer the patient's replies over the nurse
+ * (emergency keywords and voice-note triage still fire).
  */
 export async function POST(request: Request, { params }: Params) {
   const auth = await resolveAuthContext()
@@ -64,15 +75,40 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json(apiError('Hospital WhatsApp number is not configured'), { status: 422 })
   }
 
+  const typed = parsed.data.text
+  const language: LanguageCode = episode.patient.preferred_language ?? 'en'
+  let body = typed
+  if (parsed.data.translate && language !== 'en') {
+    try {
+      body = await translateNurseMessage(typed, language)
+    } catch (err) {
+      console.error(`[nurse message] translation into ${language} failed for episode ${episodeId}:`, err)
+      const hint = err instanceof GeminiUnavailableError
+        ? 'The translation service is busy. Try again in a minute, or send it as typed.'
+        : 'Try again, or send it as typed.'
+      return NextResponse.json(
+        apiError(`Could not translate into ${SUPPORTED_LANGUAGES[language]} — nothing was sent`, hint, 'translation_failed'),
+        { status: 503 },
+      )
+    }
+  }
+  // Already in the patient's language: nothing to keep beside it.
+  const translated = body !== typed
+
   const service = await createServiceClient()
   const result = await sendAndLog({
     supabase: service,
     phoneNumberId: episode.hospital.whatsapp_phone_number_id,
-    message: { type: 'text', to: episode.patient.phone_e164, body: parsed.data.text },
+    message: { type: 'text', to: episode.patient.phone_e164, body },
     episodeId,
     hospitalId: episode.hospital_id,
     patientId: episode.patient_id,
-    metadata: { sender: 'nurse', sender_id: profile.id, sender_name: profile.full_name },
+    metadata: {
+      sender: 'nurse',
+      sender_id: profile.id,
+      sender_name: profile.full_name,
+      ...(translated ? { original_text: typed, translated_to: language } : {}),
+    },
   })
 
   if (result.status === 'failed') {
@@ -101,7 +137,13 @@ export async function POST(request: Request, { params }: Params) {
     episode_id: episodeId,
     hospital_id: episode.hospital_id,
     event_type: 'whatsapp_outbound',
-    payload: { kind: 'nurse_message', message_id: result.loggedMessageId, wa_message_id: result.messageId, sender_name: profile.full_name },
+    payload: {
+      kind: 'nurse_message',
+      message_id: result.loggedMessageId,
+      wa_message_id: result.messageId,
+      sender_name: profile.full_name,
+      ...(translated ? { translated_to: language } : {}),
+    },
     created_by: profile.id,
   })
 

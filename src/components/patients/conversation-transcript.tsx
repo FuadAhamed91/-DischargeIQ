@@ -1,18 +1,20 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import Link from 'next/link'
-import { Mic, AlertCircle, MessageCircle, Send, Loader2, Bot, UserRound, Users, Check, CheckCheck } from 'lucide-react'
+import { Mic, AlertCircle, MessageCircle, Send, Loader2, Bot, UserRound, Users, Check, CheckCheck, Languages } from 'lucide-react'
 import { format, isSameDay, isToday, isYesterday } from 'date-fns'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { ConversationStateRecord } from '@/lib/whatsapp/fsm'
 import { summariseNumberSession } from '@/lib/whatsapp/number-session'
 import type { NumberSessionSummary } from '@/lib/whatsapp/number-session'
+import { SUPPORTED_LANGUAGES } from '@/types/enums'
+import type { LanguageCode } from '@/types/enums'
 
 export interface TranscriptMessage {
   id: string
@@ -40,6 +42,8 @@ interface ConversationTranscriptProps {
   patientId: string
   patientName: string
   patientPhone: string
+  /** The patient's language: what they receive, and what "Show English" translates from. */
+  patientLanguage: LanguageCode
   conversationState: ConversationStateRecord
   /** Other patients whose open episode uses the same number (empty when the number is theirs alone). */
   sharedWith?: SharedNumberPatient[]
@@ -93,12 +97,75 @@ function typedBy(m: TranscriptMessage, patientName: string): string | null {
   return name.trim()
 }
 
-function senderOf(m: TranscriptMessage): { kind: 'patient' | 'nurse' | 'assistant'; name: string | null } {
+type SenderKind = 'patient' | 'nurse' | 'assistant'
+
+function senderOf(m: TranscriptMessage): { kind: SenderKind; name: string | null } {
   if (m.direction === 'inbound') return { kind: 'patient', name: null }
   const meta = m.metadata ?? {}
   if (meta.sender === 'nurse') return { kind: 'nurse', name: typeof meta.sender_name === 'string' ? meta.sender_name : 'Nurse' }
   if (meta.kind === 'routing_prompt') return { kind: 'assistant', name: 'DischargeIQ · asked who the message is about' }
   return { kind: 'assistant', name: 'DischargeIQ' }
+}
+
+/** A second line inside a bubble (the English, or what the nurse typed), tinted for that bubble. */
+const SECOND_LINE: Record<SenderKind, string> = {
+  nurse: 'border-brand-foreground/25 text-brand-foreground/85',
+  assistant: 'border-brand/20 text-brand/80',
+  patient: 'border-foreground/15 text-muted-foreground',
+}
+
+/** What a nurse typed when it was sent to the patient in translation. */
+function originalOf(m: TranscriptMessage): string | null {
+  const original = m.metadata?.original_text
+  return typeof original === 'string' && original.trim() ? original : null
+}
+
+/**
+ * Worth translating for the nurse: it has words (not just "1" or 👍), and it
+ * is not a translated nurse message — that one already shows what was typed.
+ */
+function wantsEnglish(m: TranscriptMessage): boolean {
+  const text = m.content?.trim()
+  if (!text || !/\p{L}/u.test(text)) return false
+  return originalOf(m) === null
+}
+
+/** The English for a message: kept on the row by the translate route, or fetched on this page. */
+function englishOf(m: TranscriptMessage, fetched: Record<string, string>): string | null {
+  const kept = m.metadata?.translation_en
+  if (typeof kept === 'string') return kept
+  return fetched[m.id] ?? null
+}
+
+const sameText = (a: string, b: string) => a.replace(/\s+/g, ' ').trim().toLowerCase() === b.replace(/\s+/g, ' ').trim().toLowerCase()
+
+// "Show English" is a per-browser preference: a nurse who needs it needs it on every patient.
+const SHOW_ENGLISH_KEY = 'dischargeiq:transcript-show-english'
+const SHOW_ENGLISH_EVENT = 'dischargeiq:show-english'
+let showEnglishInMemory = false  // when storage is blocked (private window): this page load only
+
+function readShowEnglish(): boolean {
+  try {
+    const stored = localStorage.getItem(SHOW_ENGLISH_KEY)
+    return stored === null ? showEnglishInMemory : stored === '1'
+  } catch {
+    return showEnglishInMemory
+  }
+}
+
+function writeShowEnglish(on: boolean): void {
+  showEnglishInMemory = on
+  try { localStorage.setItem(SHOW_ENGLISH_KEY, on ? '1' : '0') } catch { /* kept in memory */ }
+  window.dispatchEvent(new Event(SHOW_ENGLISH_EVENT))
+}
+
+function subscribeShowEnglish(onChange: () => void): () => void {
+  window.addEventListener('storage', onChange)
+  window.addEventListener(SHOW_ENGLISH_EVENT, onChange)
+  return () => {
+    window.removeEventListener('storage', onChange)
+    window.removeEventListener(SHOW_ENGLISH_EVENT, onChange)
+  }
 }
 
 export function ConversationTranscript({
@@ -108,6 +175,7 @@ export function ConversationTranscript({
   patientId,
   patientName,
   patientPhone,
+  patientLanguage,
   conversationState,
   sharedWith = [],
   numberSession = null,
@@ -123,7 +191,60 @@ export function ConversationTranscript({
   const [forgetting, setForgetting] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const sendingNow = useRef(false)
   const supabase = useMemo(() => createClient(), [])
+
+  // A patient who does not read English gets the nurse's messages translated
+  // (composer), and the nurse can read the whole conversation in English.
+  const foreign = patientLanguage !== 'en'
+  const languageName = SUPPORTED_LANGUAGES[patientLanguage] ?? patientLanguage
+  const [translateOutgoing, setTranslateOutgoing] = useState(true)
+  const showEnglish = useSyncExternalStore(subscribeShowEnglish, readShowEnglish, () => false)
+  const [fetchedEnglish, setFetchedEnglish] = useState<Record<string, string>>({})
+  const [noEnglish, setNoEnglish] = useState<ReadonlySet<string>>(new Set())
+  const [englishError, setEnglishError] = useState<string | null>(null)
+  const requestedEnglish = useRef(new Set<string>())
+
+  const englishOn = foreign && showEnglish
+  const missingEnglish = englishOn
+    ? messages.filter((m) => wantsEnglish(m) && englishOf(m, fetchedEnglish) === null && !noEnglish.has(m.id)).map((m) => m.id)
+    : []
+  const missingKey = missingEnglish.join(',')
+  const translatingEnglish = missingEnglish.length > 0 && !englishError
+
+  // "Show English": translate whatever has no English yet — on switching it
+  // on, and for each message that arrives while it is on. Up to 50 per call;
+  // the next batch follows when these come back.
+  useEffect(() => {
+    if (!missingKey || englishError) return
+    const ids = missingKey.split(',').filter((id) => !requestedEnglish.current.has(id)).slice(0, 50)
+    if (ids.length === 0) return
+    for (const id of ids) requestedEnglish.current.add(id)
+    void fetch(`/api/v1/episodes/${episodeId}/messages/translate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    })
+      .then(async (res) => {
+        const json = (await res.json().catch(() => ({}))) as { data?: { translations: Record<string, string> }; error?: string; message?: string }
+        if (!res.ok || !json.data) throw new Error(json.message ?? json.error ?? 'Could not translate')
+        const got = json.data.translations
+        setFetchedEnglish((prev) => ({ ...prev, ...got }))
+        // Left out by the model: say so on the bubble instead of asking again and again.
+        const left = ids.filter((id) => !got[id])
+        if (left.length > 0) setNoEnglish((prev) => new Set([...prev, ...left]))
+      })
+      .catch((err: unknown) => {
+        for (const id of ids) requestedEnglish.current.delete(id)
+        setEnglishError(err instanceof Error ? err.message : 'Could not translate')
+      })
+  }, [missingKey, englishError, episodeId])
+
+  function retryEnglish() {
+    for (const id of noEnglish) requestedEnglish.current.delete(id)
+    setNoEnglish(new Set())
+    setEnglishError(null)
+  }
 
   // Live updates: new rows for this conversation (RLS still applies)
   useEffect(() => {
@@ -178,20 +299,33 @@ export function ConversationTranscript({
     bottomRef.current?.scrollIntoView({ block: 'end' })
   }, [messages.length])
 
-  async function send() {
-    const text = draft.trim()
-    if (!text || sending) return
+  /** Sends the draft, or — from the "Send as typed" toast — exactly the text that could not be translated. */
+  async function send(retry?: { text: string; translate: false }) {
+    const text = retry?.text ?? draft.trim()
+    if (!text || sendingNow.current) return
+    const translate = retry ? retry.translate : foreign && translateOutgoing
+    sendingNow.current = true
     setSending(true)
     try {
       const res = await fetch(`/api/v1/episodes/${episodeId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, translate }),
       })
       const json = (await res.json()) as {
         data?: { message: TranscriptMessage | null; conversation_state: ConversationStateRecord }
         error?: string
         message?: string
+        code?: string
+      }
+      if (json.code === 'translation_failed') {
+        // Nothing went out. Whether the patient gets it untranslated is the nurse's call.
+        toast.error(json.error ?? `Could not translate into ${languageName}`, {
+          description: json.message,
+          duration: 15_000,
+          action: { label: 'Send as typed', onClick: () => void send({ text, translate: false }) },
+        })
+        return
       }
       if (!res.ok || !json.data) {
         throw new Error(json.message ? `${json.error}: ${json.message}` : (json.error ?? 'Could not send'))
@@ -201,11 +335,12 @@ export function ConversationTranscript({
         setMessages((prev) => (prev.some((m) => m.id === logged.id) ? prev : [...prev, logged]))
       }
       setState(json.data.conversation_state)
-      setDraft('')
+      setDraft((current) => (current.trim() === text ? '' : current))
       textareaRef.current?.focus()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not send the message')
     } finally {
+      sendingNow.current = false
       setSending(false)
     }
   }
@@ -260,7 +395,23 @@ export function ConversationTranscript({
           <p className="truncate text-sm font-medium">{patientName}</p>
           <p className="text-xs text-muted-foreground">{patientPhone} · WhatsApp</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {foreign && messages.length > 0 && (
+            <Button
+              type="button"
+              variant={showEnglish ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => writeShowEnglish(!showEnglish)}
+              aria-pressed={showEnglish}
+              className="h-8 text-xs"
+              title={showEnglish ? 'Hide the English translations' : `Show an English translation under each ${languageName} message`}
+            >
+              {englishOn && translatingEnglish
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                : <Languages className="h-3.5 w-3.5" aria-hidden="true" />}
+              {showEnglish ? 'Showing English' : 'Show English'}
+            </Button>
+          )}
           <Badge variant="outline" className={cn('text-xs', attending ? 'border-brand/30 bg-brand-soft text-brand' : state.state === 'idle' ? 'text-muted-foreground' : 'border-warning/30 bg-warning-soft text-warning')}>
             {attending ? <UserRound className="mr-1 h-3 w-3" aria-hidden="true" /> : <Bot className="mr-1 h-3 w-3" aria-hidden="true" />}
             {stateLabel}
@@ -273,6 +424,14 @@ export function ConversationTranscript({
           )}
         </div>
       </div>
+
+      {englishOn && englishError && (
+        <p className="mt-3 flex flex-wrap items-center gap-x-2 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-danger" role="alert">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span>Could not translate the conversation: {englishError}</span>
+          <Button type="button" variant="ghost" size="sm" onClick={retryEnglish} className="h-6 px-1.5 text-xs">Try again</Button>
+        </p>
+      )}
 
       {/* Shared number */}
       {shared && (
@@ -331,6 +490,10 @@ export function ConversationTranscript({
             const sender = senderOf(m)
             const routed = shared ? routingLabel(m) : null
             const typist = m.direction === 'inbound' ? typedBy(m, patientName) : null
+            const original = originalOf(m)
+            const english = englishOn && wantsEnglish(m) ? englishOf(m, fetchedEnglish) : null
+            const showTranslation = english !== null && !sameText(english, m.content ?? '')
+            const englishPending = englishOn && wantsEnglish(m) && english === null && !englishError
 
             return (
               <div key={m.id}>
@@ -352,11 +515,26 @@ export function ConversationTranscript({
                     )}
                   >
                     {m.message_type === 'audio' ? (
-                      <p className="flex items-center gap-2 italic">
+                      <p className="flex items-center gap-2 italic" dir="auto">
                         <Mic className="h-3.5 w-3.5" aria-hidden="true" /> Voice note{m.content ? `: “${m.content}”` : ''}
                       </p>
                     ) : (
-                      <p className="whitespace-pre-wrap break-words">{m.content || <span className="italic opacity-70">(empty message)</span>}</p>
+                      <p className="whitespace-pre-wrap break-words" dir="auto">{m.content || <span className="italic opacity-70">(empty message)</span>}</p>
+                    )}
+                    {original && (
+                      <p className={cn('mt-1.5 whitespace-pre-wrap break-words border-t pt-1.5 text-xs', SECOND_LINE[sender.kind])} dir="auto" title={`Typed by ${sender.name ?? 'the nurse'}; the patient received the translation above`}>
+                        <span className="mr-1 font-medium">Original:</span>{original}
+                      </p>
+                    )}
+                    {showTranslation && (
+                      <p className={cn('mt-1.5 whitespace-pre-wrap break-words border-t pt-1.5 text-xs', SECOND_LINE[sender.kind])} lang="en" title="Machine translation for the care team — the patient did not see this">
+                        <span className="mr-1 font-medium">English:</span>{english}
+                      </p>
+                    )}
+                    {englishPending && (
+                      <p className={cn('mt-1.5 border-t pt-1.5 text-xs italic', SECOND_LINE[sender.kind])}>
+                        {noEnglish.has(m.id) ? 'No English translation came back for this message.' : 'Translating…'}
+                      </p>
                     )}
                     <div className={cn(
                       'mt-1 flex items-center gap-2 text-[11px]',
@@ -416,7 +594,9 @@ export function ConversationTranscript({
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send() }
               }}
-              placeholder={`Write to ${patientName.split(' ')[0]} on WhatsApp…`}
+              placeholder={foreign && translateOutgoing
+                ? `Write to ${patientName.split(' ')[0]} — it is sent in ${languageName}…`
+                : `Write to ${patientName.split(' ')[0]} on WhatsApp…`}
               rows={2}
               maxLength={1000}
               disabled={sending}
@@ -424,11 +604,26 @@ export function ConversationTranscript({
             />
             <Button type="submit" disabled={sending || !draft.trim()} aria-busy={sending} className="h-11 shrink-0" aria-label="Send message">
               {sending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="h-4 w-4" aria-hidden="true" />}
-              <span className="hidden sm:inline">Send</span>
+              <span className="hidden sm:inline">{sending && foreign && translateOutgoing ? 'Translating…' : 'Send'}</span>
             </Button>
           </div>
+          {foreign && (
+            <label className="mt-2 flex w-fit cursor-pointer items-center gap-2 text-xs text-foreground">
+              <input
+                type="checkbox"
+                checked={translateOutgoing}
+                onChange={(e) => setTranslateOutgoing(e.target.checked)}
+                disabled={sending}
+                className="h-3.5 w-3.5 accent-brand"
+              />
+              Translate into {languageName} before sending
+            </label>
+          )}
           <p className="mt-1.5 text-xs text-muted-foreground">
-            Sent as you, in the language you type. The assistant stays quiet for 30 minutes after your last message; emergencies still escalate. Enter to send, Shift+Enter for a new line.
+            {foreign && translateOutgoing
+              ? `Sent as you, in ${languageName} — ${patientName.split(' ')[0]} receives the translation, and what you typed stays on this transcript.`
+              : 'Sent as you, in the language you type.'}{' '}
+            The assistant stays quiet for 30 minutes after your last message; emergencies still escalate. Enter to send, Shift+Enter for a new line.
             {shared && (
               <> This number is shared with {sharedWith.map((p) => p.patientName.split(' ')[0]).join(' and ')} — say who you are writing about; replies come back to {patientName.split(' ')[0]} while you are chatting.</>
             )}

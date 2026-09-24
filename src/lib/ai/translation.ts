@@ -136,6 +136,145 @@ export async function translateAndStoreSummary(
   return results
 }
 
+// ------------------------------------
+// Nurse chat (episode page → Conversation tab)
+// ------------------------------------
+
+/** Named where the model might otherwise answer in Latin letters. */
+const SCRIPT: Partial<Record<LanguageCode, string>> = {
+  ar: 'Arabic script',
+  hi: 'Devanagari script',
+  ta: 'Tamil script',
+}
+
+/** Models sometimes wrap a bare answer in a code fence, or in quotation marks the input did not have. */
+function unwrap(output: string, input: string): string {
+  let text = output.trim().replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/, '').trim()
+  if (/^["“][\s\S]*["”]$/.test(text) && !/^["“]/.test(input.trim())) text = text.slice(1, -1).trim()
+  return text
+}
+
+/**
+ * A nurse's chat message in the patient's language. The patient reads only
+ * this text, so the meaning has to survive exactly: nothing added, softened
+ * or dropped, and medicine names, doses, numbers, dates and times as written.
+ * A message already in the target language comes back as it is. Throws when
+ * the model is unavailable or answers with nothing — the caller must not then
+ * send the untranslated text unless the nurse says so.
+ */
+export async function translateNurseMessage(text: string, targetLanguage: LanguageCode): Promise<string> {
+  const language = LANGUAGE_NAMES[targetLanguage]
+  const script = SCRIPT[targetLanguage]
+  const prompt = `You translate the messages a hospital nurse writes to a patient on WhatsApp after the patient has gone home.
+
+Translate the message below into ${language}.
+
+Rules:
+- Keep the meaning exactly. Do not add, remove, soften or explain anything, and do not add a greeting or a sign-off.
+- Keep medicine names, doses, numbers, dates, times and phone numbers exactly as written.
+- Write simple, warm, everyday ${language} that an older patient understands${script ? `, in ${script}` : ''}, and address the patient respectfully.
+- Keep emoji, line breaks and WhatsApp formatting (*bold*, _italic_).
+- If the message is already in ${language}, return it unchanged.
+
+Return only the translated message: no quotation marks, notes or explanations.
+
+Message:
+"""
+${text}
+"""`
+
+  const { text: output } = await generate(prompt, { label: 'translate-nurse-message', budgetMs: 15_000 })
+  const translated = unwrap(output, text)
+  if (!translated) throw new Error('The translation came back empty')
+  return translated
+}
+
+export interface MessageToTranslate {
+  id: string
+  text: string
+}
+
+// Small batches run side by side, and one long care plan does not hold up the rest.
+const BATCH_MESSAGES = 20
+const BATCH_CHARS = 6_000
+
+function batches(messages: MessageToTranslate[]): MessageToTranslate[][] {
+  const out: MessageToTranslate[][] = []
+  let current: MessageToTranslate[] = []
+  let chars = 0
+  for (const m of messages) {
+    if (current.length > 0 && (current.length >= BATCH_MESSAGES || chars + m.text.length > BATCH_CHARS)) {
+      out.push(current)
+      current = []
+      chars = 0
+    }
+    current.push(m)
+    chars += m.text.length
+  }
+  if (current.length > 0) out.push(current)
+  return out
+}
+
+function parseJsonArray(text: string): unknown[] {
+  const start = text.indexOf('[')
+  const end = text.lastIndexOf(']')
+  if (start === -1 || end < start) return []
+  try {
+    const parsed: unknown = JSON.parse(text.slice(start, end + 1))
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+async function translateBatchToEnglish(messages: MessageToTranslate[]): Promise<Record<string, string>> {
+  const prompt = `You translate a WhatsApp conversation between a hospital's after-discharge service and a patient into English, so that a nurse can read it.
+
+Rules:
+- Translate faithfully. Keep the meaning, tone and any uncertainty exactly; do not add, remove, correct or interpret anything. A vaguely described symptom stays vague.
+- Keep medicine names, doses, numbers, dates and times exactly as written.
+- Keep emoji, line breaks and WhatsApp formatting (*bold*, _italic_).
+- Arabic, Hindi, Tamil or Tagalog written in Latin letters is translated too.
+- A message that is already in English comes back unchanged.
+
+The messages are a JSON array of {"id", "text"} objects. Answer with ONLY a JSON array holding one {"id", "en"} object per message, with the same ids.
+
+${JSON.stringify(messages)}`
+
+  const { text } = await generate(
+    { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json' } },
+    { label: 'translate-transcript', budgetMs: 40_000 },
+  )
+
+  const wanted = new Set(messages.map((m) => m.id))
+  const out: Record<string, string> = {}
+  for (const row of parseJsonArray(text)) {
+    if (!row || typeof row !== 'object') continue
+    const { id, en } = row as { id?: unknown; en?: unknown }
+    if (typeof id === 'string' && wanted.has(id) && typeof en === 'string' && en.trim()) out[id] = en.trim()
+  }
+  return out
+}
+
+/**
+ * English for a nurse who does not read the patient's language ("Show
+ * English" on the Conversation tab). Faithful rather than polished. A message
+ * the model leaves out, or one in a batch that failed, simply comes back
+ * without a translation; this throws only when nothing could be translated.
+ */
+export async function translateMessagesToEnglish(messages: MessageToTranslate[]): Promise<Record<string, string>> {
+  if (messages.length === 0) return {}
+  const results = await Promise.allSettled(batches(messages).map(translateBatchToEnglish))
+  const out: Record<string, string> = {}
+  let failure: unknown = null
+  for (const r of results) {
+    if (r.status === 'fulfilled') Object.assign(out, r.value)
+    else failure ??= r.reason
+  }
+  if (failure && Object.keys(out).length === 0) throw failure
+  return out
+}
+
 /**
  * Translates a single text string for simple use cases.
  */
