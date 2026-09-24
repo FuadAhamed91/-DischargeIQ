@@ -1,4 +1,5 @@
 import { generate } from './gemini'
+import { parseModelJson } from './json'
 
 export interface ExtractedMedication {
   name: string
@@ -47,20 +48,20 @@ export interface ExtractionResult {
 const EXTRACTION_SYSTEM_PROMPT = `
 You are a clinical data extraction assistant. Extract structured discharge information from the provided hospital discharge document text.
 
-Return ONLY valid JSON matching the schema below. Do not include markdown, explanation, or any text outside the JSON.
+Return ONLY valid JSON matching the schema below: no comments, no trailing commas, no markdown, no explanation, nothing outside the JSON.
 
 Schema:
 {
   "patient": {
     "full_name": "string or null",
-    "mrn": "string or null", // medical record number / hospital number / file number / patient ID
+    "mrn": "string or null (medical record number / hospital number / file number / patient ID)",
     "date_of_birth": "YYYY-MM-DD or null",
     "gender": "male | female | null",
     "nationality": "string or null",
     "phone": "string in E.164 (+971...) or null"
   },
   "encounter": {
-    "diagnosis": "string or null", // primary / final diagnosis, short
+    "diagnosis": "string or null (the primary / final diagnosis, short)",
     "admission_date": "YYYY-MM-DD or null",
     "discharge_date": "YYYY-MM-DD or null",
     "ward": "string or null",
@@ -72,20 +73,20 @@ Schema:
       "dosage": "string",
       "frequency": "string (e.g. twice daily, every 8 hours)",
       "instructions": "string (e.g. take with food)",
-      "reminder_times": ["HH:MM", ...] // dose times in 24h format
+      "reminder_times": ["HH:MM", ...]
     }
   ],
   "follow_up_requirements": [
     {
       "specialty": "string (e.g. Cardiology, General Practice)",
-      "deadline": "YYYY-MM-DD or null", // the date the visit should happen BY
+      "deadline": "YYYY-MM-DD or null (the date the visit should happen BY)",
       "instructions": "string or null"
     }
   ],
-  "emergency_symptoms": ["string", ...], // symptoms that require immediate medical attention
+  "emergency_symptoms": ["string (a symptom that needs immediate medical attention)", ...],
   "lifestyle_instructions": ["string", ...],
-  "restrictions": ["string", ...], // things the patient must NOT do
-  "activities": ["string", ...], // things the patient SHOULD do
+  "restrictions": ["string (something the patient must NOT do)", ...],
+  "activities": ["string (something the patient SHOULD do)", ...],
   "source_language": "en | ar | hi | ta | tl"
 }
 
@@ -94,7 +95,7 @@ Rules:
 - Dates: convert any format (12/03/2024, 12 Mar 2024, 2024-03-12) to YYYY-MM-DD. Day-first is the norm in UAE documents when ambiguous.
 - follow_up_requirements.deadline: if the document gives a date, use it; if it gives a timeframe ("in 2 weeks", "within 3 months", "after 10-14 days"), compute the date from the discharge date using the END of the range; null only when no timeframe is given at all.
 - Extract ALL medications listed, even if instructions are brief.
-- For reminder_times: infer sensible dose times from frequency (e.g. "twice daily" → ["08:00", "20:00"]).
+- For reminder_times: infer sensible dose times, 24-hour HH:MM, from frequency (e.g. "twice daily" → ["08:00", "20:00"]).
 - Emergency symptoms: extract ONLY symptoms explicitly listed as warning signs or reasons to call emergency services.
 - If a field has no relevant content, return an empty array.
 - source_language: detect the primary language of the document.
@@ -198,7 +199,7 @@ export async function extractDischargeData(pdfText: string, opts: { budgetMs?: n
   const jsonMatch = content.match(/\{[\s\S]*\}/)
   if (!jsonMatch) throw new Error('Extraction model returned invalid JSON')
 
-  return normaliseExtraction(JSON.parse(jsonMatch[0]) as Partial<ExtractionResult>)
+  return normaliseExtraction(parseModelJson(jsonMatch[0]) as Partial<ExtractionResult>)
 }
 
 /** True when the model found something clinically useful (guards against wrong-document uploads). */

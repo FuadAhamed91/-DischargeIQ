@@ -6,6 +6,7 @@
  */
 
 import { generate } from './gemini'
+import { parseModelJson } from './json'
 import type { DischargeSummary, Medication } from '@/types/database'
 import { SUPPORTED_LANGUAGES } from '@/types/enums'
 import type { LanguageCode } from '@/types/enums'
@@ -183,7 +184,7 @@ Respond ONLY with valid JSON:
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) throw new Error('Invalid AI response')
 
-    const raw = JSON.parse(jsonMatch[0]) as RawModelOutput
+    const raw = parseModelJson(jsonMatch[0]) as RawModelOutput
     const decision = deriveEscalation(raw)
     return {
       ...decision,

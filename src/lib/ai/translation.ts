@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { generate } from './gemini'
 import type { GenerateOptions } from './gemini'
+import { parseModelJson } from './json'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { LanguageCode } from '@/types/enums'
 import type { DischargeSummary, FollowUpRequirement, Medication } from '@/types/database'
@@ -112,7 +113,7 @@ Return the translated JSON now:`
 
   // Strip markdown code fences if present
   const json = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
-  const parsed: unknown = JSON.parse(json)
+  const parsed: unknown = parseModelJson(json)
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('The summary translation is not a JSON object')
   return parsed as TranslatedSummaryContent
 }
@@ -307,7 +308,7 @@ function parseJsonArray(text: string): unknown[] {
   const end = text.lastIndexOf(']')
   if (start === -1 || end < start) return []
   try {
-    const parsed: unknown = JSON.parse(text.slice(start, end + 1))
+    const parsed: unknown = parseModelJson(text.slice(start, end + 1))
     return Array.isArray(parsed) ? parsed : []
   } catch {
     return []

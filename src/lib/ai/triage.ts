@@ -14,6 +14,7 @@
 
 import OpenAI from 'openai'
 import { generate } from './gemini'
+import { parseModelJson } from './json'
 import type { RiskLevel } from '@/types/enums'
 
 // Lazy: the OpenAI SDK throws at construction when OPENAI_API_KEY is unset,
@@ -82,7 +83,7 @@ export function parseHeard(text: string): HeardVoiceNote {
   const match = text.match(/\{[\s\S]*\}/)
   if (!match) return { transcript: '', clarity: 0 }
   try {
-    const raw = JSON.parse(match[0]) as { transcript?: unknown; clarity?: unknown }
+    const raw = parseModelJson(match[0]) as { transcript?: unknown; clarity?: unknown }
     const transcript = typeof raw.transcript === 'string' ? raw.transcript.trim() : ''
     const clarity = typeof raw.clarity === 'number' && Number.isFinite(raw.clarity) ? Math.max(0, Math.min(100, Math.round(raw.clarity))) : 0
     return { transcript, clarity: transcript ? clarity : 0 }
@@ -174,7 +175,7 @@ Be conservative — when in doubt, escalate to YELLOW or RED.`
   const jsonMatch = text.match(/\{[\s\S]*\}/)
   if (!jsonMatch) throw new Error('Invalid triage response from Gemini')
 
-  const parsed = JSON.parse(jsonMatch[0]) as {
+  const parsed = parseModelJson(jsonMatch[0]) as {
     riskLevel: RiskLevel
     reasoning: string
     keySymptoms: string[]
