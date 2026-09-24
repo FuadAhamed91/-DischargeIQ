@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { syncFollowUpAppointments } from '@/lib/appointments/sync-follow-ups'
+import { dropStaleSummaryTranslations } from '@/lib/ai/translation'
 import { resolveAuthContext } from '@/lib/utils/api'
 import { apiSuccess, apiError } from '@/types/api'
 import { z } from 'zod'
@@ -162,6 +163,14 @@ export async function PATCH(
     } catch (err) {
       console.error('[summary PATCH] follow-up appointment sync failed:', err)
     }
+  }
+
+  // Stored translations were made from the text as it stood; any that no
+  // longer match it must not reach the patient (sending translates afresh).
+  try {
+    await dropStaleSummaryTranslations(serviceClient, summary.id)
+  } catch (err) {
+    console.error('[summary PATCH] dropping out-of-date translations failed:', err)
   }
 
   const { data: updated } = await supabase

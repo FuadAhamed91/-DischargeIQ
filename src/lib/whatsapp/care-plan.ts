@@ -11,6 +11,10 @@ import { sendAndLog } from './outbound'
 import type { SendAndLogResult } from './outbound'
 import { buildDischargeSummaryMessage } from './templates'
 import type { CarePlanAppointment, CarePlanTranslation } from './templates'
+import { savedSummaryContent, storeSummaryTranslation, summarySourceHash, translateSummary } from '@/lib/ai/translation'
+import type { SavedSummary, StoredSummaryTranslation } from '@/lib/ai/translation'
+import type { ExtractionResult } from '@/lib/ai/extraction'
+import type { FollowUpRequirement, Medication } from '@/types/database'
 import type { LanguageCode } from '@/types/enums'
 
 /** metadata.kind on the logged message, so the transcript and delivery receipts know which message is the care plan. */
@@ -42,14 +46,23 @@ export interface SendCarePlanParams {
   resend?: boolean
   /** Why it is being (re)sent — stored on the message for the transcript. */
   trigger?: 'nurse' | 'patient_message'
+  /**
+   * How long the send may wait to translate the plan into the patient's
+   * language when no stored translation was made from the content being sent
+   * (a nurse edited it, or the letter's translation never finished). 0, the
+   * default: do not translate now — a re-send triggered by the patient's own
+   * message must not hold up the reply to it.
+   */
+  translateWithinMs?: number
 }
 
-/** Loads medications, appointments and the patient-language translation, builds the message, sends and logs it. */
+/** Loads medications, appointments and the plan in the patient's language (translationOfPlan), builds the message, sends and logs it. */
 export async function sendCarePlan(params: SendCarePlanParams): Promise<SendAndLogResult> {
   const { serviceClient, episodeId, summary, patient, hospital } = params
   const language = ((patient.preferred_language as LanguageCode | null) ?? 'en') as LanguageCode
+  const translate = language !== (summary.source_language ?? 'en')
 
-  const [{ data: medications }, { data: appointments }, { data: translation }] = await Promise.all([
+  const [{ data: medications }, { data: appointments }, { data: followUps }, { data: stored }] = await Promise.all([
     serviceClient.from('medications').select('*').eq('summary_id', summary.id).order('sort_order'),
     serviceClient
       .from('appointments')
@@ -57,10 +70,26 @@ export async function sendCarePlan(params: SendCarePlanParams): Promise<SendAndL
       .eq('episode_id', episodeId)
       .in('status', ['scheduled', 'confirmation_pending', 'confirmed'])
       .order('scheduled_at', { ascending: true }),
-    language !== (summary.source_language ?? 'en')
+    translate
+      ? serviceClient.from('follow_up_requirements').select('specialty, deadline, instructions').eq('summary_id', summary.id)
+      : Promise.resolve({ data: [] as FollowUpRequirement[] }),
+    translate
       ? serviceClient.from('discharge_summary_translations').select('content').eq('summary_id', summary.id).eq('language', language).maybeSingle()
       : Promise.resolve({ data: null as { content: unknown } | null }),
   ])
+
+  let translation: CarePlanTranslation | null = null
+  if (translate) {
+    const content = savedSummaryContent(summary as unknown as SavedSummary, (medications ?? []) as Medication[], (followUps ?? []) as FollowUpRequirement[])
+    translation = await translationOfPlan({
+      serviceClient,
+      summaryId: summary.id,
+      content,
+      language,
+      stored: stored?.content ?? null,
+      withinMs: params.translateWithinMs ?? 0,
+    })
+  }
 
   const message = buildDischargeSummaryMessage({
     to: patient.phone,
@@ -71,7 +100,7 @@ export async function sendCarePlan(params: SendCarePlanParams): Promise<SendAndL
     medications: (medications ?? []) as Parameters<typeof buildDischargeSummaryMessage>[0]['medications'],
     appointments: (appointments ?? []) as CarePlanAppointment[],
     timezone: hospital.timezone ?? 'Asia/Dubai',
-    translation: (translation?.content as CarePlanTranslation | null) ?? null,
+    translation,
   })
 
   // The plan asks nothing of the patient, so the conversation state is left alone.
@@ -88,6 +117,55 @@ export async function sendCarePlan(params: SendCarePlanParams): Promise<SendAndL
       ...(params.resend ? { resend: true, trigger: params.trigger ?? 'nurse' } : {}),
     },
   })
+}
+
+/**
+ * The plan in the patient's language, translated from exactly the content
+ * being sent. A stored translation counts only when it was made from this
+ * same text: a nurse may have corrected a dose or a warning sign since the
+ * letter was read. Otherwise the plan is translated now, if the caller gave
+ * it time, and stored for a resend. Null when there is no such translation:
+ * the content then goes out as written under the patient's own headings,
+ * never as a translation of something else.
+ */
+async function translationOfPlan(p: {
+  serviceClient: SupabaseClient
+  summaryId: string
+  content: ExtractionResult
+  language: LanguageCode
+  stored: unknown
+  withinMs: number
+}): Promise<CarePlanTranslation | null> {
+  const sourceHash = summarySourceHash(p.content)
+  const stored = p.stored as Partial<StoredSummaryTranslation> | null
+  if (stored?.source_hash === sourceHash) return stored
+  if (p.withinMs <= 0) return null
+
+  // The nurse is waiting: no thinking step, and a retry only while there is time for one.
+  const work = translateSummary(p.content, p.language, p.content.source_language as LanguageCode, {
+    budgetMs: Math.max(p.withinMs - 5_000, 1_000),
+    noThinking: true,
+  }).then(async (translated) => {
+    // Kept for a resend, even when it arrives too late for this send.
+    await storeSummaryTranslation(p.serviceClient, p.summaryId, p.language, { ...translated, source_hash: sourceHash })
+      .catch((err) => console.error(`[care-plan] translation of summary ${p.summaryId} (${p.language}) could not be stored:`, err))
+    return translated
+  })
+  try {
+    return await within(p.withinMs, work)
+  } catch (err) {
+    console.warn(`[care-plan] no ${p.language} translation of summary ${p.summaryId}, sending the plan as written: ${err instanceof Error ? err.message : String(err)}`)
+    return null
+  }
+}
+
+/** `promise`, or a rejection once `ms` have passed (the work itself carries on). */
+function within<T>(ms: number, promise: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`not ready within ${ms} ms`)), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
 }
 
 export interface CarePlanDelivery {
@@ -158,6 +236,7 @@ export async function redeliverFailedCarePlan(params: RedeliverParams): Promise<
     .maybeSingle()
   if (!summary) return false
 
+  // No translateWithinMs: the patient's own message (an emergency, perhaps) is waiting for its reply.
   const result = await sendCarePlan({
     serviceClient: supabase,
     episodeId,

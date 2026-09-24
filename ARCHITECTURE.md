@@ -261,7 +261,7 @@ A single post-discharge journey from upload to closure.
 | id | uuid PK | |
 | summary_id | uuid FK | |
 | language | language_code | |
-| content | jsonb | Structured translated fields |
+| content | jsonb | Structured translated fields + `source_hash` of the text they were made from (used only while it matches the saved summary) |
 | created_at | timestamptz | |
 
 **Unique:** `(summary_id, language)`

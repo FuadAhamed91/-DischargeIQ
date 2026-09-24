@@ -382,6 +382,11 @@ async function main() {
     emergency_symptoms: ['Chest pain'], lifestyle_instructions: [], restrictions: [], activities: [],
   })
   db.rows('medications').push({ id: 'med-1', summary_id: 'sum-solo', hospital_id: 'h1', name: 'Aspirin', dosage: '75 mg', frequency: 'once daily', instructions: '', reminder_times: [], sort_order: 0 })
+  // A Hindi translation of the letter from before the nurse corrected the dose (made before translations recorded their source text).
+  db.rows('discharge_summary_translations').push({
+    id: 'tr-solo', summary_id: 'sum-solo', language: 'hi',
+    content: { medications: [{ name: 'एस्पिरिन', dosage: '300 मि.ग्रा.', frequency: 'दिन में एक बार' }], emergency_symptoms: ['सीने में दर्द'], lifestyle_instructions: [] },
+  })
   await send(inbound(SOLO_PHONE, 'hello'))
   drain()
   const priyaConversation = db.rows('whatsapp_conversations').find((c) => c.episode_id === 'ep-solo')!
@@ -391,10 +396,13 @@ async function main() {
     metadata: { kind: 'care_plan', summary_id: 'sum-solo', error_code: 63016, error: 'outside the 24-hour window' },
     created_at: '2026-09-22T10:26:19Z',
   })
+  const modelCallsBefore = modelCalls.length
   await send(inbound(SOLO_PHONE, 'Hi'))
   sent = drain()
   includes('care plan re-sent first (in her language)', sent[0]?.body ?? '', 'डिस्चार्ज निर्देश')
   includes('…with her medicines', sent[0]?.body ?? '', 'Aspirin')
+  eq('…as saved, not the stored translation of other text', [sent[0]?.body.includes('Aspirin 75 mg'), sent[0]?.body.includes('300 मि.ग्रा.')], [true, false])
+  eq('…and no model call held up her reply', modelCalls.length - modelCallsBefore, 0)
   const planMeta = (m: Record<string, unknown>) => m.metadata as Record<string, unknown>
   const resent = db.rows('whatsapp_messages').filter((m) => m.conversation_id === priyaConversation.id && planMeta(m)?.kind === 'care_plan')
   eq('logged as a re-send triggered by her message', resent.map((m) => [planMeta(m).resend ?? null, planMeta(m).trigger ?? null]), [[null, null], [true, 'patient_message']])

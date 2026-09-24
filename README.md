@@ -76,9 +76,12 @@ Approval activates the episode, which creates its `whatsapp_conversations` row (
 The care plan message (`buildDischargeSummaryMessage`, plain text on the sandbox) lists medicines,
 key instructions, **follow-up appointments** (booked slots with time and place, or the letter's
 "by" date marked "time to be confirmed") and the warning signs. Section headings are in the
-patient's language and the content uses the stored `discharge_summary_translations` row when the
-patient's language differs from the document's. Preview it without sending:
-`npx --yes tsx scripts/preview-care-plan.ts hi`.
+patient's language. When that differs from the document's, the content goes out translated, and
+only ever as a translation of the plan as the nurse approved it: each `discharge_summary_translations`
+row records a hash of the text it was made from (`summarySourceHash` in `lib/ai/translation.ts`), a
+save on the review page drops the rows that no longer match, and the send translates the current plan
+when no row matches (up to 25 s; otherwise it goes out as written, under the patient's own headings).
+Preview it without sending: `npx --yes tsx scripts/preview-care-plan.ts hi`.
 
 **Did it arrive?** Every outbound message names the webhook as its Twilio `StatusCallback`, so the
 row in `whatsapp_messages` moves `sent → delivered → read` (ticks on the Conversation tab) or becomes
@@ -631,7 +634,7 @@ npm run check:routing  # shared-number routing: name prefixes, answers to "who i
 npm run check:webhook  # the inbound handler end to end against an in-memory Supabase and a captured Twilio (no keys, no network)
 npm run check:gemini   # checks on the Gemini wrapper: retry on 503/network, next model on 429/404, "usage limit" vs "busy", 403 fails fast, budget respected
 npm run check:delivery # Twilio status callbacks: sent → delivered → read ordering, failure reasons, one alert per message
-npm run check:translation # nurse message → patient's language, transcript → English: unwrapping, JSON parsing, batching, partial failure
+npm run check:translation # nurse message → patient's language, transcript → English: unwrapping, JSON parsing, batching, partial failure; the care plan only ever as a translation of the plan as edited (stale translations dropped and never sent, translated at send, English if the model fails or is slow)
 npm run check:reschedule  # "2 — change the date": clinic days, the times offered, numbers and dates in five languages, the messages
 npm run check:analytics   # what the dashboard counts: check-in answers ("none taken" included), the 30-day trend, booked vs to-book appointments
 ```

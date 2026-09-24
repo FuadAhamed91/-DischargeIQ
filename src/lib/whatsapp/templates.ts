@@ -46,7 +46,7 @@ export interface CarePlanAppointment {
   time_tbc: boolean
 }
 
-/** Translated summary content (discharge_summary_translations.content), when the patient's language differs. */
+/** Translated summary content (discharge_summary_translations.content) of the plan being sent, when the patient's language differs. */
 export interface CarePlanTranslation {
   medications?: Array<{ name: string; dosage: string; frequency: string; instructions?: string }>
   follow_up_requirements?: Array<{ specialty: string; instructions: string | null }>
@@ -117,11 +117,21 @@ const CARE_PLAN_STRINGS: Record<LanguageCode, {
 }
 
 /**
+ * A translated list stands in for the saved one only item for item: one that
+ * lost or gained a line (a warning sign, say) is not trusted, and the saved
+ * list goes out as written.
+ */
+function translatedOr<T, U>(translated: T[] | undefined, saved: U[]): Array<T | U> {
+  return translated && translated.length === saved.length ? translated : saved
+}
+
+/**
  * Builds the care plan message sent to the patient after a nurse approves
  * the summary: medicines, key instructions, follow-up appointments (booked
  * times, or the "by" date from the letter while the slot is still to be
  * confirmed) and the warning signs. Section text comes from the patient's
- * language; the content itself uses the stored translation when one exists.
+ * language; the content uses `translation`, which must be a translation of
+ * this very content (sendCarePlan passes none otherwise).
  */
 export function buildDischargeSummaryMessage(params: {
   to: string
@@ -141,13 +151,11 @@ export function buildDischargeSummaryMessage(params: {
   if (textFallbackEnabled()) {
     const t = CARE_PLAN_STRINGS[language] ?? CARE_PLAN_STRINGS.en
 
-    const medRows = translation?.medications?.length === medications.length && translation.medications.length > 0
-      ? translation.medications
-      : medications
+    const medRows = translatedOr(translation?.medications, medications)
     const medList = medRows.map((m) => `• ${m.name} ${m.dosage} — ${m.frequency}`).join('\n')
 
-    const instructions = (translation?.lifestyle_instructions?.length ? translation.lifestyle_instructions : summary.lifestyle_instructions).slice(0, CARE_PLAN_MESSAGE_INSTRUCTIONS)
-    const warnings = (translation?.emergency_symptoms?.length ? translation.emergency_symptoms : summary.emergency_symptoms).slice(0, CARE_PLAN_MESSAGE_WARNINGS)
+    const instructions = translatedOr(translation?.lifestyle_instructions, summary.lifestyle_instructions).slice(0, CARE_PLAN_MESSAGE_INSTRUCTIONS)
+    const warnings = translatedOr(translation?.emergency_symptoms, summary.emergency_symptoms).slice(0, CARE_PLAN_MESSAGE_WARNINGS)
 
     const apptList = appointments.map((a) => {
       const date = formatInTimeZone(new Date(a.scheduled_at), timezone, 'EEE d MMM yyyy')

@@ -8,6 +8,16 @@ import { nightlyCheckinSchedule } from '@/lib/reminders/checkin'
 import { rememberPatientIfShared } from '@/lib/whatsapp/number-session'
 
 export const dynamic = 'force-dynamic'
+// The plan may first need translating into the patient's language (see TRANSLATE_WITHIN_MS).
+export const maxDuration = 60
+
+/**
+ * How long a send waits for a translation of the plan as approved, when the
+ * stored one was made from other text (the nurse edited it). After that it
+ * goes out as written, under the patient's own headings. Well inside
+ * maxDuration: loading, the Twilio call and the bookkeeping follow.
+ */
+const TRANSLATE_WITHIN_MS = 25_000
 
 /**
  * Sends the care plan to the patient on WhatsApp.
@@ -123,6 +133,7 @@ export async function POST(
     },
     resend: isResend,
     trigger: 'nurse',
+    translateWithinMs: TRANSLATE_WITHIN_MS,
   })
 
   if (result.status === 'failed') {

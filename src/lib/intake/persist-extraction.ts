@@ -115,9 +115,12 @@ export async function persistExtraction(params: PersistExtractionParams): Promis
   })
 
   // Translate after the response is sent so the nurse isn't blocked on it.
+  // With the source language as saved: the translation's fingerprint has to
+  // match the summary row's for the send to use it (see summarySourceHash).
   const targetLanguages = [...new Set(params.targetLanguages.filter(Boolean).map((l) => asLanguageCode(l)))]
   if (targetLanguages.length > 0) {
-    after(() => translateAndStoreSummary(serviceClient, summaryId, extracted, targetLanguages))
+    const saved = { ...extracted, source_language: summaryPayload.source_language }
+    after(() => translateAndStoreSummary(serviceClient, summaryId, saved, targetLanguages))
   }
 
   return summaryId
