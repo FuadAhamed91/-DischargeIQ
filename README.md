@@ -56,12 +56,14 @@ Intake is **document-first**: the nurse drops the discharge PDF and the form fil
 drop PDF   ──► /api/v1/intake/extract            (unpdf → Gemini: patient demographics + encounter + medications,
                                                    follow-ups, warning signs; nothing written yet)
 nurse checks ► /episodes/new                      (pre-filled; nurse types the WhatsApp number — it is never in
-                                                   the document — fixes anything marked "not found", confirms)
+                                                   the document — fills in anything the letter lacked, confirms)
            ──► /api/v1/intake/commit             (patient by MRN or new · episode · PDF → Storage
                                                    discharge-documents/<hospital>/<episode>/… · discharge_documents
                                                    · draft summary + medications + follow_up_requirements
                                                    └─ after(): translate into patient + hospital languages)
-nurse reviews ► /episodes/[id]/review             (edit, notes, approve — nothing reaches the patient before this)
+nurse reviews ► /episodes/[id]/review             (edit, notes, then one "Approve and send" after a confirmation —
+                                                   nothing reaches the patient before this; once sent, the plan
+                                                   is read on the patient page, not edited)
            ──► /api/v1/episodes/[id]/summary/send (WhatsApp care plan; episode → active; nightly check-in scheduled)
 ```
 
@@ -270,7 +272,8 @@ clinic by 3 Oct") becomes a provisional appointment the moment the document is r
 PATCH): `time_tbc = true`, `scheduled_at` = the "by" date at 09:00 hospital-local, linked through
 `appointments.follow_up_id`. The Appointments screen shows these as "Due by … · time to confirm"
 with the letter's instructions; booking a real time (appointment PATCH) clears the flag. Follow-ups
-without a timeframe are listed under "Needs a date" until the nurse adds one on the review page.
+without a timeframe are listed under "Needs a date" until the nurse adds a date on the review page
+(before the care plan is sent) or books the visit with **Book** on the patient's Care plan tab (after).
 Edits in review re-sync: untouched provisional rows move or disappear with their follow-up; anything
 a nurse has booked, confirmed or cancelled is left alone.
 
@@ -300,15 +303,15 @@ come from clinic days, not a live clinic calendar, and there is no hospital PAS 
 | `/` | Overview: four headline numbers, **Needs attention** (open alerts, most urgent first, live), today's check-ins and appointments |
 | `/patients` | One row per care plan (episode), red first; filters Active · Needs review · Draft · Completed · All; search; open-alert count per row. `/episodes` redirects here |
 | `/episodes/[id]` | The patient page: header with risk (and **Change**), this patient's open alerts with Acknowledge / Resolve, an at-a-glance line, and three tabs — **Conversation** (with Show English / Translate), **Care plan**, **Activity** |
-| `/episodes/new`, `/episodes/[id]/review` | **Add patient** (drop the discharge letter → pre-filled form) and review / approve / send the care plan |
+| `/episodes/new`, `/episodes/[id]/review` | **Add patient** (drop the discharge letter → the few details to check, the rest folded away) and **Review care plan** — medicines, warning signs, follow-ups, instructions — sent with one **Approve and send** after a confirmation |
 | `/patients/[id]` | A patient's history — earlier care plans (linked from the patient page when there are any) |
-| `/appointments` | Appointment status across the hospital |
+| `/appointments` | Appointment status across the hospital; an appointment's own page books the time, asks the patient to confirm, or cancels |
 | `/alerts` | Open / acknowledged / resolved alerts, realtime |
 | `/analytics` | Patients, check-ins answered, appointments confirmed, open alerts — counted, nothing estimated — and four charts |
+| `/settings` | Your account, the hospital, and how patients are messaged (check-in time, languages, shared numbers) |
 
 Screens use the words a nurse uses: care plan (not episode), symptom check (not triage), nightly
 check-in (not reminder), *Needs review*, *Needs a nurse*.
-| `/settings` | Hospital settings |
 
 Realtime (`postgres_changes`) is enabled for `alerts`, `patient_timeline_events`, `whatsapp_messages` and `whatsapp_number_sessions`.
 
@@ -524,7 +527,7 @@ own patient record by its number, and each patient's Conversation tab updates li
    only message verified numbers, WhatsApp included); an upgraded account skips this.
 2. **Register them as a patient** within 24 hours of that join message: `/episodes/new` → drop one
    of the sample PDFs in `docs/` → type *their* WhatsApp number in international format (+971…,
-   +91…) → give each patient a different MRN → confirm → review → approve → **Send to patient**.
+   +91…) → give each patient a different MRN → confirm → review → **Approve and send**.
    WhatsApp only allows free text within 24 hours of the person's last message; a care plan sent
    later fails with 63016, the episode shows "Care plan not delivered", and it goes out again by
    itself the moment they write anything.

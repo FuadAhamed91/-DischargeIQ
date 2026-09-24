@@ -13,7 +13,7 @@ import { EpisodeTimeline } from '@/components/patients/episode-timeline'
 import { ConversationTranscript, type TranscriptMessage, type SharedNumberPatient } from '@/components/patients/conversation-transcript'
 import { summariseNumberSession } from '@/lib/whatsapp/number-session'
 import { countCheckinAnswers } from '@/lib/analytics/checkins'
-import { ArrowLeft, Pencil, Pill, AlertTriangle, ChevronRight, CalendarDays, FileText, MessageCircle, ClipboardList, History, Upload } from 'lucide-react'
+import { ArrowLeft, Pencil, Pill, AlertTriangle, ChevronRight, CalendarDays, FileText, MessageCircle, ClipboardList, History, Upload, Send } from 'lucide-react'
 import { fmt } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { readConversationState } from '@/lib/whatsapp/fsm'
@@ -22,6 +22,7 @@ import { CarePlanDeliveryBanner, CarePlanResendButton } from '@/components/episo
 import { RiskLevelControl } from '@/components/episodes/risk-level-control'
 import { PatientAlerts, type PatientAlert } from '@/components/episodes/patient-alerts'
 import { SendCheckinButton } from '@/components/episodes/send-checkin-button'
+import { BookFollowUp } from '@/components/appointments/book-follow-up'
 import { CARE_PLAN_KIND, summariseCarePlanMessage } from '@/lib/whatsapp/care-plan'
 import { SUPPORTED_LANGUAGES } from '@/types/enums'
 import type { RiskLevel, EpisodeStatus, SummaryStatus, LanguageCode, AppointmentStatus } from '@/types/enums'
@@ -32,17 +33,23 @@ export async function generateMetadata() {
 }
 
 const OPEN_EPISODE = ['draft', 'pending_review', 'active']
+const TABS = ['conversation', 'care-plan', 'activity']
 
 /** A patient's page: who they are, what needs a nurse now, and three tabs — the conversation, the care plan, and everything that happened. */
 export default async function EpisodeDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  /** ?tab=care-plan opens that tab (links from the review page and Appointments). */
+  searchParams: Promise<{ tab?: string }>
 }) {
   const { hospital, profile } = await requireSession()
   const tz = hospital.timezone
-  const { id } = await params
+  const [{ id }, { tab }] = await Promise.all([params, searchParams])
   const canAct = ['super_admin', 'hospital_admin', 'discharge_coordinator', 'nurse', 'case_manager'].includes(profile.role)
+  // The care plan itself is reviewed and sent by the roles the summary routes accept.
+  const canReview = ['super_admin', 'hospital_admin', 'discharge_coordinator', 'nurse'].includes(profile.role)
   const supabase = await createClient()
 
   // Everything keys off the route id, so the episode row and its satellite
@@ -148,12 +155,12 @@ export default async function EpisodeDetailPage({
   const episodeOpen = OPEN_EPISODE.includes(episode.status)
   const canMessage = canAct && ['pending_review', 'active'].includes(episode.status)
   // One main button, when there is something to do before the patient hears from us.
-  const nextStep = !episodeOpen || !canAct ? null
+  const nextStep = !episodeOpen || !canReview ? null
     : !summary ? { label: 'Upload discharge letter', icon: Upload }
       : summary.status === 'draft' || summary.status === 'pending_review' ? { label: 'Review care plan', icon: Pencil }
-        : summary.status === 'approved' ? { label: 'Send care plan', icon: Pencil }
+        : summary.status === 'approved' ? { label: 'Send care plan', icon: Send }
           : null
-  const defaultTab = summary?.status === 'sent' ? 'conversation' : 'care-plan'
+  const defaultTab = tab && TABS.includes(tab) ? tab : summary?.status === 'sent' ? 'conversation' : 'care-plan'
 
   const sentOn = carePlanDelivery?.createdAt ?? null
   const delivered = carePlanDelivery?.status === 'delivered' || carePlanDelivery?.status === 'read'
@@ -251,13 +258,14 @@ export default async function EpisodeDetailPage({
       </dl>
 
       <Tabs defaultValue={defaultTab}>
+        {/* Below `sm` the icons drop so all three tabs fit a phone screen */}
         <TabsList variant="line" className="w-full justify-start border-b pb-0">
-          <TabsTrigger value="conversation" className="flex-none px-3">
+          <TabsTrigger value="conversation" className="flex-none px-2.5 sm:px-3 max-sm:[&>svg]:hidden">
             <MessageCircle aria-hidden="true" /> Conversation
             {transcript.length > 0 && <span className="text-xs text-muted-foreground tnum">{transcript.length}</span>}
           </TabsTrigger>
-          <TabsTrigger value="care-plan" className="flex-none px-3"><ClipboardList aria-hidden="true" /> Care plan</TabsTrigger>
-          <TabsTrigger value="activity" className="flex-none px-3"><History aria-hidden="true" /> Activity</TabsTrigger>
+          <TabsTrigger value="care-plan" className="flex-none px-2.5 sm:px-3 max-sm:[&>svg]:hidden"><ClipboardList aria-hidden="true" /> Care plan</TabsTrigger>
+          <TabsTrigger value="activity" className="flex-none px-2.5 sm:px-3 max-sm:[&>svg]:hidden"><History aria-hidden="true" /> Activity</TabsTrigger>
         </TabsList>
 
         {/* ── CONVERSATION ─────────────────────────────────────────── */}
@@ -292,7 +300,7 @@ export default async function EpisodeDetailPage({
                 <p className="mb-4 text-sm text-muted-foreground">
                   {episodeOpen ? 'Upload the discharge letter and the care plan is filled in from it.' : 'This patient’s follow-up has ended.'}
                 </p>
-                {canAct && episodeOpen && (
+                {canReview && episodeOpen && (
                   <Link href={`/episodes/${id}/review`} className={cn(buttonVariants({ size: 'sm' }))}>
                     <Upload className="h-4 w-4" aria-hidden="true" /> Upload discharge letter
                   </Link>
@@ -309,9 +317,10 @@ export default async function EpisodeDetailPage({
                 <div className="flex items-center gap-2">
                   {/* Sent, but WhatsApp never confirmed it reached the patient (old message, or no receipt yet) */}
                   {summary.status === 'sent' && !delivered && carePlanDelivery?.status !== 'failed' && <CarePlanResendButton episodeId={id} />}
-                  {canAct && (
+                  {/* Once sent, the plan is what the patient has: it is read here, not edited. */}
+                  {canReview && episodeOpen && summary.status !== 'sent' && (
                     <Link href={`/episodes/${id}/review`} className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>
-                      <Pencil className="h-3.5 w-3.5" aria-hidden="true" /> {summary.status === 'sent' ? 'Edit' : 'Review'}
+                      <Pencil className="h-3.5 w-3.5" aria-hidden="true" /> Review
                     </Link>
                   )}
                 </div>
@@ -409,12 +418,23 @@ export default async function EpisodeDetailPage({
                       {needsDate.length > 0 && (
                         <div className="rounded-md border border-dashed px-3 py-2">
                           <p className="text-xs font-medium text-warning">Needs a date</p>
-                          <ul className="mt-1 space-y-1">
+                          <ul className="mt-1 space-y-2">
                             {needsDate.map((f) => (
-                              <li key={f.id} className="text-sm">{f.specialty}{f.instructions && <span className="block text-xs text-muted-foreground">{f.instructions}</span>}</li>
+                              <li key={f.id} className="flex items-start justify-between gap-2">
+                                <span className="min-w-0 text-sm">
+                                  {f.specialty}
+                                  {f.instructions && <span className="block text-xs text-muted-foreground">{f.instructions}</span>}
+                                </span>
+                                {/* Sent: the letter's plan is fixed, so the visit is booked directly. */}
+                                {canAct && episodeOpen && summary.status === 'sent' && (
+                                  <BookFollowUp episodeId={id} followUp={{ id: f.id, specialty: f.specialty, instructions: f.instructions }} timezone={tz} />
+                                )}
+                              </li>
                             ))}
                           </ul>
-                          {canAct && <Link href={`/episodes/${id}/review`} className="mt-1 inline-block text-xs text-brand hover:underline">Add a date in the care plan</Link>}
+                          {canReview && episodeOpen && summary.status !== 'sent' && (
+                            <Link href={`/episodes/${id}/review`} className="mt-1.5 inline-block text-xs text-brand hover:underline">Add a date in the care plan</Link>
+                          )}
                         </div>
                       )}
                     </CardContent>

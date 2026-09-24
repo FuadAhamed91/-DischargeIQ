@@ -68,7 +68,7 @@ export default async function AppointmentsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Appointments</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage follow-up appointments and track patient confirmations
+            Follow-up visits from each care plan, and whether the patient has confirmed them
           </p>
         </div>
       </div>
@@ -77,7 +77,7 @@ export default async function AppointmentsPage() {
         <EmptyState
           icon={Calendar}
           title="No appointments yet"
-          description="Follow-ups in a discharge summary appear here automatically as soon as the document is read."
+          description="Follow-up visits in a discharge letter appear here as soon as the letter is read."
         />
       )}
 
@@ -120,8 +120,8 @@ export default async function AppointmentsPage() {
                     </div>
                     <div className="hidden sm:flex items-center gap-2 shrink-0">
                       {appt.time_tbc && (
-                        <Badge variant="outline" className="gap-1 border-brand/30 bg-brand-soft text-[11px] font-medium text-brand" title="Created from the discharge summary — book the actual slot">
-                          <FileText className="h-3 w-3" aria-hidden="true" /> From summary
+                        <Badge variant="outline" className="gap-1 border-brand/30 bg-brand-soft text-[11px] font-medium text-brand" title="Taken from the discharge letter: book the actual time">
+                          <FileText className="h-3 w-3" aria-hidden="true" /> From letter
                         </Badge>
                       )}
                       {appt.status === 'confirmation_pending' && <AlertCircle className="w-4 h-4 text-warning" aria-hidden="true" />}
@@ -149,7 +149,7 @@ export default async function AppointmentsPage() {
               <CalendarClock className="w-4 h-4 text-warning" aria-hidden="true" />
               Needs a date ({needsDate.length})
             </CardTitle>
-            <CardDescription>Follow-ups the discharge summary asked for without a timeframe. Add a date on the review page to put them on the calendar.</CardDescription>
+            <CardDescription>Visits the discharge letter asked for without a date. Open one to add a date or book it.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             <div className="divide-y">
@@ -170,7 +170,7 @@ export default async function AppointmentsPage() {
                 )
                 const rowClass = 'group flex items-center gap-3 p-4 transition-colors duration-200 hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none'
                 return episodeId ? (
-                  <NavLink key={f.id} href={`/episodes/${episodeId}/review`} className={rowClass} aria-label={`Set a date for ${f.specialty} follow-up, ${patient?.full_name ?? 'patient'}`}>{inner}</NavLink>
+                  <NavLink key={f.id} href={`/episodes/${episodeId}?tab=care-plan`} className={rowClass} aria-label={`Set a date for ${f.specialty} follow-up, ${patient?.full_name ?? 'patient'}`}>{inner}</NavLink>
                 ) : (
                   <div key={f.id} className={rowClass}>{inner}</div>
                 )
@@ -183,7 +183,7 @@ export default async function AppointmentsPage() {
       {past.length > 0 && (
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base text-muted-foreground">Past / Cancelled ({past.length})</CardTitle>
+            <CardTitle className="text-base text-muted-foreground">Past and cancelled ({past.length})</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <div className="divide-y">

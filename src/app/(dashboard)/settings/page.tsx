@@ -3,26 +3,34 @@ export const dynamic = 'force-dynamic'
 import { requireSession } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
 import Link from 'next/link'
-import { Building2, User, Globe, Phone, Shield, Bell, Users, CalendarSync } from 'lucide-react'
+import { Building2, User, MessageCircle, ShieldCheck, Check } from 'lucide-react'
 import { LanguageBadge } from '@/components/shared/language-badge'
 import { resolveClinicDays, describeClinicDays, SLOT_OPTION_COUNT } from '@/lib/appointments/slots'
+import { UNCONFIRMED_AFTER_HOURS } from '@/lib/appointments/escalation'
+import { resolveCheckinTime } from '@/lib/reminders/checkin'
+import { cn } from '@/lib/utils'
 import type { LanguageCode } from '@/types/enums'
 
 export const metadata = { title: 'Settings' }
 
 const ROLE_LABELS: Record<string, string> = {
-  super_admin: 'Super Admin',
-  hospital_admin: 'Hospital Admin',
-  discharge_coordinator: 'Discharge Coordinator',
+  super_admin: 'Super admin',
+  hospital_admin: 'Hospital admin',
+  discharge_coordinator: 'Discharge coordinator',
   nurse: 'Nurse',
-  case_manager: 'Case Manager',
-  read_only: 'Read Only',
+  case_manager: 'Case manager',
+  read_only: 'Read only',
 }
 
 const SUPPORTED_LANGUAGES: LanguageCode[] = ['en', 'ar', 'hi', 'ta', 'tl']
+
+const SECURITY = [
+  'All patient data is protected by row-level security.',
+  'Messages from WhatsApp are checked to be genuine (signature verification).',
+  'Every AI interaction is logged for audit.',
+  'HIPAA-aligned data access controls.',
+]
 
 export default async function SettingsPage() {
   const { profile } = await requireSession()
@@ -31,7 +39,7 @@ export default async function SettingsPage() {
   const [{ data: hospital }, { data: department }, { count: staffCount }, { data: openEpisodes }] = await Promise.all([
     supabase
       .from('hospitals')
-      .select('name, slug, timezone, whatsapp_phone_number_id, settings, is_active, created_at')
+      .select('name, timezone, whatsapp_phone_number_id, settings')
       .eq('id', profile.hospital_id)
       .single(),
     profile.department_id
@@ -60,198 +68,157 @@ export default async function SettingsPage() {
     byPhone.set(p.phone_e164, list)
   }
   const sharedNumbers = [...byPhone.entries()].filter(([, list]) => list.length > 1).sort((a, b) => a[0].localeCompare(b[0]))
-
-  const hospitalSettings = (hospital?.settings ?? {}) as {
-    languages?: string[]
-    escalation_threshold_hours?: number
-  }
+  const initials = profile.full_name.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="max-w-3xl space-y-5">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Your profile and hospital configuration
-        </p>
+        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Your account, and how patients are messaged</p>
       </div>
 
-      {/* Profile card */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <User className="w-4 h-4" /> Your Profile
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <User className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> Your account
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-start justify-between">
-            <div className="w-12 h-12 rounded-full bg-brand text-brand-foreground flex items-center justify-center text-lg font-bold">
-              {profile.full_name.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
+        <CardContent>
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand text-sm font-semibold text-brand-foreground" aria-hidden="true">
+              {initials}
             </div>
-            <Badge variant="secondary">{ROLE_LABELS[profile.role] ?? profile.role}</Badge>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-            <div>
-              <p className="text-muted-foreground text-xs mb-0.5">Full name</p>
-              <p className="font-medium">{profile.full_name}</p>
-            </div>
-            <div>
-              <p className="text-muted-foreground text-xs mb-0.5">Department</p>
-              <p className="font-medium">{department?.name ?? 'Not assigned'}</p>
-            </div>
-            {profile.phone && (
-              <div>
-                <p className="text-muted-foreground text-xs mb-0.5">Phone</p>
-                <p className="font-medium flex items-center gap-1.5">
-                  <Phone className="w-3 h-3 text-muted-foreground" /> {profile.phone}
-                </p>
-              </div>
-            )}
-            <div>
-              <p className="text-muted-foreground text-xs mb-0.5">Account status</p>
-              <Badge variant={profile.is_active ? 'default' : 'destructive'} className="text-xs">
-                {profile.is_active ? 'Active' : 'Inactive'}
-              </Badge>
+            <div className="min-w-0">
+              <p className="truncate font-medium">{profile.full_name}</p>
+              <p className="text-sm text-muted-foreground">
+                {ROLE_LABELS[profile.role] ?? profile.role}
+                {department?.name ? ` · ${department.name}` : ''}
+                {profile.phone ? ` · ${profile.phone}` : ''}
+              </p>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Hospital card */}
       {hospital && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Building2 className="w-4 h-4" /> Hospital Configuration
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4 text-sm">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <p className="text-muted-foreground text-xs mb-0.5">Hospital name</p>
-                <p className="font-medium">{hospital.name}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs mb-0.5">Slug</p>
-                <p className="font-medium font-mono text-xs bg-muted px-2 py-1 rounded w-fit">{hospital.slug}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs mb-0.5 flex items-center gap-1">
-                  <Globe className="w-3 h-3" /> Timezone
-                </p>
-                <p className="font-medium">{hospital.timezone}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs mb-0.5">Active staff</p>
-                <p className="font-medium">{staffCount ?? 0} members</p>
-              </div>
-            </div>
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Building2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> Hospital
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-3">
+                <Item label="Name">{hospital.name}</Item>
+                <Item label="Time zone">{hospital.timezone}</Item>
+                <Item label="Staff">{staffCount ?? 0} active</Item>
+              </dl>
+            </CardContent>
+          </Card>
 
-            <Separator />
-
-            {/* WhatsApp */}
-            <div>
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">WhatsApp Integration</p>
-              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${hospital.whatsapp_phone_number_id ? 'bg-success' : 'bg-muted-foreground'}`} />
-                <span className="text-sm">
-                  {hospital.whatsapp_phone_number_id ? 'Connected' : 'Not configured'}
-                </span>
-                {hospital.whatsapp_phone_number_id && (
-                  <Badge variant="outline" className="text-xs font-mono">
-                    ID: {hospital.whatsapp_phone_number_id.slice(0, 8)}…
-                  </Badge>
-                )}
-              </div>
-              <div className="mt-3 text-sm">
-                <p className="flex items-center gap-1.5 text-muted-foreground">
-                  <Users className="w-3.5 h-3.5" aria-hidden="true" />
-                  {sharedNumbers.length === 0
-                    ? 'No number is shared by more than one patient.'
-                    : `${sharedNumbers.length} ${sharedNumbers.length === 1 ? 'number is' : 'numbers are'} shared by more than one open episode — messages from them are routed by context, and the sender is asked when it is unclear.`}
-                </p>
-                {sharedNumbers.length > 0 && (
-                  <ul className="mt-2 space-y-1">
-                    {sharedNumbers.map(([phone, list]) => (
-                      <li key={phone} className="flex flex-wrap items-baseline gap-x-2">
-                        <span className="font-mono text-xs text-muted-foreground">{phone}</span>
-                        <span>
-                          {list.map((p, i) => (
-                            <span key={p.episodeId}>
-                              {i > 0 && ', '}
-                              <Link href={`/episodes/${p.episodeId}`} className="underline underline-offset-2 hover:text-brand">{p.name}</Link>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <MessageCircle className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> Patient messages
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <dl className="divide-y text-sm">
+                <Row label="WhatsApp">
+                  <span className="inline-flex items-center gap-2">
+                    <span className={cn('h-2 w-2 rounded-full', hospital.whatsapp_phone_number_id ? 'bg-success' : 'bg-muted-foreground')} aria-hidden="true" />
+                    {hospital.whatsapp_phone_number_id ? 'Connected' : 'Not set up. Messages cannot be sent yet.'}
+                  </span>
+                </Row>
+                <Row label="Languages">
+                  <span className="flex flex-wrap gap-1.5">
+                    {SUPPORTED_LANGUAGES.map((lang) => <LanguageBadge key={lang} language={lang} />)}
+                  </span>
+                </Row>
+                <Row label="Nightly check-in">
+                  Every evening at <span className="font-medium tnum">{resolveCheckinTime(hospital.settings)}</span>, once the care plan is sent
+                </Row>
+                <Row label="Unconfirmed appointments">
+                  Become an alert if the patient hasn’t confirmed within <span className="font-medium">{UNCONFIRMED_AFTER_HOURS} hours</span> of being asked
+                </Row>
+                <Row label="Rescheduling">
+                  A patient who asks to move an appointment is offered the next{' '}
+                  <span className="font-medium">{SLOT_OPTION_COUNT} clinic days ({describeClinicDays(resolveClinicDays(hospital.settings))})</span>{' '}
+                  at the same time, and picks one by number
+                </Row>
+                <Row label="Shared numbers">
+                  {sharedNumbers.length === 0 ? (
+                    <span className="text-muted-foreground">No number is used by more than one patient.</span>
+                  ) : (
+                    <>
+                      <p className="text-muted-foreground">
+                        Messages from a family phone are matched to the right patient, and the sender is asked when it’s unclear.
+                      </p>
+                      <ul className="mt-2 space-y-1">
+                        {sharedNumbers.map(([phone, list]) => (
+                          <li key={phone} className="flex flex-wrap items-baseline gap-x-2">
+                            <span className="font-mono text-xs text-muted-foreground">{phone}</span>
+                            <span>
+                              {list.map((p, i) => (
+                                <span key={p.episodeId}>
+                                  {i > 0 && ', '}
+                                  <Link href={`/episodes/${p.episodeId}`} className="underline underline-offset-2 hover:text-brand">{p.name}</Link>
+                                </span>
+                              ))}
                             </span>
-                          ))}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-
-            <Separator />
-
-            {/* Languages */}
-            <div>
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
-                <Globe className="w-3 h-3" /> Supported Languages
-              </p>
-              <div className="flex gap-2 flex-wrap">
-                {SUPPORTED_LANGUAGES.map((lang) => (
-                  <LanguageBadge key={lang} language={lang} />
-                ))}
-              </div>
-            </div>
-
-            <Separator />
-
-            {/* Escalation settings */}
-            <div>
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
-                <Bell className="w-3 h-3" /> Escalation Settings
-              </p>
-              <p className="text-sm">
-                Unconfirmed appointments escalate after{' '}
-                <span className="font-medium">{hospitalSettings.escalation_threshold_hours ?? 48} hours</span>
-              </p>
-            </div>
-
-            <Separator />
-
-            {/* Rescheduling (lib/appointments/slots.ts) */}
-            <div>
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
-                <CalendarSync className="w-3 h-3" /> Rescheduling
-              </p>
-              <p className="text-sm">
-                A patient who asks to change an appointment on WhatsApp is offered the next{' '}
-                <span className="font-medium">{SLOT_OPTION_COUNT} clinic days ({describeClinicDays(resolveClinicDays(hospital.settings))})</span>{' '}
-                at the same time, and picks one by number
-              </p>
-            </div>
-
-            <Separator />
-
-            {/* Security */}
-            <div>
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
-                <Shield className="w-3 h-3" /> Security
-              </p>
-              <div className="space-y-1.5 text-sm text-muted-foreground">
-                <p>✓ Row-level security enabled on all patient data</p>
-                <p>✓ WhatsApp webhook signature verification active</p>
-                <p>✓ All AI interactions logged for audit</p>
-                <p>✓ HIPAA-aligned data access controls</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </Row>
+              </dl>
+            </CardContent>
+          </Card>
+        </>
       )}
 
-      {/* Version info */}
-      <p className="text-xs text-muted-foreground text-center pb-2">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ShieldCheck className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> Security
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="space-y-2 text-sm text-muted-foreground">
+            {SECURITY.map((line) => (
+              <li key={line} className="flex items-start gap-2">
+                <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+                {line}
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
+
+      <p className="pb-2 text-center text-xs text-muted-foreground">
         DischargeIQ v0.1 · Built for Healthcare Innovation Hackathon 2026
       </p>
+    </div>
+  )
+}
+
+function Item({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 font-medium">{children}</dd>
+    </div>
+  )
+}
+
+/** One setting: its name on the left from `sm` up, above it on a phone. */
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[11rem_1fr] sm:gap-4">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd>{children}</dd>
     </div>
   )
 }

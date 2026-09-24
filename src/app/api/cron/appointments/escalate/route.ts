@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { validateCronSecret } from '@/lib/utils/api'
 import { createServiceClient } from '@/lib/supabase/server'
+import { UNCONFIRMED_AFTER_HOURS } from '@/lib/appointments/escalation'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -14,7 +15,7 @@ export async function POST(request: Request) {
   let missed = 0
 
   // Escalate appointments with no confirmation after 48h
-  const cutoff48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+  const cutoff48h = new Date(Date.now() - UNCONFIRMED_AFTER_HOURS * 60 * 60 * 1000).toISOString()
   const { data: unconfirmed } = await supabase
     .from('appointments')
     .select('id, episode_id, hospital_id, specialty, scheduled_at')

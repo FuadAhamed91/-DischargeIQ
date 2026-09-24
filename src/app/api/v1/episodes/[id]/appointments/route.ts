@@ -84,7 +84,7 @@ export async function POST(
     episode_id: episodeId,
     hospital_id: episode.hospital_id,
     event_type: 'appointment_confirmed',
-    payload: { appointment_id: data.id, action: 'created', created_by: profile.id },
+    payload: { appointment_id: data.id, action: 'created', specialty: data.specialty, scheduled_at: data.scheduled_at, created_by: profile.id },
     created_by: profile.id,
   })
 

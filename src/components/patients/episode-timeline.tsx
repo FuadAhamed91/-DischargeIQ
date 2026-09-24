@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import {
   FileText, MessageCircle, Bell, BellRing, Calendar, Mic, Bot, AlertTriangle,
   CheckCircle, Upload, ClipboardCheck, Send, Activity, Stethoscope,
-  CalendarCheck, CalendarClock, CalendarSync, CalendarX,
+  CalendarCheck, CalendarClock, CalendarPlus, CalendarSync, CalendarX,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { fmt, DEFAULT_TZ } from '@/lib/format'
@@ -65,11 +65,12 @@ const ALERT_TYPES: Record<string, string> = {
 // 'appointment_rescheduled' is every step of a change: the patient's WhatsApp
 // reschedule (lib/whatsapp/reschedule.ts), a staff edit, and the nightly job
 // marking a no-show. The payload says which.
-const APPOINTMENT_CONFIG: Record<'change_requested' | 'moved' | 'needs_time' | 'missed', EventConfig> = {
+const APPOINTMENT_CONFIG: Record<'change_requested' | 'moved' | 'needs_time' | 'missed' | 'cancelled', EventConfig> = {
   change_requested: { icon: CalendarSync,  color: 'text-warning', bg: 'bg-warning-soft', label: 'Patient asked to change the appointment' },
   moved:            { icon: CalendarCheck, color: 'text-success', bg: 'bg-success-soft', label: 'Appointment moved by the patient' },
   needs_time:       { icon: CalendarClock, color: 'text-warning', bg: 'bg-warning-soft', label: 'Patient needs another appointment time' },
   missed:           { icon: CalendarX,     color: 'text-danger',  bg: 'bg-danger-soft',  label: 'Appointment missed' },
+  cancelled:        { icon: CalendarX,     color: 'text-muted-foreground', bg: 'bg-muted', label: 'Appointment cancelled' },
 }
 
 const RISK_COLORS: Record<string, string> = {
@@ -89,11 +90,17 @@ function getEventConfig(event: TimelineEvent): EventConfig {
       if (p.source === 'voice') return TRIAGE_CONFIG.voice
       if (p.source === 'text' || p.source === 'nightly_checkin') return TRIAGE_CONFIG.symptom_report
       return EVENT_CONFIG.triage_completed
+    case 'appointment_confirmed':
+      // A nurse booking a visit (POST /appointments) is logged here too; only the patient confirms.
+      if (p.action === 'created') return { icon: CalendarPlus, color: 'text-info', bg: 'bg-info-soft', label: 'Appointment booked' }
+      return EVENT_CONFIG.appointment_confirmed
     case 'appointment_rescheduled':
       if (p.chosen_by === 'patient') return APPOINTMENT_CONFIG.moved
       if (p.none_suit) return APPOINTMENT_CONFIG.needs_time
       if (p.requested_by === 'patient') return APPOINTMENT_CONFIG.change_requested
       if (p.action === 'marked_missed') return APPOINTMENT_CONFIG.missed
+      // A staff edit logs its changes; cancelling is one of them.
+      if ((p.changes as { status?: unknown } | undefined)?.status === 'cancelled') return APPOINTMENT_CONFIG.cancelled
       return EVENT_CONFIG.appointment_rescheduled
     default:
       return EVENT_CONFIG[event.event_type] ?? { icon: FileText, color: 'text-muted-foreground', bg: 'bg-muted', label: event.event_type }

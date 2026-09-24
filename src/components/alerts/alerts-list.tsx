@@ -153,7 +153,8 @@ export function AlertsList({ initialAlerts, hospitalId, tz }: AlertsListProps) {
                 )}
                 aria-busy={!!pending}
               >
-                <div className="flex items-start gap-3">
+                {/* On a phone the buttons sit under the text (lined up with it), so the text keeps the width */}
+                <div className="flex flex-wrap items-start gap-3 sm:flex-nowrap">
                   <span className={cn('mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-card', cfg.icon_color)} aria-hidden="true">
                     <Icon className="h-4 w-4" />
                   </span>
@@ -173,12 +174,12 @@ export function AlertsList({ initialAlerts, hospitalId, tz }: AlertsListProps) {
                     </p>
                   </div>
                   {isOpen && (
-                    <div className="flex shrink-0 flex-col gap-1.5 sm:flex-row">
-                      <Button size="sm" variant="outline" className="h-9" disabled={!!pending} onClick={() => transition(alert.id, 'acknowledged')}>
+                    <div className="flex w-full gap-2 pl-11 sm:w-auto sm:shrink-0 sm:gap-1.5 sm:pl-0">
+                      <Button size="sm" variant="outline" className="h-9 flex-1 sm:flex-none" disabled={!!pending} onClick={() => transition(alert.id, 'acknowledged')}>
                         {pending === 'acknowledge' ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Check className="h-3.5 w-3.5" aria-hidden="true" />}
                         Acknowledge
                       </Button>
-                      <Button size="sm" variant="ghost" className="h-9 text-success hover:text-success" disabled={!!pending} onClick={() => transition(alert.id, 'resolved')}>
+                      <Button size="sm" variant="ghost" className="h-9 flex-1 text-success hover:text-success sm:flex-none" disabled={!!pending} onClick={() => transition(alert.id, 'resolved')}>
                         {pending === 'resolve' ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <CheckCheck className="h-3.5 w-3.5" aria-hidden="true" />}
                         Resolve
                       </Button>

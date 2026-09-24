@@ -18,17 +18,19 @@ export function DischargeUpload({ episodeId, onUploadComplete }: DischargeUpload
   const [file, setFile] = useState<File | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const working = state === 'uploading' || state === 'extracting'
 
   function handleFile(f: File) {
-    if (f.type !== 'application/pdf') {
-      toast.error('Only PDF files are accepted')
+    if (f.type !== 'application/pdf' && !f.name.toLowerCase().endsWith('.pdf')) {
+      toast.error('Only PDF files can be read')
       return
     }
     if (f.size > 20 * 1024 * 1024) {
-      toast.error('File must be under 20MB')
+      toast.error('The file must be under 20 MB')
       return
     }
     setFile(f)
+    setState('idle')
   }
 
   async function handleUpload() {
@@ -49,7 +51,7 @@ export function DischargeUpload({ episodeId, onUploadComplete }: DischargeUpload
       const uploadData = await uploadRes.json()
 
       if (!uploadRes.ok) {
-        throw new Error(uploadData.error ?? 'Upload failed')
+        throw new Error(uploadData.error ?? 'Could not upload the letter')
       }
 
       const documentId: string = uploadData.data.id
@@ -70,7 +72,7 @@ export function DischargeUpload({ episodeId, onUploadComplete }: DischargeUpload
       }
 
       setState('done')
-      toast.success('Discharge summary extracted successfully')
+      toast.success('Letter read. Check the care plan below.')
       if (onUploadComplete) {
         onUploadComplete(documentId)
       } else {
@@ -88,24 +90,22 @@ export function DischargeUpload({ episodeId, onUploadComplete }: DischargeUpload
     setState('idle')
   }
 
-  const stateLabel: Record<UploadState, string> = {
-    idle: '',
-    uploading: 'Uploading PDF…',
-    extracting: 'AI is extracting clinical data…',
-    done: 'Letter read',
-    error: 'Something went wrong',
-  }
-
   return (
     <div className="space-y-4">
       {/* Drop zone */}
       <div
+        role="button"
+        tabIndex={working ? -1 : 0}
+        aria-label="Choose the discharge letter (PDF)"
+        aria-busy={working}
         className={cn(
-          'border-2 border-dashed rounded-lg p-10 text-center transition-colors cursor-pointer',
-          dragOver ? 'border-brand bg-brand-soft' : 'border-border hover:border-brand/40',
-          (state === 'uploading' || state === 'extracting') && 'pointer-events-none opacity-60',
+          'rounded-lg border-2 border-dashed p-8 text-center outline-none transition-colors duration-200 sm:p-10',
+          'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+          dragOver ? 'border-brand bg-brand-soft' : 'border-border hover:border-brand/40 hover:bg-muted/40',
+          working ? 'pointer-events-none' : 'cursor-pointer',
         )}
         onClick={() => inputRef.current?.click()}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inputRef.current?.click() } }}
         onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
         onDragLeave={() => setDragOver(false)}
         onDrop={(e) => {
@@ -118,58 +118,48 @@ export function DischargeUpload({ episodeId, onUploadComplete }: DischargeUpload
         <input
           ref={inputRef}
           type="file"
-          accept="application/pdf"
+          accept="application/pdf,.pdf"
           className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }}
         />
 
         {state === 'done' ? (
           <div className="flex flex-col items-center gap-2">
-            <CheckCircle className="w-10 h-10 text-success" />
+            <CheckCircle className="h-9 w-9 text-success" aria-hidden="true" />
             <p className="font-medium text-success">Letter read</p>
-            <p className="text-sm text-muted-foreground">Review the extracted summary below</p>
+            <p className="text-sm text-muted-foreground">Opening the care plan…</p>
           </div>
-        ) : (state === 'uploading' || state === 'extracting') ? (
-          <div className="flex flex-col items-center gap-2">
-            <Loader2 className="w-10 h-10 text-brand animate-spin" />
-            <p className="font-medium">{stateLabel[state]}</p>
-            <p className="text-sm text-muted-foreground">Please wait, this may take up to 30 seconds</p>
+        ) : working ? (
+          <div className="flex flex-col items-center gap-2" role="status">
+            <Loader2 className="h-9 w-9 animate-spin text-brand" aria-hidden="true" />
+            <p className="font-medium">{state === 'uploading' ? 'Uploading the letter…' : 'Reading the letter…'}</p>
+            <p className="text-sm text-muted-foreground">This usually takes 10 to 30 seconds.</p>
           </div>
         ) : file ? (
           <div className="flex flex-col items-center gap-2">
-            <FileText className="w-10 h-10 text-brand" />
-            <p className="font-medium text-sm">{file.name}</p>
-            <p className="text-xs text-muted-foreground">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+            <FileText className="h-9 w-9 text-brand" aria-hidden="true" />
+            <p className="max-w-full truncate text-sm font-medium">{file.name}</p>
+            <p className="text-xs text-muted-foreground">{(file.size / 1024 / 1024).toFixed(1)} MB · click to choose a different file</p>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2">
-            <Upload className="w-10 h-10 text-muted-foreground" />
-            <p className="font-medium">Drop discharge PDF here</p>
-            <p className="text-sm text-muted-foreground">or click to browse — PDF only, max 20MB</p>
+            <Upload className="h-9 w-9 text-muted-foreground" aria-hidden="true" />
+            <p className="font-medium">Choose the discharge letter</p>
+            <p className="hidden text-sm text-muted-foreground sm:block">or drop the PDF here</p>
           </div>
         )}
       </div>
 
       {/* Actions */}
-      {file && state === 'idle' && (
+      {file && (state === 'idle' || state === 'error') && (
         <div className="flex gap-2">
-          <Button
-            onClick={handleUpload}
-            className="flex-1"
-            style={{ backgroundColor: 'var(--brand)' }}
-          >
-            Extract discharge data
+          <Button type="button" onClick={handleUpload} className="h-10 flex-1">
+            {state === 'error' ? 'Try again' : 'Read the letter'}
           </Button>
-          <Button variant="ghost" size="icon" onClick={reset}>
-            <X className="w-4 h-4" />
+          <Button type="button" variant="ghost" size="icon-lg" className="size-10" onClick={reset} aria-label="Remove this file">
+            <X className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
-      )}
-
-      {state === 'error' && (
-        <Button variant="outline" onClick={reset} className="w-full">
-          Try again
-        </Button>
       )}
     </div>
   )

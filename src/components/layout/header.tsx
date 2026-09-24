@@ -20,12 +20,12 @@ import type { Profile } from '@/types/database'
 import type { UserRole } from '@/types/enums'
 
 const ROLE_LABELS: Record<string, string> = {
-  super_admin: 'Super Admin',
-  hospital_admin: 'Hospital Admin',
-  discharge_coordinator: 'Discharge Coordinator',
+  super_admin: 'Super admin',
+  hospital_admin: 'Hospital admin',
+  discharge_coordinator: 'Discharge coordinator',
   nurse: 'Nurse',
-  case_manager: 'Case Manager',
-  read_only: 'Read Only',
+  case_manager: 'Case manager',
+  read_only: 'Read only',
 }
 
 interface HeaderProps {
@@ -97,7 +97,7 @@ export function Header({ profile, hospitalName, openAlerts, criticalAlerts }: He
               className="cursor-pointer"
             >
               <User className="w-4 h-4 mr-2" />
-              Profile settings
+              Settings
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem

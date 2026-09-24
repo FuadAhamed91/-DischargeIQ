@@ -6,34 +6,15 @@ import { createClient } from '@/lib/supabase/server'
 import { requireSession } from '@/lib/auth/session'
 import { fmt } from '@/lib/format'
 import { ArrowLeft, Calendar, MapPin, Clock, User, CalendarClock, CalendarSync } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
+import { StatusBadge } from '@/components/shared/status-badge'
 import { AppointmentActions } from '@/components/appointments/appointment-actions'
 import { LiveRefresh } from '@/components/shared/live-refresh'
 import type { Appointment } from '@/types/database'
+import type { AppointmentStatus } from '@/types/enums'
 
 export async function generateMetadata() {
-  return { title: 'Appointment Details' }
-}
-
-const STATUS_STYLES: Record<string, string> = {
-  scheduled: 'bg-info-soft text-info',
-  confirmation_pending: 'bg-warning-soft text-warning',
-  confirmed: 'bg-success-soft text-success',
-  reschedule_pending: 'bg-warning-soft text-warning',
-  rescheduled: 'bg-brand-soft text-brand',
-  cancelled: 'bg-danger-soft text-danger',
-  missed: 'bg-muted text-foreground',
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  scheduled: 'Scheduled',
-  confirmation_pending: 'Awaiting Confirmation',
-  confirmed: 'Confirmed',
-  reschedule_pending: 'Reschedule Pending',
-  rescheduled: 'Rescheduled',
-  cancelled: 'Cancelled',
-  missed: 'Missed',
+  return { title: 'Appointment' }
 }
 
 export default async function AppointmentDetailPage({
@@ -87,7 +68,7 @@ export default async function AppointmentDetailPage({
   let waitingNote: string | null = null
   if (appt.status === 'reschedule_pending' && change?.requested_by === 'patient') {
     if (change.none_suit) {
-      waitingNote = `None of the times offered suit the patient${change.preference ? `, who wrote: “${change.preference}”` : ''}. Agree a time with them, save it with Edit appointment, then send the WhatsApp confirmation again.`
+      waitingNote = `None of the times offered suit the patient${change.preference ? `, who wrote: “${change.preference}”` : ''}. Agree a time with them, save it with Change, then ask them to confirm again.`
     } else if (change.offered?.length) {
       waitingNote = `The patient asked to change this appointment and was offered ${change.offered.map((at) => fmt(at, 'EEE d MMM, HH:mm', tz)).join(', ')}. The time they choose on WhatsApp will show here.`
     } else {
@@ -97,59 +78,56 @@ export default async function AppointmentDetailPage({
 
   return (
     <div className="max-w-2xl space-y-5">
-      <Link href={`/episodes/${episodeId}`} className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="w-3.5 h-3.5 mr-1.5" /> Back to episode
+      <Link href={`/episodes/${episodeId}?tab=care-plan`} className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground">
+        <ArrowLeft className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" /> {patient?.full_name ?? 'Patient'}
       </Link>
 
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">{appt.specialty}</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {patient?.full_name ?? 'Patient'} · MRN {patient?.mrn ?? '—'}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight">{appt.specialty}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {patient?.full_name ?? 'Patient'} · MRN <span className="font-mono">{patient?.mrn ?? '—'}</span>
           </p>
         </div>
-        <Badge className={`text-xs ${STATUS_STYLES[appt.status] ?? ''}`}>
-          {STATUS_LABELS[appt.status] ?? appt.status}
-        </Badge>
+        <StatusBadge status={appt.status as AppointmentStatus} />
       </div>
 
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Appointment Details</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-center gap-2 text-sm">
-            <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
-            <span>{appt.time_tbc ? <>Due by {fmt(appt.scheduled_at, 'EEEE, d MMMM yyyy', tz)}</> : fmt(appt.scheduled_at, 'EEEE, d MMMM yyyy', tz)}</span>
-          </div>
-          <div className="flex items-center gap-2 text-sm">
-            <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
-            <span>{appt.time_tbc ? <span className="text-muted-foreground">Time to confirm — from the discharge summary</span> : fmt(appt.scheduled_at, 'HH:mm', tz)}</span>
-          </div>
-          {appt.location && (
-            <div className="flex items-center gap-2 text-sm">
-              <MapPin className="w-4 h-4 text-muted-foreground shrink-0" />
-              <span>{appt.location}</span>
-            </div>
-          )}
-          {appt.confirmed_at && (
-            <div className="flex items-center gap-2 text-sm text-success">
-              <User className="w-4 h-4 shrink-0" />
-              <span>Confirmed by patient on {fmt(appt.confirmed_at, 'd MMM yyyy, HH:mm', tz)}</span>
-            </div>
-          )}
-          {movedFrom && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <CalendarSync className="w-4 h-4 shrink-0" />
-              <span>Moved by the patient on WhatsApp — was {fmt(movedFrom, 'EEEE, d MMMM yyyy, HH:mm', tz)}</span>
-            </div>
-          )}
+        <CardContent>
+          <ul className="space-y-3 text-sm">
+            <li className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <span>{appt.time_tbc ? <>Due by {fmt(appt.scheduled_at, 'EEEE d MMMM yyyy', tz)}</> : fmt(appt.scheduled_at, 'EEEE d MMMM yyyy', tz)}</span>
+            </li>
+            <li className="flex items-center gap-2">
+              <Clock className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <span>{appt.time_tbc ? <span className="text-muted-foreground">Time not booked yet (from the discharge letter)</span> : fmt(appt.scheduled_at, 'HH:mm', tz)}</span>
+            </li>
+            {appt.location && (
+              <li className="flex items-center gap-2">
+                <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <span>{appt.location}</span>
+              </li>
+            )}
+            {appt.confirmed_at && (
+              <li className="flex items-center gap-2 text-success">
+                <User className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>Confirmed by the patient on {fmt(appt.confirmed_at, 'd MMM yyyy, HH:mm', tz)}</span>
+              </li>
+            )}
+            {movedFrom && (
+              <li className="flex items-center gap-2 text-muted-foreground">
+                <CalendarSync className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>Moved by the patient on WhatsApp. It was {fmt(movedFrom, 'EEEE d MMMM yyyy, HH:mm', tz)}.</span>
+              </li>
+            )}
+          </ul>
         </CardContent>
       </Card>
 
       {waitingNote && (
-        <div className="flex items-start gap-2 p-3 bg-warning-soft border border-warning/30 rounded-lg text-sm">
-          <CalendarClock className="w-4 h-4 mt-0.5 shrink-0 text-warning" aria-hidden="true" />
+        <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning-soft p-3 text-sm">
+          <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
           <p>{waitingNote}</p>
         </div>
       )}

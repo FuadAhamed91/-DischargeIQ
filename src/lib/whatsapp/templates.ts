@@ -15,6 +15,7 @@ import type {
 import { formatInTimeZone } from 'date-fns-tz'
 import type { LanguageCode } from '@/types/enums'
 import type { DischargeSummary, Medication } from '@/types/database'
+import { CARE_PLAN_MESSAGE_INSTRUCTIONS, CARE_PLAN_MESSAGE_WARNINGS } from './care-plan-limits'
 
 // Set to true to send plain text instead of template messages while Meta reviews them.
 // Read per call, not at load: scripts and checks set the flag after this module is imported.
@@ -145,8 +146,8 @@ export function buildDischargeSummaryMessage(params: {
       : medications
     const medList = medRows.map((m) => `• ${m.name} ${m.dosage} — ${m.frequency}`).join('\n')
 
-    const instructions = (translation?.lifestyle_instructions?.length ? translation.lifestyle_instructions : summary.lifestyle_instructions).slice(0, 3)
-    const warnings = (translation?.emergency_symptoms?.length ? translation.emergency_symptoms : summary.emergency_symptoms).slice(0, 4)
+    const instructions = (translation?.lifestyle_instructions?.length ? translation.lifestyle_instructions : summary.lifestyle_instructions).slice(0, CARE_PLAN_MESSAGE_INSTRUCTIONS)
+    const warnings = (translation?.emergency_symptoms?.length ? translation.emergency_symptoms : summary.emergency_symptoms).slice(0, CARE_PLAN_MESSAGE_WARNINGS)
 
     const apptList = appointments.map((a) => {
       const date = formatInTimeZone(new Date(a.scheduled_at), timezone, 'EEE d MMM yyyy')
