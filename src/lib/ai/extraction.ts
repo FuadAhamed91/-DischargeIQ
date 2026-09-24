@@ -184,8 +184,13 @@ export async function extractDischargeData(pdfText: string): Promise<ExtractionR
 
   const prompt = `${EXTRACTION_SYSTEM_PROMPT}\n\nExtract structured discharge information from this document:\n\n${pdfText.slice(0, 15000)}`
 
-  // The route allows 60 s; PDF parsing already used a little of it.
-  const { text: content } = await generate(prompt, { label: 'extraction', budgetMs: 45_000 })
+  // The route allows 60 s; PDF parsing already used a little of it. Copying a
+  // letter into fields needs no reasoning step, and the thinking was most of
+  // the wait; the nurse checks every field before anything is sent.
+  const { text: content } = await generate(
+    { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json' } },
+    { label: 'extraction', budgetMs: 45_000, noThinking: true },
+  )
 
   if (!content) throw new Error('No response from extraction model')
 

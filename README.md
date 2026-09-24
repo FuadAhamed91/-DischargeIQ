@@ -38,7 +38,7 @@ own discharge instructions, and is escalated to a nurse the moment they report a
 | Backend | Next.js route handlers on Vercel; Supabase (Postgres 17, Auth, Storage, Realtime, Vault) |
 | Scheduling | Vercel Cron (daily jobs) + `pg_cron` / `pg_net` inside Supabase (5-minute dispatch) |
 | Messaging | WhatsApp via **Twilio** (currently the sandbox; text only) |
-| AI | Gemini 2.5 Flash (extraction, translation, patient Q&A, triage, voice-note transcription) through `lib/ai/gemini.ts`, which retries 5xx, moves on at once after a 429 (that model's quota is spent), and falls back to `gemini-3.6-flash` → `gemini-3.1-flash-lite` → `gemini-3.1-pro-preview` (Google's successors to the 2.5 models, which new keys cannot use); OpenAI Whisper only as an optional transcription fallback |
+| AI | Gemini 2.5 Flash (extraction, translation, patient Q&A, triage, voice-note transcription) through `lib/ai/gemini.ts`, which retries a 5xx on the primary once, moves on at once after a 429 (that model's quota is spent, and it rests at the back of the queue for a while), and falls back to `gemini-3.6-flash` → `gemini-3.1-flash-lite` → `gemini-3.1-pro-preview` (Google's successors to the 2.5 models, which new keys cannot use), one try each. Every call asks for the least thinking the model allows (off on 2.5 Flash, "minimal"/"low" on 3.x): reading a letter, translating, triage and short answers need no reasoning step, and it was most of the wait; OpenAI Whisper only as an optional transcription fallback |
 | PDF | `unpdf` (serverless-safe text extraction) |
 
 Multi-tenant: every row carries `hospital_id` and Postgres Row Level Security enforces isolation.

@@ -209,7 +209,8 @@ async function main() {
   console.log('— failures —')
   requests.length = 0
   got = await translateMessagesToEnglish([...Array.from({ length: 20 }, (_, i) => ({ id: `ok${i}`, text: 'fine' })), { id: 'bad', text: 'FAIL' }])
-  eq('one batch fails, the other still comes back', [requests.length, Object.keys(got).length, 'bad' in got], [2, 20, false])
+  // The failing batch is asked twice: a 400 is first taken as the thinking setting, and retried without it.
+  eq('one batch fails, the other still comes back', [requests.length, Object.keys(got).length, 'bad' in got], [3, 20, false])
 
   threw = false
   try { await translateMessagesToEnglish([{ id: 'bad', text: 'FAIL' }]) } catch { threw = true }

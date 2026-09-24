@@ -1,10 +1,11 @@
 /**
  * The one place that talks to Gemini. Extraction, translation, triage and
  * patient chat all call generate(), which
- *   - retries transient failures (500/503/504 "high demand", dropped
- *     connections) with a short backoff,
+ *   - retries a transient failure of the primary (500/503/504 "high demand",
+ *     dropped connections) once with a short backoff; a fallback gets one try,
  *   - moves to the next model at once on 429 (this model's quota is spent;
- *     each model has its own) and on 404 (a model this key cannot use),
+ *     each model has its own) and on 404 (a model this key cannot use), and
+ *     lets a 429'd model rest at the back of the queue for a while,
  *   - moves to a fallback model when the primary stays unavailable, and
  *   - throws GeminiUnavailableError once every option is spent, so a route can
  *     answer "busy" or "usage limit reached" instead of "could not read".
@@ -42,7 +43,7 @@ const RETRYABLE_STATUS = new Set([408, 500, 502, 503, 504])
 export type GeminiContent = GenerateContentRequest | string | Array<string | Part>
 
 export interface GenerateOptions {
-  /** Attempts on each model before moving to the next (default 2). */
+  /** Attempts on the primary model before moving on (default 2). Each fallback gets one: the next model is quicker than a retry. */
   attemptsPerModel?: number
   /** Wall-clock budget for all attempts together (default 30 s). Keep it under the route's maxDuration. */
   budgetMs?: number
@@ -51,10 +52,10 @@ export interface GenerateOptions {
   /** Names the caller in logs, e.g. "extraction". */
   label?: string
   /**
-   * Skip the model's thinking step where the model allows it (the 2.5 Flash
-   * family; other models are asked as usual, since a thinking budget of 0 is
-   * a 400 for them). For work that needs no reasoning, such as translation,
-   * thinking is most of the wait.
+   * Ask for the least thinking the model allows (leastThinking: off on 2.5
+   * Flash, "minimal" or "low" on 3.x). For work that needs no reasoning, such
+   * as reading a letter into fields, translating, or following an explicit
+   * rubric, thinking is most of the wait.
    */
   noThinking?: boolean
 }
@@ -98,7 +99,11 @@ function modelFor(name: string): GenerativeModel {
 }
 
 /** The REST API's thinkingConfig: not in this SDK's types, but passed through to the API as sent. */
-type GenerationConfigWithThinking = GenerationConfig & { thinkingConfig?: { thinkingBudget?: number } }
+export interface ThinkingConfig {
+  thinkingBudget?: number
+  thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high'
+}
+type GenerationConfigWithThinking = GenerationConfig & { thinkingConfig?: ThinkingConfig }
 
 function asRequest(content: GeminiContent): GenerateContentRequest {
   if (typeof content === 'string') return { contents: [{ role: 'user', parts: [{ text: content }] }] }
@@ -107,15 +112,55 @@ function asRequest(content: GeminiContent): GenerateContentRequest {
 }
 
 /**
- * What to send to this model. With noThinking, the 2.5 Flash models get a
- * thinking budget of 0; any other model gets the request unchanged (2.5 Pro
- * answers a budget of 0 with a 400, which would end the fallback chain).
+ * The least thinking this model can be asked for (ai.google.dev/gemini-api/docs/thinking).
+ * 2.5 Flash and Flash-Lite turn it off with a budget of 0. The 3.x models always
+ * think a little: "minimal" on 3 Flash, 3.6 Flash and the Flash-Lites, "low" on
+ * the rest. Anything else (2.5 Pro answers a budget of 0 with a 400) is asked as usual.
  */
+export function leastThinking(model: string): ThinkingConfig | null {
+  if (/^gemini-2\.5-flash/.test(model)) return { thinkingBudget: 0 }
+  if (/^gemini-3[\d.]*-flash-lite/.test(model) || /^gemini-3(\.6)?-flash/.test(model)) return { thinkingLevel: 'minimal' }
+  if (/^gemini-3/.test(model)) return { thinkingLevel: 'low' }
+  return null
+}
+
+/** Models that turned a thinking setting down with a 400: from then on (in this server instance) they are asked without one. */
+const plainOnly = new Set<string>()
+
+/** What to send to this model: with noThinking, the request plus the least thinking it takes. */
 function requestFor(model: string, content: GeminiContent, opts: GenerateOptions): GeminiContent {
-  if (!opts.noThinking || !/^gemini-2\.5-flash/.test(model)) return content
+  const thinking = opts.noThinking && !plainOnly.has(model) ? leastThinking(model) : null
+  if (!thinking) return content
   const request = asRequest(content)
-  const generationConfig: GenerationConfigWithThinking = { ...request.generationConfig, thinkingConfig: { thinkingBudget: 0 } }
+  const generationConfig: GenerationConfigWithThinking = { ...request.generationConfig, thinkingConfig: thinking }
   return { ...request, generationConfig }
+}
+
+/**
+ * Models whose quota ran out (429), and until when they rest. A resting model is
+ * asked last instead of first, so every call does not open with a refusal (per
+ * server instance; a warm instance serves many calls).
+ */
+const restingUntil = new Map<string, number>()
+
+/** How long a 429'd model rests: half an hour for a daily limit, its RetryInfo delay for a per-minute one, else a minute. */
+function restFor(err: GoogleGenerativeAIFetchError): number {
+  const details = JSON.stringify(err.errorDetails ?? [])
+  if (/PerDay/i.test(details)) return 30 * 60_000
+  const delay = details.match(/"retryDelay":"(\d+(?:\.\d+)?)s"/)
+  if (delay) return Math.min(Number(delay[1]) * 1_000, 5 * 60_000)
+  return 60_000
+}
+
+/** For the log: which quota a 429 says ran out, e.g. GenerateRequestsPerDayPerProjectPerModel-FreeTier. */
+function quotaName(err: GoogleGenerativeAIFetchError): string | null {
+  return JSON.stringify(err.errorDetails ?? []).match(/"quotaId":"([^"]+)"/)?.[1] ?? null
+}
+
+/** Forget resting models and thinking refusals (for the checks). */
+export function resetModelState() {
+  restingUntil.clear()
+  plainOnly.clear()
 }
 
 type Failure = 'retry' | 'next_model' | 'fatal'
@@ -143,22 +188,32 @@ export async function generate(content: GeminiContent, opts: GenerateOptions = {
   const attemptsPerModel = Math.max(1, opts.attemptsPerModel ?? 2)
   const budgetMs = opts.budgetMs ?? 30_000
   const label = opts.label ?? 'gemini'
-  const chain = opts.fallback === false ? [PRIMARY_MODEL] : [PRIMARY_MODEL, ...FALLBACK_MODELS]
-
   const startedAt = Date.now()
   const remaining = () => budgetMs - (Date.now() - startedAt)
+
+  // Models resting after a 429 go to the back: still tried when nothing else answers.
+  const all = opts.fallback === false ? [PRIMARY_MODEL] : [PRIMARY_MODEL, ...FALLBACK_MODELS]
+  const resting = (m: string) => (restingUntil.get(m) ?? 0) > startedAt
+  const chain = [...all.filter((m) => !resting(m)), ...all.filter(resting)]
 
   let attempts = 0
   let lastError: unknown
   // What the models said, to tell "usage limit reached" from "busy".
   let quotaRefusals = 0
   let otherFailures = 0
+  // The model being asked again without its thinking setting after a 400.
+  let plainTrial: string | null = null
 
   for (const model of chain) {
-    for (let attempt = 1; attempt <= attemptsPerModel; attempt++) {
+    // The primary is worth a second try after a blip; a fallback is not, the next model is quicker.
+    const tries = model === PRIMARY_MODEL ? attemptsPerModel : 1
+    let attempt = 0
+    while (attempt < tries) {
+      attempt++
       attempts++
+      const request = requestFor(model, content, opts)
       try {
-        const result = await modelFor(model).generateContent(requestFor(model, content, opts))
+        const result = await modelFor(model).generateContent(request)
         const text = result.response.text().trim()
         if (attempts > 1 || model !== PRIMARY_MODEL) {
           console.info(`[${label}] answered by ${model} on attempt ${attempts}`)
@@ -166,21 +221,42 @@ export async function generate(content: GeminiContent, opts: GenerateOptions = {
         return { text, model, attempts }
       } catch (err) {
         lastError = err
+        const fetchError = err instanceof GoogleGenerativeAIFetchError ? err : null
+        const status = fetchError?.status
+
+        // A thinking setting this model does not take comes back as a 400:
+        // ask once more without it rather than end the chain. The setting stays
+        // off for this model only if the plain request then works.
+        if (status === 400 && request !== content && !plainOnly.has(model)) {
+          plainOnly.add(model)
+          plainTrial = model
+          console.warn(`[${label}] ${model} turned down the thinking setting (400); asking again without it`)
+          attempt--
+          continue
+        }
+        if (plainTrial === model) {
+          plainOnly.delete(model) // failed without it too: the setting was not the problem
+          plainTrial = null
+        }
+
         const what = classify(err)
-        const status = err instanceof GoogleGenerativeAIFetchError ? err.status : undefined
-        if (status === 429) quotaRefusals++
-        else if (status !== 404) otherFailures++
+        if (status === 429 && fetchError) {
+          quotaRefusals++
+          restingUntil.set(model, Date.now() + restFor(fetchError))
+        } else if (status !== 404) {
+          otherFailures++
+        }
         // A 429 says which quota ran out (per minute or per day) past the first 160 characters: keep it.
-        console.warn(`[${label}] ${model} attempt ${attempt} failed (${status ?? 'no status'}): ${err instanceof Error ? err.message.slice(0, status === 429 ? 1_000 : 160) : String(err)}`)
+        const quota = status === 429 && fetchError ? quotaName(fetchError) : null
+        console.warn(`[${label}] ${model} attempt ${attempt} failed (${status ?? 'no status'})${quota ? ` [${quota}]` : ''}: ${err instanceof Error ? err.message.slice(0, status === 429 ? 1_000 : 160) : String(err)}`)
 
         if (what === 'fatal') throw err
         if (what === 'next_model') break
 
-        const delay = backoff(attempt)
-        const lastAttemptOnThisModel = attempt === attemptsPerModel
         // Retrying the same model when there is no time left would only burn the
         // budget; moving on to the next model is still worth one immediate try.
-        if (!lastAttemptOnThisModel) {
+        if (attempt < tries) {
+          const delay = backoff(attempt)
           if (remaining() < delay + 2_000) break
           await sleep(delay)
         }

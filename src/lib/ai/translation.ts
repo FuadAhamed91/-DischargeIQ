@@ -104,7 +104,11 @@ ${JSON.stringify(source, null, 2)}
 
 Return the translated JSON now:`
 
-  const { text } = await generate(prompt, { label: 'translate-summary', budgetMs: opts.budgetMs ?? 40_000, noThinking: opts.noThinking })
+  // Translation needs no reasoning step: without it the care plan is ready in its language sooner.
+  const { text } = await generate(
+    { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json' } },
+    { label: 'translate-summary', budgetMs: opts.budgetMs ?? 40_000, noThinking: opts.noThinking ?? true },
+  )
 
   // Strip markdown code fences if present
   const json = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
@@ -369,7 +373,7 @@ export async function translateText(
 
   const { text: translated } = await generate(
     `Translate the following text to ${LANGUAGE_NAMES[targetLanguage]}. Return only the translated text, no explanation:\n\n${text}`,
-    { label: 'translate-text', budgetMs: 20_000 },
+    { label: 'translate-text', budgetMs: 20_000, noThinking: true },
   )
   return translated
 }
