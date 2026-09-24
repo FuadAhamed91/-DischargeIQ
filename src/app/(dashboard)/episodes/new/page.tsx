@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
-  ArrowLeft, Upload, Loader2, CheckCircle2, AlertCircle, X, PenLine, Users, Check, ChevronRight, ChevronDown, Lock,
+  ArrowLeft, Upload, Loader2, CheckCircle2, AlertCircle, X, Users, Check, ChevronRight, ChevronDown, Lock,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,7 +16,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { siteConfig } from '@/config/site'
-import { SampleLetterTiles, SAMPLE_LETTER_DRAG_TYPE, fetchSampleLetter } from '@/components/intake/sample-letter-tiles'
+import { SampleLetterPanel, SAMPLE_LETTER_DRAG_TYPE, fetchSampleLetter } from '@/components/intake/sample-letter-panel'
 import { SUPPORTED_LANGUAGES } from '@/types/enums'
 import type { LanguageCode } from '@/types/enums'
 import type { ExtractionResult } from '@/lib/ai/extraction'
@@ -97,18 +97,18 @@ function problemWith(field: RequiredField, form: FormState): string | null {
 export default function NewEpisodePage() {
   const router = useRouter()
   const [phase, setPhase] = useState<Phase>('upload')
-  const [manual, setManual] = useState(false)
   const [file, setFile] = useState<File | null>(null)
   const [extraction, setExtraction] = useState<ExtractionResult | null>(null)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [errors, setErrors] = useState<Partial<Record<RequiredField, string>>>({})
   const [dragOver, setDragOver] = useState(false)
+  /** A demo letter is being dragged: the box says where to drop it. */
+  const [sampleDragging, setSampleDragging] = useState(false)
   const [readError, setReadError] = useState<string | null>(null)
   /** "sample" when the AI reader was unavailable and a sample letter's built-in reading filled the form. */
   const [readBy, setReadBy] = useState<'ai' | 'sample' | null>(null)
   const [saving, setSaving] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const nameRef = useRef<HTMLInputElement>(null)
   const phoneRef = useRef<HTMLInputElement>(null)
   // A WhatsApp number is not unique (a family phone, a relative writing for
   // two patients). Once the number is complete, show who else is on it so
@@ -135,15 +135,13 @@ export default function NewEpisodePage() {
     ? inUse.patients.filter((p) => p.full_name.trim().toLowerCase() !== form.full_name.trim().toLowerCase())
     : []
 
-  // The cursor goes where the nurse starts typing: the first field by hand, or the one field a
-  // letter never has, unless the demo fixes the number, when a letter leaves nothing to type.
+  // The cursor goes to the one field a letter never has, the WhatsApp number, unless the demo
+  // fixes it, when a letter leaves nothing to type.
   useEffect(() => {
-    if (phase !== 'confirm') return
-    if (manual) nameRef.current?.focus()
-    else if (!LOCKED_PHONE) phoneRef.current?.focus()
-  }, [phase, manual])
+    if (phase === 'confirm' && !LOCKED_PHONE) phoneRef.current?.focus()
+  }, [phase])
 
-  const fromLetter = Boolean(extraction) && !manual
+  const fromLetter = Boolean(extraction)
 
   const set = <K extends keyof FormState>(key: K) => (value: FormState[K]) => {
     setForm((f) => ({ ...f, [key]: value }))
@@ -193,13 +191,14 @@ export default function NewEpisodePage() {
     }
   }
 
-  /** A sample letter (click or drag): fetched as a PDF with today's dates, then read like an upload. */
+  /** A demo letter (dragged in, or clicked): fetched as a PDF with today's dates, then read like an upload. */
   async function readSampleLetter(id: string) {
+    setSampleDragging(false)
     setReadError(null)
     try {
       await readDocument(await fetchSampleLetter(id))
     } catch (err) {
-      setReadError(err instanceof Error ? err.message : 'Could not load the sample letter')
+      setReadError(err instanceof Error ? err.message : 'Could not load the demo letter')
       setPhase('upload')
     }
   }
@@ -211,15 +210,7 @@ export default function NewEpisodePage() {
     setForm(EMPTY_FORM)
     setErrors({})
     setReadError(null)
-    setManual(false)
     setPhase('upload')
-  }
-
-  function enterByHand() {
-    setManual(true)
-    setForm(EMPTY_FORM)
-    setErrors({})
-    setPhase('confirm')
   }
 
   async function submit() {
@@ -236,10 +227,7 @@ export default function NewEpisodePage() {
     }
     setSaving(true)
     try {
-      if (!fromLetter || !file || !extraction) {
-        await createWithoutDocument()
-        return
-      }
+      if (!file || !extraction) return // the details step is only reached from a letter
       const payload = {
         patient: {
           full_name: form.full_name.trim(),
@@ -296,51 +284,15 @@ export default function NewEpisodePage() {
     }
   }
 
-  // Fallback for paper-only discharges: register the patient, open the episode,
-  // and let the nurse attach a document later from the episode page.
-  async function createWithoutDocument() {
-    const patientRes = await fetch('/api/v1/patients', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        full_name: form.full_name.trim(),
-        mrn: form.mrn.trim(),
-        phone_e164: form.phone_e164.trim(),
-        preferred_language: form.preferred_language,
-        date_of_birth: form.date_of_birth || null,
-      }),
-    })
-    const patientData = (await patientRes.json()) as { data?: { id: string }; error?: string }
-    let patientId = patientData.data?.id
-    if (patientRes.status === 409) {
-      const lookup = await fetch(`/api/v1/patients?search=${encodeURIComponent(form.mrn.trim())}&limit=5`)
-      const lookupData = (await lookup.json()) as { data?: Array<{ id: string; mrn: string }> }
-      patientId = lookupData.data?.find((p) => p.mrn === form.mrn.trim())?.id
-      if (!patientId) throw new Error('A patient with this MRN exists but is assigned to someone else. Ask a coordinator to open their care plan.')
-      toast.info('This patient is already registered, so a new care plan is started for them.')
-    } else if (!patientRes.ok || !patientId) {
-      throw new Error(patientData.error ?? 'Could not add the patient')
-    }
-    const episodeRes = await fetch('/api/v1/episodes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ patient_id: patientId, discharge_date: form.discharge_date }),
-    })
-    const episodeData = (await episodeRes.json()) as { data?: { id: string }; error?: string }
-    if (!episodeRes.ok || !episodeData.data) throw new Error(episodeData.error ?? 'Could not add the patient')
-    toast.success('Patient added. Upload the discharge letter when you have it.')
-    router.push(`/episodes/${episodeData.data.id}`)
-  }
-
   const nameNote = noteFor('full_name')
   const mrnNote = noteFor('mrn')
   const dischargeNote = noteFor('discharge_date')
   const phoneNote = LOCKED_PHONE
     ? { text: 'Demo number: every patient’s care plan, check-ins and answers go to this WhatsApp.', tone: 'hint' as const }
-    : noteFor('phone_e164', fromLetter ? 'Not in the letter. Type it with the country code, e.g. +971501234567.' : 'With the country code, e.g. +971501234567.')
+    : noteFor('phone_e164', 'Not in the letter. Type it with the country code, e.g. +971501234567.')
 
   return (
-    <div className="max-w-3xl space-y-5">
+    <div className="max-w-5xl space-y-5">
       <Link href="/patients" className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" /> Patients
       </Link>
@@ -349,98 +301,108 @@ export default function NewEpisodePage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Add patient</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {manual
-              ? 'Enter the patient’s details. You can upload the discharge letter from their page afterwards.'
-              : LOCKED_PHONE
-                ? 'Upload the discharge letter. The details are read from it: you check them, then approve the care plan.'
-                : 'Upload the discharge letter. The details are read from it: you add the WhatsApp number and check the rest.'}
+            {LOCKED_PHONE
+              ? 'Drop the discharge letter in the box, or drag in one of the demo letters. The details are read from it: you check them, then approve the care plan.'
+              : 'Drop the discharge letter in the box, or drag in one of the demo letters. The details are read from it: you add the WhatsApp number and check the rest.'}
           </p>
         </div>
-        {!manual && <Steps current={phase === 'confirm' ? 2 : 1} />}
+        <Steps current={phase === 'confirm' ? 2 : 1} />
       </div>
 
-      {/* Step 1: the letter */}
-      {phase !== 'confirm' && !manual && (
-        <Card>
-          <CardContent className="space-y-4">
-            <div
-              role="button"
-              tabIndex={phase === 'reading' ? -1 : 0}
-              aria-label="Choose the discharge letter (PDF)"
-              aria-busy={phase === 'reading'}
-              className={cn(
-                'rounded-lg border-2 border-dashed p-8 text-center outline-none transition-colors duration-200 sm:p-10',
-                'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-                dragOver ? 'border-brand bg-brand-tint' : 'border-border hover:border-brand/50 hover:bg-muted/40',
-                phase === 'reading' ? 'pointer-events-none' : 'cursor-pointer',
-              )}
-              onClick={() => inputRef.current?.click()}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inputRef.current?.click() } }}
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={(e) => {
-                e.preventDefault()
-                setDragOver(false)
-                const sample = e.dataTransfer.getData(SAMPLE_LETTER_DRAG_TYPE)
-                if (sample) { void readSampleLetter(sample); return }
-                const f = e.dataTransfer.files[0]
-                if (f) void readDocument(f)
-              }}
-            >
-              <input
-                ref={inputRef}
-                type="file"
-                accept="application/pdf,.pdf"
-                className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) void readDocument(f); e.target.value = '' }}
-              />
-              {phase === 'reading' ? (
-                <div className="flex flex-col items-center gap-2" role="status">
-                  <Loader2 className="h-9 w-9 animate-spin text-brand" aria-hidden="true" />
-                  <p className="max-w-full truncate font-medium">Reading {file?.name}</p>
-                  <p className="text-sm text-muted-foreground">Finding the patient’s details, medicines and warning signs. This usually takes 10 to 30 seconds.</p>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center gap-2">
-                  <Upload className="h-9 w-9 text-muted-foreground" aria-hidden="true" />
-                  <p className="font-medium">Choose the discharge letter</p>
-                  <p className="text-sm text-muted-foreground">
-                    PDF, up to 20 MB<span className="hidden sm:inline">, or drop it here</span>
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {readError && (
-              <div role="alert" className="flex items-start gap-3 rounded-lg border border-danger/30 bg-danger-soft p-3 text-sm">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-hidden="true" />
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium text-danger">Couldn’t read that letter</p>
-                  <p className="mt-0.5 text-danger/90">{readError}</p>
-                  {file && (
-                    <Button type="button" variant="outline" size="sm" className="mt-2 h-8 max-w-full" onClick={() => readDocument(file)}>
-                      <span className="truncate">Try again with {file.name}</span>
-                    </Button>
-                  )}
-                </div>
+      {/* Step 1: the letter, with the demo letters beside the box to drag in */}
+      {phase !== 'confirm' && (
+        <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
+          <Card>
+            <CardContent className="space-y-4">
+              <div
+                role="button"
+                tabIndex={phase === 'reading' ? -1 : 0}
+                aria-label="Choose the discharge letter (PDF)"
+                aria-busy={phase === 'reading'}
+                className={cn(
+                  'flex min-h-56 flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 text-center outline-none transition-colors duration-200 sm:p-10 lg:min-h-[19rem]',
+                  'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                  dragOver
+                    ? 'border-brand bg-brand-tint'
+                    : sampleDragging
+                      ? 'border-brand/60 bg-brand-tint/60'
+                      : 'border-border hover:border-brand/50 hover:bg-muted/40',
+                  phase === 'reading' ? 'pointer-events-none' : 'cursor-pointer',
+                )}
+                onClick={() => inputRef.current?.click()}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inputRef.current?.click() } }}
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  setDragOver(false)
+                  const sample = e.dataTransfer.getData(SAMPLE_LETTER_DRAG_TYPE)
+                  if (sample) { void readSampleLetter(sample); return }
+                  const f = e.dataTransfer.files[0]
+                  if (f) void readDocument(f)
+                }}
+              >
+                <input
+                  ref={inputRef}
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) void readDocument(f); e.target.value = '' }}
+                />
+                {phase === 'reading' ? (
+                  <div className="flex flex-col items-center gap-2" role="status">
+                    <Loader2 className="h-9 w-9 animate-spin text-brand" aria-hidden="true" />
+                    <p className="max-w-full truncate font-medium">Reading {file?.name}</p>
+                    <p className="text-sm text-muted-foreground">Finding the patient’s details, medicines and warning signs. This usually takes 10 to 30 seconds.</p>
+                  </div>
+                ) : sampleDragging || dragOver ? (
+                  <div className="pointer-events-none flex flex-col items-center gap-2">
+                    <Upload className="h-9 w-9 text-brand motion-safe:animate-bounce" aria-hidden="true" />
+                    <p className="font-medium text-brand">Drop the letter here</p>
+                    <p className="text-sm text-muted-foreground">It is read straight away.</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-2">
+                    <Upload className="h-9 w-9 text-muted-foreground" aria-hidden="true" />
+                    <p className="font-medium">Drop the discharge letter here</p>
+                    <p className="text-sm text-muted-foreground">
+                      <span className="hidden lg:inline">Drag in a demo letter from the right, or </span>
+                      <span className="lg:hidden">Drag in a demo letter, or </span>
+                      click to choose a PDF (up to 20 MB)
+                    </p>
+                  </div>
+                )}
               </div>
-            )}
 
-            <SampleLetterTiles onUse={(id) => void readSampleLetter(id)} disabled={phase === 'reading'} />
+              {readError && (
+                <div role="alert" className="flex items-start gap-3 rounded-lg border border-danger/30 bg-danger-soft p-3 text-sm">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-hidden="true" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-danger">Couldn’t read that letter</p>
+                    <p className="mt-0.5 text-danger/90">{readError}</p>
+                    {file && (
+                      <Button type="button" variant="outline" size="sm" className="mt-2 h-8 max-w-full" onClick={() => readDocument(file)}>
+                        <span className="truncate">Try again with {file.name}</span>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
 
-            <p className="border-t pt-4 text-sm text-muted-foreground">
-              No letter to hand?{' '}
-              <button type="button" className="font-medium text-brand underline-offset-2 hover:underline" onClick={enterByHand}>
-                Enter the details by hand
-              </button>
-            </p>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+
+          <SampleLetterPanel
+            onUse={(id) => void readSampleLetter(id)}
+            onDragChange={setSampleDragging}
+            disabled={phase === 'reading'}
+          />
+        </div>
       )}
 
       {/* Step 2: the details */}
       {phase === 'confirm' && (
-        <form className="space-y-4" noValidate onSubmit={(e) => { e.preventDefault(); void submit() }}>
+        <form className="max-w-3xl space-y-4" noValidate onSubmit={(e) => { e.preventDefault(); void submit() }}>
           {fromLetter && (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-success/30 bg-success-soft px-3 py-2 text-sm">
               <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
@@ -455,13 +417,6 @@ export default function NewEpisodePage() {
               </button>
             </div>
           )}
-          {manual && (
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
-              <PenLine className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-              <span>Entering the details by hand.</span>
-              <button type="button" onClick={startOver} className="ml-auto inline-flex h-8 items-center rounded-md px-2 text-xs font-medium text-brand hover:underline">Upload a letter instead</button>
-            </div>
-          )}
 
           <Card>
             <CardHeader>
@@ -470,7 +425,7 @@ export default function NewEpisodePage() {
             </CardHeader>
             <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field id="full_name" label="Full name" required note={nameNote} className="sm:col-span-2">
-                <Input ref={nameRef} id="full_name" value={form.full_name} onChange={(e) => set('full_name')(e.target.value)} placeholder="e.g. Ahmed Al Mansoori" autoComplete="off" className="h-11" {...describe('full_name')} />
+                <Input id="full_name" value={form.full_name} onChange={(e) => set('full_name')(e.target.value)} placeholder="e.g. Ahmed Al Mansoori" autoComplete="off" className="h-11" {...describe('full_name')} />
               </Field>
               <Field id="mrn" label="MRN" required note={mrnNote}>
                 <Input id="mrn" value={form.mrn} onChange={(e) => set('mrn')(e.target.value)} placeholder="e.g. DGH-2024-001" autoComplete="off" className="h-11 font-mono" {...describe('mrn')} />
@@ -535,7 +490,7 @@ export default function NewEpisodePage() {
               <Field
                 id="language"
                 label="Language for messages"
-                note={{ text: fromLetter ? 'Set to the letter’s language. Change it if the patient reads another.' : 'The care plan and check-ins are sent in this language.', tone: 'hint' }}
+                note={{ text: 'Set to the letter’s language. Change it if the patient reads another.', tone: 'hint' }}
               >
                 <Select items={SUPPORTED_LANGUAGES} value={form.preferred_language} onValueChange={(v) => set('preferred_language')(v as LanguageCode)}>
                   <SelectTrigger id="language" className="h-11 w-full" aria-describedby="language-note"><SelectValue /></SelectTrigger>
@@ -595,11 +550,11 @@ export default function NewEpisodePage() {
 
           <div className="flex flex-col-reverse gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-muted-foreground">
-              {fromLetter ? 'Nothing is sent to the patient until you approve the care plan.' : 'Nothing is sent to the patient yet.'}
+              Nothing is sent to the patient until you approve the care plan.
             </p>
             <Button type="submit" disabled={saving} aria-busy={saving} className="h-11 sm:min-w-56">
               {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-              {saving ? 'Saving…' : fromLetter ? 'Save and check the care plan' : 'Add patient'}
+              {saving ? 'Saving…' : 'Save and check the care plan'}
             </Button>
           </div>
         </form>

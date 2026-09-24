@@ -80,7 +80,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         apiError(
           err.quotaReached
-            ? 'The document reader has reached its usage limit with Google’s AI for now, so the letter could not be read. Nothing was saved. Try again later, or enter the details by hand.'
+            ? 'The document reader has reached its usage limit with Google’s AI for now, so the letter could not be read. Nothing was saved. Try again later, or drag in one of the demo letters.'
             : 'The document reader is busy right now (Google’s AI reported high demand). Nothing was saved. Try again in a minute.',
           err.message,
         ),
