@@ -300,13 +300,18 @@ export function buildNotRegisteredMessage(to: string): OutboundMessage {
   }
 }
 
-/** A registered number whose every episode is closed; addressed by name when the number is one patient's. */
-export function buildNoOpenEpisodeMessage(to: string, patientName: string | null): OutboundMessage {
-  return {
-    type: 'text',
-    to,
-    body: `${patientName ? `Hi ${patientName}` : 'Hello'} 👋\n\nYour care episode with us has ended, so the assistant is no longer following up on this number. If you need help, please contact the hospital directly.\n\n_If this is a medical emergency, call emergency services now._`,
-  }
+const NO_OPEN_EPISODE: Record<LanguageCode, (name: string | null) => string> = {
+  en: (n) => `${n ? `Hi ${n}` : 'Hello'} 👋\n\nYour care episode with us has ended, so the assistant is no longer following up on this number. If you need help, please contact the hospital directly.\n\n_If this is a medical emergency, call emergency services now._`,
+  ar: (n) => `${n ? `مرحباً ${n}` : 'مرحباً'} 👋\n\nانتهت فترة متابعتك معنا، لذلك لم يعد المساعد يتابع على هذا الرقم. إذا احتجت إلى مساعدة، يرجى التواصل مع المستشفى مباشرة.\n\n_إذا كانت هذه حالة طبية طارئة، اتصل بالطوارئ الآن._`,
+  hi: (n) => `${n ? `नमस्ते ${n}` : 'नमस्ते'} 👋\n\nहमारे साथ आपकी देखभाल की अवधि पूरी हो गई है, इसलिए सहायक अब इस नंबर पर फ़ॉलो-अप नहीं करता। मदद चाहिए तो कृपया सीधे अस्पताल से संपर्क करें।\n\n_अगर यह मेडिकल इमरजेंसी है, तो अभी आपातकालीन सेवा को कॉल करें।_`,
+  ta: (n) => `${n ? `வணக்கம் ${n}` : 'வணக்கம்'} 👋\n\nஎங்களுடனான உங்கள் பராமரிப்புக் காலம் முடிந்துவிட்டது, எனவே உதவியாளர் இனி இந்த எண்ணில் பின்தொடர்வதில்லை. உதவி தேவைப்பட்டால், நேரடியாக மருத்துவமனையைத் தொடர்பு கொள்ளவும்.\n\n_இது மருத்துவ அவசரநிலை என்றால், இப்போதே அவசர சேவையை அழைக்கவும்._`,
+  tl: (n) => `${n ? `Kumusta ${n}` : 'Kumusta'} 👋\n\nTapos na ang iyong care episode sa amin, kaya hindi na nagfo-follow up ang assistant sa numerong ito. Kung kailangan mo ng tulong, direktang makipag-ugnayan sa ospital.\n\n_Kung ito ay medical emergency, tumawag ngayon sa emergency._`,
+}
+
+/** A registered number whose every episode is closed; addressed by name when the number is one patient's, in their language. */
+export function buildNoOpenEpisodeMessage(to: string, patientName: string | null, language: LanguageCode = 'en'): OutboundMessage {
+  const build = NO_OPEN_EPISODE[language] ?? NO_OPEN_EPISODE.en
+  return { type: 'text', to, body: build(patientName) }
 }
 
 // ------------------------------------
@@ -347,19 +352,25 @@ export function buildGreetingReply(params: {
   return { type: 'text', to: params.to, body: build(params.patientName) }
 }
 
+const EMERGENCY: Record<LanguageCode, (name: string) => string> = {
+  en: (n) => `${n}, if you are experiencing a *medical emergency*, please call emergency services *now* or go to the nearest emergency department. 🚨\n\nYour care team has been alerted and a nurse will contact you as soon as possible.`,
+  ar: (n) => `${n}، إذا كانت هذه *حالة طبية طارئة*، يرجى الاتصال بالطوارئ *الآن* أو التوجه إلى أقرب قسم طوارئ. 🚨\n\nتم إبلاغ فريق الرعاية، وسيتواصل معك الممرض/ة في أقرب وقت ممكن.`,
+  hi: (n) => `${n}, अगर यह *मेडिकल इमरजेंसी* है, तो *अभी* आपातकालीन सेवा को कॉल करें या नज़दीकी इमरजेंसी विभाग में जाएँ। 🚨\n\nआपकी केयर टीम को सूचित कर दिया गया है और नर्स जल्द से जल्द आपसे संपर्क करेंगी।`,
+  ta: (n) => `${n}, இது *மருத்துவ அவசரநிலை* என்றால், *உடனே* அவசர சேவையை அழைக்கவும் அல்லது அருகிலுள்ள அவசர சிகிச்சைப் பிரிவுக்குச் செல்லவும். 🚨\n\nஉங்கள் பராமரிப்புக் குழுவுக்குத் தெரிவிக்கப்பட்டுள்ளது; செவிலியர் விரைவில் உங்களைத் தொடர்பு கொள்வார்.`,
+  tl: (n) => `${n}, kung ito ay *medical emergency*, tumawag *ngayon* sa emergency o pumunta sa pinakamalapit na emergency department. 🚨\n\nNaabisuhan na ang iyong care team at makikipag-ugnayan sa iyo ang isang nurse sa lalong madaling panahon.`,
+}
+
 /**
- * Sent when a message contains an emergency keyword. Deliberately not
- * localised through the model: this path must be instant and deterministic.
+ * Sent when a message contains an emergency keyword. Localised from fixed
+ * strings, never through the model: this path must be instant and deterministic.
  */
 export function buildEmergencyEscalationMessage(params: {
   to: string
   patientName: string
+  language: LanguageCode
 }): OutboundMessage {
-  return {
-    type: 'text',
-    to: params.to,
-    body: `${params.patientName}, if you are experiencing a *medical emergency*, please call emergency services *now* or go to the nearest emergency department. 🚨\n\nYour care team has been alerted and a nurse will contact you as soon as possible.`,
-  }
+  const build = EMERGENCY[params.language] ?? EMERGENCY.en
+  return { type: 'text', to: params.to, body: build(params.patientName) }
 }
 
 const CANNOT_READ_MEDIA: Record<LanguageCode, (name: string) => string> = {
@@ -380,13 +391,38 @@ export function buildCannotReadMediaReply(params: {
   return { type: 'text', to: params.to, body: build(params.patientName) }
 }
 
+const ESCALATION_ACK: Record<LanguageCode, (name: string) => string> = {
+  en: (n) => `Hi ${n},\n\nThank you for reaching out. 💙\n\nYour message has been received and a member of your care team will review it shortly.\n\nIf this is a *medical emergency*, please call emergency services immediately.`,
+  ar: (n) => `مرحباً ${n}،\n\nشكراً لتواصلك معنا. 💙\n\nوصلتنا رسالتك، وسيراجعها أحد أعضاء فريق الرعاية قريباً.\n\nإذا كانت هذه *حالة طبية طارئة*، يرجى الاتصال بالطوارئ فوراً.`,
+  hi: (n) => `नमस्ते ${n},\n\nसंपर्क करने के लिए धन्यवाद। 💙\n\nआपका संदेश मिल गया है और आपकी केयर टीम का कोई सदस्य जल्द ही इसे देखेगा।\n\nअगर यह *मेडिकल इमरजेंसी* है, तो तुरंत आपातकालीन सेवा को कॉल करें।`,
+  ta: (n) => `வணக்கம் ${n},\n\nதொடர்பு கொண்டதற்கு நன்றி. 💙\n\nஉங்கள் செய்தி கிடைத்தது; உங்கள் பராமரிப்புக் குழுவைச் சேர்ந்த ஒருவர் விரைவில் அதைப் பார்ப்பார்.\n\nஇது *மருத்துவ அவசரநிலை* என்றால், உடனே அவசர சேவையை அழைக்கவும்.`,
+  tl: (n) => `Kumusta ${n},\n\nSalamat sa pag-message. 💙\n\nNatanggap namin ang iyong mensahe at titingnan ito ng isang miyembro ng iyong care team sa lalong madaling panahon.\n\nKung ito ay *medical emergency*, tumawag agad sa emergency.`,
+}
+
+/** "A person will look at this": a voice note before triage, or a message the assistant could not handle. */
 export function buildEscalationAcknowledgement(params: {
   to: string
   patientName: string
+  language: LanguageCode
 }): OutboundMessage {
-  return {
-    type: 'text',
-    to: params.to,
-    body: `Hi ${params.patientName},\n\nThank you for reaching out. 💙\n\nYour message has been received and a member of your care team will review it shortly.\n\nIf this is a *medical emergency*, please call emergency services immediately.`,
-  }
+  const build = ESCALATION_ACK[params.language] ?? ESCALATION_ACK.en
+  return { type: 'text', to: params.to, body: build(params.patientName) }
+}
+
+const REMINDER_THANKS: Record<LanguageCode, (name: string) => string> = {
+  en: (n) => `Thank you, ${n}! ✅ Keep it up!`,
+  ar: (n) => `شكراً لك، ${n}! ✅ استمر على هذا!`,
+  hi: (n) => `धन्यवाद, ${n}! ✅ ऐसे ही जारी रखें!`,
+  ta: (n) => `நன்றி, ${n}! ✅ இப்படியே தொடருங்கள்!`,
+  tl: (n) => `Salamat, ${n}! ✅ Ipagpatuloy mo lang!`,
+}
+
+/** Reply to a "taken" / "I'm fine" on a legacy per-dose reminder. */
+export function buildReminderThanks(params: {
+  to: string
+  patientName: string
+  language: LanguageCode
+}): OutboundMessage {
+  const build = REMINDER_THANKS[params.language] ?? REMINDER_THANKS.en
+  return { type: 'text', to: params.to, body: build(params.patientName) }
 }

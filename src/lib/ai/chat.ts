@@ -7,6 +7,17 @@
 
 import { generate } from './gemini'
 import type { DischargeSummary, Medication } from '@/types/database'
+import { SUPPORTED_LANGUAGES } from '@/types/enums'
+import type { LanguageCode } from '@/types/enums'
+
+/** When the model gives no usable answer the patient still hears back — in their language. */
+const FALLBACK_ANSWER: Record<LanguageCode, string> = {
+  en: "I'm having trouble answering that right now. A nurse will follow up with you shortly. 💙",
+  ar: 'عذراً، لا أستطيع الإجابة عن ذلك الآن. سيتواصل معك الممرض/ة قريباً. 💙',
+  hi: 'माफ़ कीजिए, मैं अभी इसका जवाब नहीं दे पा रहा हूँ। नर्स जल्द ही आपसे संपर्क करेंगी। 💙',
+  ta: 'மன்னிக்கவும், இப்போது இதற்குப் பதிலளிக்க முடியவில்லை. செவிலியர் விரைவில் உங்களைத் தொடர்பு கொள்வார். 💙',
+  tl: 'Pasensya na, hindi ko ito masagot ngayon. Makikipag-ugnayan sa iyo ang isang nurse sa lalong madaling panahon. 💙',
+}
 
 
 /**
@@ -100,6 +111,9 @@ export async function answerPatientQuestion(params: {
   approvedGuidance: ApprovedGuidance[]
 }): Promise<ChatResult> {
   const { question, patientName, language, summary, medications, approvedGuidance } = params
+  // The model is told "Hindi", not "hi" — a bare code reads like a greeting.
+  const languageName = SUPPORTED_LANGUAGES[language as LanguageCode] ?? language
+  const fallbackAnswer = FALLBACK_ANSWER[language as LanguageCode] ?? FALLBACK_ANSWER.en
 
   // Build context from discharge summary
   const medContext = medications
@@ -118,7 +132,7 @@ export async function answerPatientQuestion(params: {
 You MUST only answer from the information provided below. Do NOT give any medical advice beyond what is in the discharge summary.
 
 Patient: ${patientName}
-Patient's preferred language: ${language}
+Patient's preferred language: ${languageName}
 
 === DISCHARGE SUMMARY ===
 Emergency symptoms to watch for: ${summary.emergency_symptoms.join(', ') || 'None specified'}
@@ -149,7 +163,7 @@ Step 2 — write the reply:
 - question_out_of_scope: say you can't answer that from their discharge instructions and a member of the care team will follow up. Do not guess.
 - concern: acknowledge with empathy, remind them of the relevant discharge instruction if there is one, and say a nurse will be in touch. If the concern matches any listed emergency symptom, tell them to seek emergency care immediately and set matchesEmergencySymptom to true.
 
-Rules: respond in the patient's preferred language (${language}); be warm, clear and brief; never diagnose, prescribe, or advise beyond the discharge summary.
+Rules: write the answer in ${languageName}, the patient's preferred language, whatever language their message is in; be warm, clear and brief; never diagnose, prescribe, or advise beyond the discharge summary.
 
 Respond ONLY with valid JSON:
 {
@@ -171,7 +185,7 @@ Respond ONLY with valid JSON:
     const decision = deriveEscalation(raw)
     return {
       ...decision,
-      answer: raw.answer?.trim() || "I'm sorry, I couldn't find that information. A nurse will follow up with you shortly.",
+      answer: raw.answer?.trim() || fallbackAnswer,
       model,
     }
   } catch {
@@ -180,7 +194,7 @@ Respond ONLY with valid JSON:
     // reach this function — see lib/ai/intent.ts.)
     return {
       intent: 'question_out_of_scope',
-      answer: "I'm having trouble answering that right now. A nurse will follow up with you shortly. 💙",
+      answer: fallbackAnswer,
       confidence: 'low',
       shouldEscalate: true,
       severity: 'low',

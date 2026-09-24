@@ -148,7 +148,7 @@ async function main() {
   db.rows('care_episodes').find((e) => e.id === 'ep-solo')!.status = 'completed'
   await send(inbound(SOLO_PHONE, 'hello again'))
   sent = drain()
-  includes('told by name that the episode has ended', sent[0]?.body ?? '', 'Hi Priya Nair')
+  includes('told by name, in her language, that the episode has ended', sent[0]?.body ?? '', 'नमस्ते Priya Nair')
   db.rows('care_episodes').find((e) => e.id === 'ep-solo')!.status = 'active'
 
   console.log('— a shared number, first contact: the assistant has to ask —')
@@ -398,6 +398,19 @@ async function main() {
   sent = drain()
   eq('nothing re-sent twice', sent.filter((m) => m.body.includes('💊')).length, 0)
 
+  console.log('— the whole conversation in her language: an emergency in Hindi —')
+  await send(inbound(SOLO_PHONE, 'मेरे सीने में दर्द हो रहा है।'))
+  sent = drain()
+  includes('emergency reply in Hindi', sent[0]?.body ?? '', 'मेडिकल इमरजेंसी')
+  includes('…addressed to her', sent[0]?.body ?? '', 'Priya Nair')
+  eq('critical alert on her episode', db.rows('alerts').filter((a) => a.severity === 'critical' && a.episode_id === 'ep-solo').length, 1)
+
+  console.log('— …and a voice note, acknowledged in Hindi before triage —')
+  // No model here: triage fails, and the note is escalated for a nurse instead.
+  await send(inbound(SOLO_PHONE, undefined, 'audio', { audioUrl: 'https://media.example/voice.ogg', audioMimeType: 'audio/ogg' }))
+  sent = drain()
+  includes('acknowledged in Hindi', sent[0]?.body ?? '', 'आपका संदेश मिल गया है')
+  eq('escalated at medium for a nurse', db.rows('alerts').filter((a) => a.severity === 'medium' && a.episode_id === 'ep-solo').length, 1)
 
   console.log(fails === 0 ? '\nALL PASSED' : `\n${fails} FAILED`)
   process.exit(fails ? 1 : 0)

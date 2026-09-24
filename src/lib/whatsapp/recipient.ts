@@ -52,19 +52,25 @@ export async function resolveHospital(
   return (data as InboundHospital | null) ?? null
 }
 
-/** Names of the patients registered with this number at this hospital (empty: an unknown number). */
+/** A patient registered with a number, whatever the state of their episodes. */
+export interface PatientOnNumber {
+  full_name: string
+  preferred_language: LanguageCode
+}
+
+/** The patients registered with this number at this hospital (empty: an unknown number). */
 export async function patientsOnNumber(
   supabase: ServiceClient,
   hospitalId: string,
   phone: string,
-): Promise<string[]> {
+): Promise<PatientOnNumber[]> {
   const { data } = await supabase
     .from('patients')
-    .select('full_name')
+    .select('full_name, preferred_language')
     .eq('hospital_id', hospitalId)
     .eq('phone_e164', phone)
     .order('full_name')
-  return ((data ?? []) as Array<{ full_name: string }>).map((p) => p.full_name)
+  return (data ?? []) as PatientOnNumber[]
 }
 
 interface OpenEpisodeRow {

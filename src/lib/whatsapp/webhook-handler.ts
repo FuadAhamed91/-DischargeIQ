@@ -32,6 +32,7 @@ import {
   buildGreetingReply,
   buildEmergencyEscalationMessage,
   buildCannotReadMediaReply,
+  buildReminderThanks,
 } from './templates'
 import { transition, readConversationState } from './fsm'
 import type { ParsedInbound } from './fsm'
@@ -200,8 +201,11 @@ export async function handleInboundMessage(
     if (!shouldReplyToUnknown(`${phoneNumberId}|${message.from}`)) return
     const known = await patientsOnNumber(supabase, hospital.id, message.from)
     if (known.length > 0) {
-      // Registered, but every episode is closed — by name when the number is one patient's.
-      await sendMessage(phoneNumberId, buildNoOpenEpisodeMessage(message.from, known.length === 1 ? known[0] : null))
+      // Registered, but every episode is closed — by name when the number is
+      // one patient's, in their language when everyone on it shares one.
+      const languages = new Set(known.map((p) => p.preferred_language))
+      const language = languages.size === 1 ? known[0].preferred_language : 'en'
+      await sendMessage(phoneNumberId, buildNoOpenEpisodeMessage(message.from, known.length === 1 ? known[0].full_name : null, language))
     } else {
       await sendMessage(phoneNumberId, buildNotRegisteredMessage(message.from))
     }
@@ -544,12 +548,7 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
           message_id: savedMsg?.id,
         },
       })
-      // Simple acknowledgement
-      await reply({
-        type: 'text',
-        to: message.from,
-        body: `Thank you, ${patient.full_name}! ✅ Keep it up!`,
-      })
+      await reply(buildReminderThanks({ to: message.from, patientName: patient.full_name, language: lang }))
       break
     }
 
@@ -558,6 +557,7 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
       await reply(buildEscalationAcknowledgement({
         to: message.from,
         patientName: patient.full_name,
+        language: lang,
       }))
 
       if (message.audioUrl) {
@@ -644,7 +644,7 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
         // The model is down or returned garbage: never drop a symptom report
         // on the floor. Acknowledge, and hand it to a nurse at medium.
         console.error('[Triage text] failed:', err)
-        await reply(buildEscalationAcknowledgement({ to: message.from, patientName: patient.full_name }))
+        await reply(buildEscalationAcknowledgement({ to: message.from, patientName: patient.full_name, language: lang }))
         await escalateUntriaged(supabase, episode.id, hospital.id, 'Symptom report could not be triaged automatically', message.waMessageId, text)
       }
       break
@@ -723,7 +723,7 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
 
       // Emergency keyword: instant, deterministic, critical — no model in the loop.
       if (preIntent === 'emergency') {
-        await reply(buildEmergencyEscalationMessage({ to: message.from, patientName: patient.full_name }))
+        await reply(buildEmergencyEscalationMessage({ to: message.from, patientName: patient.full_name, language: lang }))
         await supabase.from('alerts').insert({
           episode_id: episode.id,
           hospital_id: hospital.id,
@@ -832,11 +832,7 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
         })
       } catch (err) {
         console.error('[AI chat] failed:', err)
-        await reply({
-          type: 'text',
-          to: message.from,
-          body: `Thank you for your message, ${patient.full_name}. 💙\n\nA member of your care team will follow up with you shortly.\n\n_If this is urgent, please call emergency services._`,
-        })
+        await reply(buildEscalationAcknowledgement({ to: message.from, patientName: patient.full_name, language: lang }))
         await supabase.from('alerts').insert({
           episode_id: episode.id,
           hospital_id: hospital.id,
