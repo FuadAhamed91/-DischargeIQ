@@ -165,7 +165,10 @@ Risk levels:
 
 Be conservative — when in doubt, escalate to YELLOW or RED.`
 
-  const { text } = await generate(prompt, { label: 'triage', budgetMs: 25_000 })
+  // No thinking step, as for transcription: the patient waits on WhatsApp for
+  // the result, and the rubric above is explicit (emergency words never wait on
+  // it — they are answered from intent.ts).
+  const { text } = await generate(prompt, { label: 'triage', budgetMs: 25_000, noThinking: true })
 
   // Extract JSON from response (handle markdown code blocks)
   const jsonMatch = text.match(/\{[\s\S]*\}/)

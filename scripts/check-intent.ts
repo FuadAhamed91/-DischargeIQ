@@ -34,6 +34,11 @@ const pre: Array<[string, string]> = [
   ['Can I take my metformin after dinner?', 'unknown'],
   ['ok but I have chest pain', 'emergency'], ['I can’t breathe properly', 'emergency'], ['cant breathe', 'emergency'],
   ['my father collapsed', 'emergency'], ['', 'unknown'],
+  // Chest pain, breathing, fainting in every patient language: instant, no model
+  ['ako ay nakakaramdam ng pananakit ng dibdib.', 'emergency'], ['hindi ako makahinga', 'emergency'], ['nahimatay si lolo', 'emergency'],
+  ['எனக்கு நெஞ்சு வலி', 'emergency'], ['மூச்சு விட முடியவில்லை', 'emergency'],
+  ['mujhe seene mein dard hai', 'emergency'], ['मुझे छाती में दर्द है', 'emergency'], ['لا أستطيع التنفس', 'emergency'],
+  ['masakit ang ulo ko', 'unknown'], ['தலை வலி', 'unknown'],   // a headache is for the assistant, not an emergency
 ]
 for (const [input, want] of pre) eq(JSON.stringify(input), classifyPreIntent(input), want)
 

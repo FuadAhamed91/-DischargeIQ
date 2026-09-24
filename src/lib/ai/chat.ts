@@ -176,7 +176,9 @@ Respond ONLY with valid JSON:
 
   try {
     // The webhook runs this inside after() with a 60 s ceiling; leave room for the reply.
-    const { text, model } = await generate(prompt, { label: 'patient-chat', budgetMs: 25_000 })
+    // No thinking step: the patient is waiting on WhatsApp, and thinking was most
+    // of a 27 s reply. Emergencies never get here (keywords in intent.ts).
+    const { text, model } = await generate(prompt, { label: 'patient-chat', budgetMs: 25_000, noThinking: true })
 
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) throw new Error('Invalid AI response')
