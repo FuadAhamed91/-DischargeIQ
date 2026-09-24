@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // The dev-only "N" badge defaults to bottom-left, on top of the sidebar's Settings link.
+  devIndicators: { position: 'bottom-right' },
   experimental: {
     // Vercel restores .next/cache between builds. With Turbopack's persistent
     // build cache on, a large globals.css change shipped with the *previous*
