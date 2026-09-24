@@ -7,6 +7,7 @@ process.env.GEMINI_API_KEY = 'test-key' // imports are hoisted, so only the key 
 
 import { GenerativeModel, GoogleGenerativeAIFetchError } from '@google/generative-ai'
 import { generate, GeminiUnavailableError, PRIMARY_MODEL, FALLBACK_MODELS, leastThinking, resetModelState } from '@/lib/ai/gemini'
+import { flattenForGroq, resetGroqState } from '@/lib/ai/groq'
 
 const [primary, flash, lite, pro] = [PRIMARY_MODEL, ...FALLBACK_MODELS]
 
@@ -47,6 +48,37 @@ type Sent = { contents?: Array<{ parts: Array<{ text?: string }> }>; generationC
 const thinkingOf = (request: unknown) => (typeof request === 'string' ? null : (request as Sent).generationConfig?.thinkingConfig ?? null)
 
 const quick = { budgetMs: 10_000 } // real backoff (0.8–1.1 s) but nothing that makes the check slow
+
+type GroqStep = { text: string } | { status: number; body: string } | { models: string[] }
+
+/**
+ * Script Groq's HTTP answers (it is called over plain fetch, not an SDK) and
+ * record which model was asked with what. A { models } step answers the
+ * /models listing the code makes after a model is refused.
+ */
+function groqScript(steps: GroqStep[]) {
+  process.env.GROQ_API_KEY = 'groq-test-key'
+  const models: string[] = []
+  const prompts: string[] = []
+  const bodies: unknown[] = []
+  let i = 0
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input)
+    const step = steps[i++] ?? { status: 500, body: 'unscripted' }
+    if (url.endsWith('/models')) {
+      const listed = 'models' in step ? step.models : []
+      return new Response(JSON.stringify({ data: listed.map((id) => ({ id })) }), { status: 200 })
+    }
+    const body = JSON.parse(String(init?.body ?? '{}')) as { model: string; messages: Array<{ content: string }> }
+    models.push(body.model)
+    prompts.push(body.messages[0].content)
+    bodies.push(body)
+    if ('status' in step) return new Response(step.body, { status: step.status })
+    if ('models' in step) return new Response('{}', { status: 500 })
+    return new Response(JSON.stringify({ choices: [{ message: { content: step.text } }] }), { status: 200 })
+  }) as typeof fetch
+  return Object.assign(models, { models, prompts, bodies })
+}
 
 async function main() {
   eq('default chain', [primary, flash, lite, pro], ['gemini-2.5-flash', 'gemini-3.6-flash', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview'])
@@ -173,6 +205,75 @@ async function main() {
   calls = script([{ text: 'ok' }])
   await generate('plain prompt')
   eq('without noThinking the request goes as given', calls.requests[0], 'plain prompt')
+
+  // ------------------------------------
+  // Groq, once Gemini has nothing left (lib/ai/groq.ts)
+  // ------------------------------------
+  console.log('— Groq —')
+  const DEAD = [{ status: 429, details: DAILY_QUOTA }, { status: 503 }, { status: 503 }, { status: 503 }] as Step[]
+
+  eq('text is flattened to one turn', [
+    flattenForGroq('hello'),
+    flattenForGroq({ contents: [{ role: 'user', parts: [{ text: 'a' }, { text: 'b' }] }], generationConfig: { responseMimeType: 'application/json' } }),
+  ], [{ text: 'hello', json: false }, { text: 'a\nb', json: true }])
+  eq('a voice note is not Groq’s to answer', flattenForGroq({ contents: [{ role: 'user', parts: [{ inlineData: { mimeType: 'audio/ogg', data: 'x' } }] }] }), null)
+
+  calls = script(DEAD)
+  let groq = groqScript([{ text: 'from groq' }])
+  r = await generate('p', quick)
+  eq('every Gemini model spent → Groq answers', [r.text, r.model, r.attempts], ['from groq', 'groq:llama-3.3-70b-versatile', 5])
+  eq('…asked once, with the prompt as sent', [groq.length, groq.prompts[0]], [1, 'p'])
+
+  calls = script([{ text: 'gemini' }])
+  groq = groqScript([{ text: 'groq' }])
+  r = await generate('p', quick)
+  eq('Gemini answering means Groq is never asked', [r.text, groq.length], ['gemini', 0])
+
+  calls = script(DEAD)
+  groq = groqScript([{ text: 'json please' }])
+  await generate({ contents: [{ role: 'user', parts: [{ text: 'no shape word here' }] }], generationConfig: { responseMimeType: 'application/json' } }, quick)
+  eq('asked for JSON, Groq is told so in words', groq.prompts[0], 'no shape word here\n\nAnswer with JSON only.')
+  calls = script(DEAD)
+  groq = groqScript([{ text: 'x' }])
+  await generate({ contents: [{ role: 'user', parts: [{ text: 'Answer with ONLY a JSON array' }] }], generationConfig: { responseMimeType: 'application/json' } }, quick)
+  eq('…and not told twice when the prompt already says it', groq.prompts[0], 'Answer with ONLY a JSON array')
+  eq('…never with response_format, which would insist on an object', 'response_format' in (groq.bodies[0] as Record<string, unknown>), false)
+
+  calls = script(DEAD)
+  groq = groqScript([{ status: 404, body: '{"error":{"code":"model_not_found"}}' }, { models: ['llama-3.3-70b-versatile'] }, { text: 'second model' }])
+  r = await generate('p', quick)
+  eq('a retired model is skipped for the one behind it', [r.text, r.model], ['second model', 'groq:openai/gpt-oss-120b'])
+  calls = script(DEAD)
+  groq = groqScript([{ text: 'straight to the live one' }])
+  r = await generate('p', quick)
+  eq('…and never asked again', [r.model, groq.models], ['groq:openai/gpt-oss-120b', ['openai/gpt-oss-120b']])
+
+  resetGroqState()
+  calls = script(DEAD)
+  groq = groqScript([{ status: 429, body: 'rate limited' }, { status: 429, body: 'rate limited' }, { status: 429, body: 'rate limited' }])
+  let threw: GeminiUnavailableError | null = null
+  try { await generate('p', quick) } catch (err) { threw = err as GeminiUnavailableError }
+  eq('Groq refusing too still raises the Gemini answer', [threw instanceof GeminiUnavailableError, threw?.quotaReached, groq.length], [true, false, 3])
+
+  calls = script(DEAD)
+  groq = groqScript([{ text: 'unreachable' }])
+  threw = null
+  try { await generate({ contents: [{ role: 'user', parts: [{ inlineData: { mimeType: 'audio/ogg', data: 'x' } }] }], generationConfig: {} }, quick) } catch (err) { threw = err as GeminiUnavailableError }
+  eq('a voice note never goes to Groq', [threw instanceof GeminiUnavailableError, groq.length], [true, 0])
+
+  calls = script([{ status: 503 }, { status: 503 }])
+  groq = groqScript([{ text: 'unreachable' }])
+  threw = null
+  try { await generate('p', { ...quick, fallback: false }) } catch (err) { threw = err as GeminiUnavailableError }
+  eq('fallback: false stays on the primary, Groq included', [calls, groq.length], [[primary, primary], 0])
+
+  groq = groqScript([{ text: 'unreachable' }])   // sets the key; the point here is that it is gone
+  delete process.env.GROQ_API_KEY
+  resetGroqState()
+  calls = script(DEAD)
+  threw = null
+  try { await generate('p', quick) } catch (err) { threw = err as GeminiUnavailableError }
+  eq('no key: nothing changes', [threw?.quotaReached, groq.length], [false, 0])
 
   console.log(fails ? `\n${fails} check(s) failed` : '\nall checks passed')
   process.exit(fails ? 1 : 0)

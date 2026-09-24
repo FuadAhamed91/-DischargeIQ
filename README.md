@@ -38,7 +38,7 @@ own discharge instructions, and is escalated to a nurse the moment they report a
 | Backend | Next.js route handlers on Vercel; Supabase (Postgres 17, Auth, Storage, Realtime, Vault) |
 | Scheduling | Vercel Cron (daily jobs) + `pg_cron` / `pg_net` inside Supabase (5-minute dispatch) |
 | Messaging | WhatsApp via **Twilio** (currently the sandbox; text only) |
-| AI | Gemini 2.5 Flash (extraction, translation, patient Q&A, triage, voice-note transcription) through `lib/ai/gemini.ts`, which retries a 5xx on the primary once, moves on at once after a 429 (that model's quota is spent, and it rests at the back of the queue for a while), and falls back to `gemini-3.6-flash` → `gemini-3.1-flash-lite` → `gemini-3.1-pro-preview` (Google's successors to the 2.5 models, which new keys cannot use), one try each. Every call asks for the least thinking the model allows (off on 2.5 Flash, "minimal"/"low" on 3.x): reading a letter, translating, triage and short answers need no reasoning step, and it was most of the wait; OpenAI Whisper only as an optional transcription fallback |
+| AI | Gemini 2.5 Flash (extraction, translation, patient Q&A, triage, voice-note transcription) through `lib/ai/gemini.ts`, which retries a 5xx on the primary once, moves on at once after a 429 (that model's quota is spent, and it rests at the back of the queue for a while), and falls back to `gemini-3.6-flash` → `gemini-3.1-flash-lite` → `gemini-3.1-pro-preview` (Google's successors to the 2.5 models, which new keys cannot use), one try each, then to **Groq** (`lib/ai/groq.ts`, `GROQ_API_KEY`) once Gemini has nothing left — a free tier running dry is not something more retries can fix, and every call here is text in, text out. Every call asks for the least thinking the model allows (off on 2.5 Flash, "minimal"/"low" on 3.x): reading a letter, translating, triage and short answers need no reasoning step, and it was most of the wait; OpenAI Whisper only as an optional transcription fallback |
 | PDF | `unpdf` (serverless-safe text extraction) |
 
 Multi-tenant: every row carries `hospital_id` and Postgres Row Level Security enforces isolation.
@@ -272,7 +272,8 @@ in small groups, newest first, so the messages on screen fill in first. A busy k
 the nurse the English the episode already has: the answer carries what is known and only the texts
 that could not be read come back untranslated. The preference is remembered per browser. Translation calls skip Gemini's
 thinking step (`generate(…, { noThinking: true })`, 2.5 Flash models only), which is most of a
-model call's wait. Translations need `GEMINI_API_KEY`; the fixed replies do not.
+model call's wait. Translations need `GEMINI_API_KEY` (or `GROQ_API_KEY` behind it); the fixed
+replies do not.
 
 ### 4. Appointments
 
@@ -384,6 +385,7 @@ Documented in [`.env.example`](./.env.example). Summary:
 | `NEXT_PUBLIC_APP_URL` | Public base URL. **Twilio's webhook URL must be exactly `<this>/api/webhooks/whatsapp`** — the signature check reconstructs it |
 | `CRON_SECRET` | Bearer token for `/api/cron/*`. Must match the Vault value used by pg_cron (see [Deployment](#deployment)) |
 | `GEMINI_API_KEY` | Extraction, translation, Q&A, triage |
+| `GROQ_API_KEY` | Optional. Asked when every Gemini model has refused — quota, overload or a name the key cannot use. Text calls only; voice notes stay with Gemini. `GROQ_MODELS` overrides the chain when Groq retires one |
 | `OPENAI_API_KEY` | Optional. Whisper fallback if Gemini transcription fails; not set in production since 2026-09-19 |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_NUMBER` | Sandbox sender is `whatsapp:+14155238886` |
 | `WHATSAPP_USE_TEXT_FALLBACK` | `true` on the sandbox: interactive buttons are rendered as numbered text options |

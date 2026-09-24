@@ -1,21 +1,26 @@
 /**
- * The one place that talks to Gemini. Extraction, translation, triage and
+ * The one place that talks to a model. Extraction, translation, triage and
  * patient chat all call generate(), which
  *   - retries a transient failure of the primary (500/503/504 "high demand",
  *     dropped connections) once with a short backoff; a fallback gets one try,
  *   - moves to the next model at once on 429 (this model's quota is spent;
  *     each model has its own) and on 404 (a model this key cannot use), and
  *     lets a 429'd model rest at the back of the queue for a while,
- *   - moves to a fallback model when the primary stays unavailable, and
+ *   - moves to a fallback model when the primary stays unavailable,
+ *   - asks Groq once Gemini has nothing left, if GROQ_API_KEY is set and the
+ *     request is plain text (lib/ai/groq.ts), and
  *   - throws GeminiUnavailableError once every option is spent, so a route can
  *     answer "busy" or "usage limit reached" instead of "could not read".
  *
  * A single un-retried 503 from gemini-2.5-flash once made a perfectly good
  * discharge PDF look unreadable to the nurse. On 2026-09-24 the key's
  * gemini-2.5-flash quota ran out (429) while both old fallbacks answered 404
- * ("no longer available to new users"), so nothing could read a letter.
+ * ("no longer available to new users"), so nothing could read a letter — and
+ * later that day a nurse was told the conversation could not be translated.
+ * A second provider is the answer to a free tier running dry, not more retries.
  */
 
+import { groqConfigured, groqGenerate } from './groq'
 import {
   GoogleGenerativeAI,
   GoogleGenerativeAIFetchError,
@@ -39,6 +44,14 @@ export const FALLBACK_MODELS: readonly string[] = (process.env.GEMINI_FALLBACK_M
   .filter((m) => m && m !== PRIMARY_MODEL)
 
 const RETRYABLE_STATUS = new Set([408, 500, 502, 503, 504])
+
+/**
+ * What Groq is given once Gemini is spent: at least this long even when the
+ * budget has run out (it usually answers in under a second), and never more
+ * than this, so a route stays inside its maxDuration.
+ */
+const GROQ_LEAST_MS = 8_000
+const GROQ_MOST_MS = 20_000
 
 export type GeminiContent = GenerateContentRequest | string | Array<string | Part>
 
@@ -263,6 +276,21 @@ export async function generate(content: GeminiContent, opts: GenerateOptions = {
       }
     }
     if (remaining() <= 0) break
+  }
+
+  // Gemini has nothing left. Groq is asked whatever the reason — quota, an
+  // overloaded model, a name this key cannot use — and gets its own slice of
+  // time: the budget is spent, and the alternative is certainly failing.
+  if (opts.fallback !== false && groqConfigured()) {
+    try {
+      const answer = await groqGenerate(content, {
+        label,
+        timeoutMs: Math.min(Math.max(remaining(), GROQ_LEAST_MS), GROQ_MOST_MS),
+      })
+      return { text: answer.text, model: answer.model, attempts: attempts + answer.attempts }
+    } catch (err) {
+      console.warn(`[${label}] Groq could not answer either: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`)
+    }
   }
 
   const detail = lastError instanceof Error ? lastError.message : String(lastError)
