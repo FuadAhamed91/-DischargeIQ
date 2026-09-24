@@ -623,6 +623,12 @@ functions callable by `authenticated` (required — policies evaluate them as th
   and policies match the first path segment to the caller's hospital.
 - **Auth proxy** (`src/proxy.ts`) redirects everything to `/login` except `/login`, `/invite`,
   `/api/webhooks` (Twilio signature), `/api/cron` (`CRON_SECRET`), `/api/v1/auth`.
+- **Hackathon demo: no login screen.** While `siteConfig.demoSignIn` is `true` (`src/config/site.ts`),
+  the proxy signs a visitor without a session in as the hospital's first active admin
+  (`lib/supabase/demo-sign-in.ts`: a one-time magic-link token made with the service key, redeemed
+  on the spot, no email sent) and hides "Sign out". Anyone with the link can see every patient and
+  do everything that admin can, including messaging patients. Set it to `false` to bring the login
+  screen back.
 - **Twilio** requests are HMAC-verified against the exact webhook URL.
 - **Secrets** live in Vercel env vars and Supabase Vault; `.env*` is gitignored except `.env.example`.
 - **AI guardrails.** The patient assistant answers only from the patient's own approved summary and

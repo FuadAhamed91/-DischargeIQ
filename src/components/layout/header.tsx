@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -16,6 +17,7 @@ import { Badge } from '@/components/ui/badge'
 import { MobileNav } from '@/components/layout/mobile-nav'
 import { AlertBell } from '@/components/alerts/alert-bell'
 import { ThemeToggle } from '@/components/theme/theme-toggle'
+import { siteConfig } from '@/config/site'
 import type { Profile } from '@/types/database'
 import type { UserRole } from '@/types/enums'
 
@@ -83,14 +85,17 @@ export function Header({ profile, hospitalName, openAlerts, criticalAlerts }: He
             </div>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuLabel>
-              <div className="space-y-1">
-                <p className="font-medium">{profile.full_name}</p>
-                <Badge variant="secondary" className="text-xs font-normal">
-                  {ROLE_LABELS[profile.role] ?? profile.role}
-                </Badge>
-              </div>
-            </DropdownMenuLabel>
+            {/* Base UI throws when a label sits outside a group, and the menu would not open */}
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>
+                <div className="space-y-1">
+                  <p className="font-medium">{profile.full_name}</p>
+                  <Badge variant="secondary" className="text-xs font-normal">
+                    {ROLE_LABELS[profile.role] ?? profile.role}
+                  </Badge>
+                </div>
+              </DropdownMenuLabel>
+            </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => router.push('/settings')}
@@ -99,14 +104,19 @@ export function Header({ profile, hospitalName, openAlerts, criticalAlerts }: He
               <User className="w-4 h-4 mr-2" />
               Settings
             </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={handleSignOut}
-              className="text-destructive focus:text-destructive cursor-pointer"
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              Sign out
-            </DropdownMenuItem>
+            {/* In the demo a signed-out visitor is signed straight back in, so there is nothing to sign out of */}
+            {!siteConfig.demoSignIn && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={handleSignOut}
+                  className="text-destructive focus:text-destructive cursor-pointer"
+                >
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Sign out
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
