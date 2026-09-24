@@ -67,6 +67,23 @@ nurse reviews ► /episodes/[id]/review             (edit, notes, then one "Appr
            ──► /api/v1/episodes/[id]/summary/send (WhatsApp care plan; episode → active; nightly check-in scheduled)
 ```
 
+**Sample letters (demo).** Under the drop box, Add patient offers three fictional discharge letters
+(Fatima Al Hashimi — heart failure; Umar Siddiqui — heart attack, stent; Farzana Arif — gallbladder
+surgery). Click one, or drag it into the box: `GET /api/v1/intake/sample-letters/[id]` prints it as a
+PDF with **today** as the discharge day (`lib/intake/sample-letters.ts`, rendered by the dependency-free
+`lib/pdf/text-pdf.ts`), and it is read like any upload. The same letters are in `docs/` with their
+original dates. When the AI reader fails on one of them (no Gemini/Groq key, quota spent, Google busy)
+the extract route answers with the letter's built-in reading instead (`read_by: "sample"`, noted on
+the form), so a sample letter never stops at "Couldn't read that letter"; the AI gets 20 s on them
+before that. Adding a sample patient again closes their open care plan first
+(`lib/intake/sample-restart.ts`: episode completed, alerts resolved, pending check-ins and
+unconfirmed appointments cancelled), so a letter can be demoed any number of times.
+
+**One WhatsApp number for every patient (demo).** `siteConfig.demoWhatsAppNumber` in
+`src/config/site.ts` (now `+971505263427`) is filled in and locked on the form and saved by the server
+whatever the form sends, so every care plan, check-in and answer reaches the demo phone; patients on
+it are told apart by the shared-number routing. Set it to `null` to type each patient's own number.
+
 `lib/intake/persist-extraction.ts` is the single place an extraction becomes a summary; the older
 `/api/v1/episodes/[id]/documents` + `/extract` pair still works for re-uploading on an existing
 episode (and for the "enter details manually" fallback when there is no readable PDF).
@@ -311,7 +328,7 @@ come from clinic days, not a live clinic calendar, and there is no hospital PAS 
 
 | Route | Purpose |
 |---|---|
-| `/` | Overview: four headline numbers, **Needs attention** (open alerts, most urgent first, live), today's check-ins and appointments |
+| `/` | Overview: four headline numbers, **Needs attention** (open alerts, most urgent first, live), **WhatsApp messages** (every patient's newest messages as they arrive, live), tonight's check-ins and the next 7 days of appointments |
 | `/patients` | One row per care plan (episode), red first; filters Active · Needs review · Draft · Completed · All; search; open-alert count per row. `/episodes` redirects here |
 | `/episodes/[id]` | The patient page: header with risk (and **Change**), this patient's open alerts with Acknowledge / Resolve, an at-a-glance line, and three tabs — **Conversation** (with Show English / Translate), **Care plan**, **Activity** |
 | `/episodes/new`, `/episodes/[id]/review` | **Add patient** (drop the discharge letter → the few details to check, the rest folded away) and **Review care plan** — medicines, warning signs, follow-ups, instructions — sent with one **Approve and send** after a confirmation |
@@ -350,9 +367,13 @@ src/
                number-session.ts  inbound-log.ts (dedupe by SID)  sender-queue.ts (in-order per sender)  routing-templates.ts
                twilio-payload.ts (inbound form → ParsedInbound)  status-callback.ts (delivery receipts)  unknown-number.ts
     reminders/ generator.ts  dispatcher.ts
+    intake/    persist-extraction.ts  validate.ts  sample-letters.ts (demo letters + their built-in reading)  sample-restart.ts
+    pdf/       text-pdf.ts (small text-only PDF writer for the sample letters)
     supabase/  server.ts (user + service clients)  client.ts (browser)  middleware.ts (session refresh + public paths)
     auth/      session.ts  permissions.ts
-  components/  alerts/  analytics/  appointments/  episodes/  patients/ (timeline, transcript, adherence)  ui/ (shadcn)
+  components/  alerts/  analytics/  appointments/  dashboard/ (live WhatsApp feed)  episodes/  intake/ (sample letter tiles)
+               patients/ (timeline, transcript, adherence)  ui/ (shadcn)
+  config/      site.ts (name, demoWhatsAppNumber)
   types/       database.ts  enums.ts  api.ts
 supabase/
   migrations/  00001 … 00016 (see Database)
@@ -360,6 +381,7 @@ supabase/
   demo_seed.sql evergreen demo dataset (7 patients incl. a shared family number; all dates relative to today)
 scripts/
   check-intent.ts   table-driven checks for intent / escalation / FSM
+  check-*.ts        the other suites behind `npm run check` (see Testing)
 ```
 
 ---
@@ -537,9 +559,11 @@ own patient record by its number, and each patient's Conversation tab updates li
    sandbox's participant list fills itself. **If the Twilio account is still a free trial**, the
    number must also be added under Phone Numbers → Manage → Verified Caller IDs (trial accounts can
    only message verified numbers, WhatsApp included); an upgraded account skips this.
-2. **Register them as a patient** within 24 hours of that join message: `/episodes/new` → drop one
-   of the sample PDFs in `docs/` → type *their* WhatsApp number in international format (+971…,
-   +91…) → give each patient a different MRN → confirm → review → **Approve and send**.
+2. **Register them as a patient** within 24 hours of that join message: `/episodes/new` → click a
+   sample letter (or drop any discharge PDF) → check the details → **Save and check the care plan**
+   → **Approve and send**. While `siteConfig.demoWhatsAppNumber` is set, every patient gets that one
+   number (the field is locked), so to give each person their own, set it to `null` and type
+   *their* number in international format (+971…, +91…), with a different MRN per patient.
    WhatsApp only allows free text within 24 hours of the person's last message; a care plan sent
    later fails with 63016, the episode shows "Care plan not delivered", and it goes out again by
    itself the moment they write anything.
@@ -547,8 +571,10 @@ own patient record by its number, and each patient's Conversation tab updates li
    (instant emergency reply + critical alert on `/alerts`). Replies arrive on the phone and the
    exchange appears on the episode's Conversation tab as it happens.
 
-**One phone, two patients** (a family phone): register two patients with the *same* number from two
-different sample PDFs, send both care plans, then write "hi" — the assistant asks "Who is this
+**One phone, two patients** (a family phone — and every demo patient while the demo number is
+fixed): register two patients on the *same* number from two different sample letters, send both
+care plans, then write "hi" — the assistant answers for the patient whose care plan went out last
+(for a day), and once that is not clear it asks "Who is this
 message about? 1. … 2. …", holds the message, and answers it for whoever the sender picks.
 `Umar: can I walk today?` goes straight to Umar; `switch` lists the patients again. Both episodes
 show the question, a "Shared number" notice with a **Forget** button, and under each message how
@@ -646,7 +672,7 @@ functions callable by `authenticated` (required — policies evaluate them as th
 npm run lint           # eslint — clean; CI runs it with --max-warnings=0
 npx tsc --noEmit       # typecheck
 npm run build          # production build (needs NEXT_PUBLIC_SUPABASE_* set; placeholders are fine)
-npm run check          # all eight below
+npm run check          # all nine below
 npm run check:intent   # table-driven checks: pre-intent classifier (incl. 139 Arabic phrasings: 102 that must fire, 37 that must not), escalation derivation, FSM (check-in, nurse chat, media), state parsing
 npm run check:routing  # shared-number routing: name prefixes, answers to "who is this about?", the decision order, expiries
 npm run check:webhook  # the inbound handler end to end against an in-memory Supabase and a captured Twilio (no keys, no network)
@@ -655,6 +681,7 @@ npm run check:delivery # Twilio status callbacks: sent → delivered → read or
 npm run check:translation # nurse message → patient's language, transcript → English: unwrapping, JSON parsing, batching, partial failure; the care plan only ever as a translation of the plan as edited (stale translations dropped and never sent, translated at send, English if the model fails or is slow)
 npm run check:reschedule  # "2 — change the date": clinic days, the times offered, numbers and dates in five languages, the messages
 npm run check:analytics   # what the dashboard counts: check-in answers ("none taken" included), the 30-day trend, booked vs to-book appointments
+npm run check:sample-letters # the sample letters print to PDFs that read back, are recognised with their printed dates (docs/ copies too), pass the commit schema; adding one again closes the old care plan
 ```
 
 `scripts/lib/fake-supabase.ts` is the in-memory stand-in the webhook check runs on: enough of the
