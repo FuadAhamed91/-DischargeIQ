@@ -7,8 +7,8 @@
  * keeps each patient's conversation and transcript apart, routes replies to
  * the conversation that is waiting, drops a redelivered SID, and leaves a
  * single-patient number exactly as it was. Only deterministic paths are
- * exercised (greetings, acknowledgements, the check-in, emergencies) — no
- * model call, no network, no API keys.
+ * exercised (greetings, acknowledgements, the check-in, emergencies, an
+ * appointment reschedule) — no model call, no network, no API keys.
  *
  * Run with:  npm run check:webhook
  */
@@ -29,6 +29,8 @@ import { parseStatusCallback, applyStatusCallback, nextRowStatus } from '@/lib/w
 import { rememberPatientIfShared, pruneStaleNumberSessions, summariseNumberSession, STALE_SESSION_MS } from '@/lib/whatsapp/number-session'
 import { parseWebhookPayload } from '@/lib/whatsapp/twilio-payload'
 import { raiseEpisodeRisk, isLowering } from '@/lib/episodes/risk'
+import { proposeSlots, DEFAULT_CLINIC_DAYS } from '@/lib/appointments/slots'
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import type { ServiceClient } from '@/lib/whatsapp/recipient'
 import type { ParsedInbound } from '@/lib/whatsapp/fsm'
 
@@ -517,6 +519,97 @@ async function main() {
   sent = drain()
   eq('storage not ready (00016 not applied): still heard and answered, no audio path', [sent[0]?.body.startsWith('नमस्ते Priya Nair'), lastSolo().media_storage_path ?? null], [true, null])
   db.failUploads = false
+
+  console.log('— "2 — change the date": times offered, one chosen by its date, the appointment moves —')
+  // Priya (Hindi, her own number): Cardiology on a Monday at least a week away, 09:00 in Dubai.
+  const DUBAI = 'Asia/Dubai'
+  let monday = new Date(Date.now() + 7 * 86400_000)
+  while (formatInTimeZone(monday, DUBAI, 'i') !== '1') monday = new Date(monday.getTime() + 86400_000)
+  const booked = fromZonedTime(`${formatInTimeZone(monday, DUBAI, 'yyyy-MM-dd')}T09:00:00`, DUBAI).toISOString()
+  db.rows('appointments').push({
+    id: 'appt-cardio', episode_id: 'ep-solo', hospital_id: 'h1', specialty: 'Cardiology', scheduled_at: booked, location: null,
+    status: 'confirmation_pending', confirmation_requested_at: new Date().toISOString(), confirmed_at: null, time_tbc: false,
+  })
+  const appointment = () => db.rows('appointments').find((a) => a.id === 'appt-cardio')!
+  const priyaState = () => stateOf(String(priyaConversation.id))
+  const lastChange = () => db.rows('patient_timeline_events').filter((e) => e.event_type === 'appointment_rescheduled').at(-1)?.payload as Record<string, unknown> | undefined
+  const openAppointmentAlerts = () => db.rows('alerts').filter((a) => a.type === 'unconfirmed_appointment' && a.episode_id === 'ep-solo').length
+  const askToChange = async () => {
+    appointment().status = 'confirmation_pending'
+    priyaConversation.conversation_state = 'awaiting_appointment_confirm'
+    await send(inbound(SOLO_PHONE, '2'))
+    return drain()
+  }
+  const offered = proposeSlots({ current: booked, now: new Date(), timezone: DUBAI, clinicDays: DEFAULT_CLINIC_DAYS })
+  const hindiLine = (i: number) => `*${i + 1}* — ${formatInTimeZone(new Date(offered[i]), DUBAI, 'EEEE, d MMMM, HH:mm')} बजे`
+
+  sent = await askToChange()
+  includes('three times offered, in Hindi', sent[0]?.body ?? '', [0, 1, 2].map(hindiLine).join('\n'))
+  includes('…and a number for none of them', sent[0]?.body ?? '', '*4* भेजें')
+  eq('appointment waits for a new time; conversation for the choice', [appointment().status, priyaState()], ['reschedule_pending', 'awaiting_slot_selection'])
+  eq('what was offered is kept', (db.rows('appointment_slots_cache')[0]?.slots as Array<{ datetime: string }>).map((s) => s.datetime), offered)
+  eq('timeline: the request, with the times offered', lastChange()?.offered, offered)
+
+  await send(inbound(SOLO_PHONE, 'ok'))
+  sent = drain()
+  includes('"ok" is answered at once', sent[0]?.body ?? '', 'Priya Nair')
+  eq('…and the times stay on offer', priyaState(), 'awaiting_slot_selection')
+
+  await send(inbound(SOLO_PHONE, '7'))
+  sent = drain()
+  includes('a number not on the list: asked again', sent[0]?.body ?? '', 'माफ़ कीजिए Priya Nair')
+  includes('…with the same times', sent[0]?.body ?? '', hindiLine(1))
+  eq('…still waiting for the choice', priyaState(), 'awaiting_slot_selection')
+
+  // The second time, typed as its date the way Umar typed "6th October".
+  await send(inbound(SOLO_PHONE, formatInTimeZone(new Date(offered[1]), DUBAI, 'do MMMM')))
+  sent = drain()
+  includes('confirmed at the new time, in Hindi', sent[0]?.body ?? '', `${formatInTimeZone(new Date(offered[1]), DUBAI, 'EEEE, d MMMM yyyy')}*, *09:00* बजे पक्का`)
+  eq('the appointment moved there, confirmed', [appointment().scheduled_at, appointment().status, typeof appointment().confirmed_at], [offered[1], 'confirmed', 'string'])
+  eq('timeline: moved by the patient, from → to', [lastChange()?.from, lastChange()?.to, lastChange()?.chosen_by], [booked, offered[1], 'patient'])
+  eq('offer cleared, conversation idle', [db.rows('appointment_slots_cache').length, priyaState()], [0, 'idle'])
+
+  console.log('— none of the times suit: a nurse arranges it —')
+  await askToChange()
+  const ownDate = formatInTimeZone(new Date(Date.parse(booked) + 14 * 86400_000), DUBAI, 'do MMMM')   // not on the list
+  await send(inbound(SOLO_PHONE, ownDate))
+  sent = drain()
+  includes('a date of her own: told a nurse will contact her, in Hindi', sent[0]?.body ?? '', 'नर्स आपसे संपर्क करके')
+  eq('an alert for the nurse', openAppointmentAlerts(), 1)
+  eq('timeline: the date she asked for', [lastChange()?.none_suit, lastChange()?.preference], [true, ownDate])
+  eq('the appointment still needs a time; conversation idle', [appointment().status, priyaState()], ['reschedule_pending', 'idle'])
+  await askToChange()
+  await send(inbound(SOLO_PHONE, '4'))
+  sent = drain()
+  includes('"4": the same hand-off', sent[0]?.body ?? '', 'नर्स आपसे संपर्क करके')
+  eq('…without a second open alert', openAppointmentAlerts(), 1)
+  eq('…recorded as none of them', [lastChange()?.none_suit, lastChange()?.preference], [true, null])
+
+  console.log('— a time that has gone by, and a nurse who got there first —')
+  await askToChange()
+  ;(db.rows('appointment_slots_cache')[0].slots as Array<{ datetime: string }>)[0].datetime = new Date(Date.now() - 3600_000).toISOString()
+  await send(inbound(SOLO_PHONE, '1'))
+  sent = drain()
+  includes('told it has passed, with fresh times', sent[0]?.body ?? '', 'वह समय निकल चुका है')
+  eq('…still waiting for the choice; the appointment has not moved', [priyaState(), appointment().scheduled_at], ['awaiting_slot_selection', offered[1]])
+  appointment().status = 'confirmed'   // sorted out by phone meanwhile
+  await send(inbound(SOLO_PHONE, '1'))
+  sent = drain()
+  includes('nothing moves; she is told a nurse will check', sent[0]?.body ?? '', 'कोई अपॉइंटमेंट नहीं मिला')
+  eq('…offer cleared, conversation idle', [db.rows('appointment_slots_cache').length, priyaState(), appointment().scheduled_at], [0, 'idle', offered[1]])
+
+  console.log('— the offer cannot be stored: straight to a nurse, never a list nobody can answer —')
+  const realFrom = db.from.bind(db)
+  const broken: Record<string, unknown> = {}
+  for (const method of ['select', 'insert', 'delete', 'eq', 'order', 'limit', 'maybeSingle']) broken[method] = () => broken
+  broken.then = (resolve: (v: unknown) => unknown) => resolve({ data: null, error: { message: 'relation "appointment_slots_cache" does not exist' }, count: null })
+  db.from = ((table: string) => (table === 'appointment_slots_cache' ? broken : realFrom(table))) as typeof db.from
+  sent = await askToChange()
+  db.from = realFrom
+  includes('told a nurse will contact her', sent[0]?.body ?? '', 'नर्स आपसे संपर्क करके')
+  eq('no list of times', sent.some((m) => m.body.includes('*1* —')), false)
+  eq('conversation idle; the appointment waits for the nurse, who is alerted', [priyaState(), appointment().status, openAppointmentAlerts()], ['idle', 'reschedule_pending', 1])
+  eq('timeline: the request, nothing offered', [lastChange()?.requested_by, lastChange()?.offered], ['patient', null])
 
   console.log(fails === 0 ? '\nALL PASSED' : `\n${fails} FAILED`)
   process.exit(fails ? 1 : 0)

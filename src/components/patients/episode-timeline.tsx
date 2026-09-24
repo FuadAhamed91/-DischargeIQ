@@ -5,8 +5,10 @@ import { createClient } from '@/lib/supabase/client'
 import {
   FileText, MessageCircle, Bell, BellRing, Calendar, Mic, Bot, AlertTriangle,
   CheckCircle, Upload, ClipboardCheck, Send, Activity, Stethoscope,
+  CalendarCheck, CalendarClock, CalendarSync, CalendarX,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { fmt, DEFAULT_TZ } from '@/lib/format'
 
 interface TimelineEvent {
   id: string
@@ -60,6 +62,16 @@ const ALERT_TYPES: Record<string, string> = {
   missed_appointment: 'Missed appointment',
 }
 
+// 'appointment_rescheduled' is every step of a change: the patient's WhatsApp
+// reschedule (lib/whatsapp/reschedule.ts), a staff edit, and the nightly job
+// marking a no-show. The payload says which.
+const APPOINTMENT_CONFIG: Record<'change_requested' | 'moved' | 'needs_time' | 'missed', EventConfig> = {
+  change_requested: { icon: CalendarSync,  color: 'text-warning', bg: 'bg-warning-soft', label: 'Patient asked to change the appointment' },
+  moved:            { icon: CalendarCheck, color: 'text-success', bg: 'bg-success-soft', label: 'Appointment moved by the patient' },
+  needs_time:       { icon: CalendarClock, color: 'text-warning', bg: 'bg-warning-soft', label: 'Patient needs another appointment time' },
+  missed:           { icon: CalendarX,     color: 'text-danger',  bg: 'bg-danger-soft',  label: 'Appointment missed' },
+}
+
 const RISK_COLORS: Record<string, string> = {
   red: 'bg-danger',
   yellow: 'bg-warning',
@@ -77,12 +89,18 @@ function getEventConfig(event: TimelineEvent): EventConfig {
       if (p.source === 'voice') return TRIAGE_CONFIG.voice
       if (p.source === 'text' || p.source === 'nightly_checkin') return TRIAGE_CONFIG.symptom_report
       return EVENT_CONFIG.triage_completed
+    case 'appointment_rescheduled':
+      if (p.chosen_by === 'patient') return APPOINTMENT_CONFIG.moved
+      if (p.none_suit) return APPOINTMENT_CONFIG.needs_time
+      if (p.requested_by === 'patient') return APPOINTMENT_CONFIG.change_requested
+      if (p.action === 'marked_missed') return APPOINTMENT_CONFIG.missed
+      return EVENT_CONFIG.appointment_rescheduled
     default:
       return EVENT_CONFIG[event.event_type] ?? { icon: FileText, color: 'text-muted-foreground', bg: 'bg-muted', label: event.event_type }
   }
 }
 
-function getPayloadSummary(event: TimelineEvent): string | null {
+function getPayloadSummary(event: TimelineEvent, timezone: string): string | null {
   const p = event.payload
   switch (event.event_type) {
     case 'triage_completed':
@@ -93,11 +111,20 @@ function getPayloadSummary(event: TimelineEvent): string | null {
     case 'ai_response':
       return p.question ? `Q: "${String(p.question).slice(0, 80)}…"` : null
     case 'appointment_confirmed':
-    case 'appointment_rescheduled':
       return p.specialty ? `${p.specialty}` : null
     case 'escalation_created':
       // Why a nurse was brought in — e.g. "Voice note unclear (clarity 45%) — listen to it on the Conversation tab".
       return typeof p.reason === 'string' && p.reason ? p.reason : null
+    case 'appointment_rescheduled': {
+      // "Cardiology · Mon 5 Oct, 09:00 → Tue 6 Oct, 09:00"
+      const specialty = typeof p.specialty === 'string' ? p.specialty : null
+      const when = (at: unknown) => (typeof at === 'string' ? fmt(at, 'EEE d MMM, HH:mm', timezone) : '—')
+      let detail: string | null = null
+      if (p.chosen_by === 'patient') detail = `${when(p.from)} → ${when(p.to)}`
+      else if (p.none_suit) detail = typeof p.preference === 'string' && p.preference ? `“${p.preference}”` : 'none of the times offered suit'
+      else if (Array.isArray(p.offered) && p.offered.length > 0) detail = `offered ${p.offered.map(when).join(' · ')}`
+      return [specialty, detail].filter(Boolean).join(' · ') || null
+    }
     case 'risk_changed': {
       // "red → green · Fuad Ahamed: “Called him — the pain has settled”"
       const who = typeof p.changed_by === 'string' ? ` · ${p.changed_by}` : ''
@@ -129,9 +156,11 @@ const INBOUND_ROUTING: Record<string, string> = {
 interface EpisodeTimelineProps {
   initialEvents: TimelineEvent[]
   episodeId: string
+  /** Hospital timezone: appointment times in the summaries are clinic time. */
+  timezone?: string
 }
 
-export function EpisodeTimeline({ initialEvents, episodeId }: EpisodeTimelineProps) {
+export function EpisodeTimeline({ initialEvents, episodeId, timezone = DEFAULT_TZ }: EpisodeTimelineProps) {
   const [events, setEvents] = useState<TimelineEvent[]>(initialEvents)
   const supabase = createClient()
 
@@ -161,7 +190,7 @@ export function EpisodeTimeline({ initialEvents, episodeId }: EpisodeTimelinePro
       {events.map((event, idx) => {
         const config = getEventConfig(event)
         const Icon = config.icon
-        const summary = getPayloadSummary(event)
+        const summary = getPayloadSummary(event, timezone)
 
         return (
           <div key={event.id} className={`relative flex gap-4 ${idx < events.length - 1 ? 'pb-5' : ''}`}>

@@ -417,7 +417,7 @@ export default async function EpisodeDetailPage({
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <EpisodeTimeline initialEvents={(timelineEvents ?? []) as unknown as Parameters<typeof EpisodeTimeline>[0]['initialEvents']} episodeId={id} />
+              <EpisodeTimeline initialEvents={(timelineEvents ?? []) as unknown as Parameters<typeof EpisodeTimeline>[0]['initialEvents']} episodeId={id} timezone={tz} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -532,14 +532,14 @@ export default async function EpisodeDetailPage({
         <Card>
           <CardHeader className="pb-3 flex flex-row items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2"><Calendar className="w-4 h-4" /> Appointments</CardTitle>
-            <Link href={`/episodes/${id}/appointments`} className="text-xs text-brand hover:underline flex items-center gap-0.5">
+            <Link href="/appointments" className="text-xs text-brand hover:underline flex items-center gap-0.5">
               Manage <ChevronRight className="w-3 h-3" />
             </Link>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
               {appointments.slice(0, 3).map((appt) => (
-                <div key={appt.id} className="flex items-center justify-between py-1.5 border-b last:border-0">
+                <Link key={appt.id} href={`/episodes/${id}/appointments/${appt.id}`} className="flex items-center justify-between py-1.5 border-b last:border-0 hover:bg-muted/40 rounded-sm">
                   <div>
                     <p className="text-sm font-medium">{appt.specialty}</p>
                     <p className="text-xs text-muted-foreground">
@@ -547,7 +547,7 @@ export default async function EpisodeDetailPage({
                     </p>
                   </div>
                   <StatusBadge status={appt.status as EpisodeStatus} />
-                </div>
+                </Link>
               ))}
             </div>
           </CardContent>

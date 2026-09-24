@@ -127,7 +127,8 @@ flowchart TD
   R -->|decided| S
   R -->|unclear| ASK[ask who it is about<br/>hold the message, replay on answer]
   S{conversation state<br/>lib/whatsapp/fsm.ts}
-  S -->|awaiting_appointment_confirm| AP[confirm / start reschedule]
+  S -->|awaiting_appointment_confirm| AP[1 confirm · 2 offer the next clinic days]
+  S -->|awaiting_slot_selection| SL[number or date → appointment moved, confirmed<br/>none / another date → nurse alert · anything else → assistant]
   S -->|awaiting_checkin_meds| Q1{1 · 2 · 3 ?}
   Q1 -->|all · some| L[log reminder_response<br/>adherence ✓ · some → alert: low]
   Q1 -->|none| N[alert: missed_medication medium]
@@ -274,10 +275,23 @@ Edits in review re-sync: untouched provisional rows move or disappear with their
 a nurse has booked, confirmed or cancelled is left alone.
 
 `/api/v1/episodes/[id]/appointments/[appointmentId]/send-confirmation` asks the patient "Can you
-attend?" and puts the conversation in `awaiting_appointment_confirm`. YES confirms; NO starts the
-reschedule flow (`awaiting_slot_selection`, slots from `appointment_slots_cache`). The daily
-`escalate` job raises an `unconfirmed_appointment` alert after 48h and marks past-due, unconfirmed
-appointments as missed. The scheduling adapter is currently `manual` — no hospital PAS integration yet.
+attend?" and puts the conversation in `awaiting_appointment_confirm`. *1* confirms. *2* offers new
+times (`lib/whatsapp/reschedule.ts`): the next three clinic days after the appointment, at the same
+time of day, numbered, plus one number for "none of these" (`lib/appointments/slots.ts`). Clinic days
+are Mon–Fri unless `hospitals.settings.clinic_days` says otherwise (ISO weekdays, e.g. `[1,2,3,4,5,6]`).
+The offer is kept in `appointment_slots_cache` and the conversation waits in `awaiting_slot_selection`.
+A number, or a typed date that matches one of the times ("6th October", "Wed", "7/10"), moves the
+appointment there and confirms it. The patient gets the confirmation, and the Appointments screen,
+the appointment page and the Timeline show the move live. "None of these" (or the last number), or
+a date that is not on the list, goes to a nurse: the patient is told a nurse will contact them, an
+`unconfirmed_appointment` alert is raised, and the date they asked for is on the Timeline and the
+appointment page. Anything else they write meanwhile (a question, a symptom) is answered by the
+assistant as usual, since it is what checks for warning signs, and the times stay on offer. Only a
+message that is nothing but a date is read as one.
+
+The daily `escalate` job raises an `unconfirmed_appointment` alert after 48h and marks past-due,
+unconfirmed appointments as missed. The scheduling adapter is currently `manual`: the times offered
+come from clinic days, not a live clinic calendar, and there is no hospital PAS integration yet.
 
 ### 5. Dashboard
 
@@ -603,13 +617,14 @@ functions callable by `authenticated` (required — policies evaluate them as th
 npm run lint           # eslint — clean; CI runs it with --max-warnings=0
 npx tsc --noEmit       # typecheck
 npm run build          # production build (needs NEXT_PUBLIC_SUPABASE_* set; placeholders are fine)
-npm run check          # all six below
+npm run check          # all seven below
 npm run check:intent   # table-driven checks: pre-intent classifier, escalation derivation, FSM (check-in, nurse chat, media), state parsing
 npm run check:routing  # shared-number routing: name prefixes, answers to "who is this about?", the decision order, expiries
 npm run check:webhook  # the inbound handler end to end against an in-memory Supabase and a captured Twilio (no keys, no network)
 npm run check:gemini   # 11 checks on the Gemini wrapper: retry on 429/503/network, model fallback, 403 fails fast, budget respected
 npm run check:delivery # Twilio status callbacks: sent → delivered → read ordering, failure reasons, one alert per message
 npm run check:translation # nurse message → patient's language, transcript → English: unwrapping, JSON parsing, batching, partial failure
+npm run check:reschedule  # "2 — change the date": clinic days, the times offered, numbers and dates in five languages, the messages
 ```
 
 `scripts/lib/fake-supabase.ts` is the in-memory stand-in the webhook check runs on: enough of the

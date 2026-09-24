@@ -178,6 +178,8 @@ export interface AppointmentSlot {
   datetime: string
   specialty: string
   location?: string
+  /** The appointment the patient asked to move (the WhatsApp reschedule flow) */
+  appointment_id?: string
 }
 
 export interface ReminderSchedule {

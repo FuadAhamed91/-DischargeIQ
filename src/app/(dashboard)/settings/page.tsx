@@ -6,8 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import Link from 'next/link'
-import { Building2, User, Globe, Phone, Shield, Bell, Users } from 'lucide-react'
+import { Building2, User, Globe, Phone, Shield, Bell, Users, CalendarSync } from 'lucide-react'
 import { LanguageBadge } from '@/components/shared/language-badge'
+import { resolveClinicDays, describeClinicDays, SLOT_OPTION_COUNT } from '@/lib/appointments/slots'
 import type { LanguageCode } from '@/types/enums'
 
 export const metadata = { title: 'Settings' }
@@ -212,6 +213,20 @@ export default async function SettingsPage() {
               <p className="text-sm">
                 Unconfirmed appointments escalate after{' '}
                 <span className="font-medium">{hospitalSettings.escalation_threshold_hours ?? 48} hours</span>
+              </p>
+            </div>
+
+            <Separator />
+
+            {/* Rescheduling (lib/appointments/slots.ts) */}
+            <div>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
+                <CalendarSync className="w-3 h-3" /> Rescheduling
+              </p>
+              <p className="text-sm">
+                A patient who asks to change an appointment on WhatsApp is offered the next{' '}
+                <span className="font-medium">{SLOT_OPTION_COUNT} clinic days ({describeClinicDays(resolveClinicDays(hospital.settings))})</span>{' '}
+                at the same time, and picks one by number
               </p>
             </div>
 

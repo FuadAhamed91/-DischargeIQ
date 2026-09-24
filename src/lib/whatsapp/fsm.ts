@@ -6,6 +6,7 @@
  */
 
 import { containsEmergencyKeyword, isAcknowledgement, normaliseMessage } from '@/lib/ai/intent'
+import { parseSlotReply } from '@/lib/appointments/slots'
 import type { MedsTaken } from './checkin-templates'
 
 export type ConversationState =
@@ -90,7 +91,8 @@ export interface FsmResult {
   nextState: ConversationState
   action:
     | 'confirm_appointment'
-    | 'start_reschedule'
+    | 'start_reschedule'       // "2": offer new times (lib/whatsapp/reschedule.ts)
+    | 'choose_slot'            // a number / "none" / a date answering the times offered: move the appointment, or hand it to a nurse
     | 'log_reminder_response'
     | 'log_symptom_ok'
     | 'log_checkin_meds'      // nightly Q1 answered → record, then ask Q2
@@ -101,7 +103,8 @@ export interface FsmResult {
     | 'unsupported_media'     // picture / document with no caption → say we cannot read it
     | 'noop'
   appointmentId?: string
-  slotId?: string
+  /** choose_slot: the reply to read against the times offered (a list-row id, a number, a date, free text) */
+  slotReply?: string
   reminderResponse?: string
   medsTaken?: MedsTaken
 }
@@ -217,10 +220,15 @@ export function transition(
     case 'awaiting_slot_selection': {
       const id = message.interactiveId ?? ''
       if (id.startsWith('slot_')) {
-        const slotId = id.replace('slot_', '')
-        return { nextState: 'idle', action: 'confirm_appointment', slotId }
+        return { nextState: 'idle', action: 'choose_slot', slotReply: id.replace('slot_', '') }
       }
-      return { nextState: 'idle', action: 'route_to_ai' }
+      // A number, "none of these", or a date on its own: read against the times offered.
+      if (parseSlotReply(raw).kind !== 'text') {
+        return { nextState: 'idle', action: 'choose_slot', slotReply: raw }
+      }
+      // Anything else ("ok", a question, a symptom) is answered as usual — the
+      // assistant is what spots warning signs — and the times stay on offer.
+      return { nextState: 'awaiting_slot_selection', action: 'route_to_ai' }
     }
 
     case 'awaiting_checkin_meds': {

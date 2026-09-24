@@ -949,8 +949,8 @@ Stored in `whatsapp_conversations.conversation_state`:
 | State | Trigger | Next |
 |-------|---------|------|
 | `idle` | Default | — |
-| `awaiting_appointment_confirm` | After appointment details sent | `yes` → confirmed; `no` → fetch slots |
-| `awaiting_slot_selection` | Patient declined appointment | List message → book slot |
+| `awaiting_appointment_confirm` | After appointment details sent | `1` → confirmed; `2` → offer the next clinic days |
+| `awaiting_slot_selection` | Patient asked to change it | number or matching date → appointment moved, confirmed; none / another date → nurse alert; other text → assistant, times stay on offer |
 | `awaiting_reminder_response` | After reminder sent | Parse yes/no/text/voice |
 | `awaiting_checkin_meds` | Nightly check-in Q1 sent | 1/2/3 → log, ask Q2; free text → triage |
 | `awaiting_checkin_symptoms` | Nightly check-in Q2 sent | OK → good night; symptoms → triage |
@@ -977,9 +977,9 @@ stateDiagram-v2
     [*] --> scheduled: Nurse creates appointment
     scheduled --> confirmation_pending: Sent to patient via WhatsApp
     confirmation_pending --> confirmed: Patient taps Yes
-    confirmation_pending --> reschedule_pending: Patient taps No
-    reschedule_pending --> rescheduled: Patient selects new slot
-    rescheduled --> confirmed: Auto-confirm new slot
+    confirmation_pending --> reschedule_pending: Patient replies 2, is offered times
+    reschedule_pending --> confirmed: Patient picks a time (manual adapter: row moved in place)
+    reschedule_pending --> confirmation_pending: None suit, nurse books a time and asks again
     confirmed --> completed: Appointment date passed + check-in
     confirmed --> missed: No-show detected
     confirmation_pending --> missed: Escalation timeout

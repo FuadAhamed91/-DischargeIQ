@@ -44,9 +44,10 @@ import {
 } from './checkin-templates'
 import {
   buildAppointmentConfirmedReply,
-  buildRescheduleReply,
   buildNoPendingAppointmentReply,
 } from './appointment-templates'
+import { offerNewTimes, handleSlotReply } from './reschedule'
+import type { RescheduleContext } from './reschedule'
 import type { LanguageCode } from '@/types/enums'
 import { classifyRisk, downloadTwilioMedia, transcribeVoiceNote, bareMimeType } from '@/lib/ai/triage'
 import type { TriageResult, HeardVoiceNote } from '@/lib/ai/triage'
@@ -622,6 +623,14 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
   })
 
   const lang = (patient.preferred_language as LanguageCode) ?? 'en'
+  const rescheduleContext = (): RescheduleContext => ({
+    supabase,
+    hospital,
+    episodeId: episode.id,
+    patient: { full_name: patient.full_name, language: lang, to: message.from },
+    reply,
+    waMessageId: message.waMessageId,
+  })
 
   // 7. A voice note is heard first. Heard clearly, it carries on below exactly
   // as if the patient had typed the words; otherwise takeVoiceNote dealt with it.
@@ -650,6 +659,9 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
     result = transition(state, message)
   }
   const spoken = inbound !== message
+  // An action may still change where the conversation goes next (a
+  // reschedule reply that cannot be read keeps the times on offer).
+  let nextState = result.nextState
 
   // 8. Execute action
   switch (result.action) {
@@ -687,27 +699,19 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
     }
 
     case 'start_reschedule': {
+      // "2": offer the next clinic days, numbered (lib/whatsapp/reschedule.ts).
       const appointment = await findAwaitingAppointment(supabase, episode.id, result.appointmentId)
-
-      await reply(buildRescheduleReply({
-        to: message.from,
-        patientName: patient.full_name,
-        language: lang,
-        specialty: appointment?.specialty ?? null,
-      }))
-
-      if (appointment) {
-        await supabase
-          .from('appointments')
-          .update({ status: 'reschedule_pending', updated_at: new Date().toISOString() })
-          .eq('id', appointment.id)
-        await supabase.from('patient_timeline_events').insert({
-          episode_id: episode.id,
-          hospital_id: hospital.id,
-          event_type: 'appointment_rescheduled',
-          payload: { appointment_id: appointment.id, specialty: appointment.specialty, requested_by: 'patient', wa_message_id: message.waMessageId },
-        })
+      if (!appointment) {
+        await reply(buildNoPendingAppointmentReply({ to: message.from, patientName: patient.full_name, language: lang }))
+        nextState = 'idle'
+        break
       }
+      nextState = await offerNewTimes(rescheduleContext(), appointment)
+      break
+    }
+
+    case 'choose_slot': {
+      nextState = await handleSlotReply(rescheduleContext(), result.slotReply ?? '')
       break
     }
 
@@ -985,11 +989,11 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
   // 9. Update conversation state (the row is guaranteed to exist from step 5).
   // While a nurse is attending, keep the stored object (it carries the expiry)
   // instead of flattening it to a bare string.
-  const keepAttending = result.nextState === 'nurse_attending' && state === 'nurse_attending'
+  const keepAttending = nextState === 'nurse_attending' && state === 'nurse_attending'
   await supabase
     .from('whatsapp_conversations')
     .update({
-      conversation_state: keepAttending ? conversation.conversation_state : result.nextState,
+      conversation_state: keepAttending ? conversation.conversation_state : nextState,
       last_message_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
@@ -1005,7 +1009,7 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
     payload: {
       wa_message_id: message.waMessageId,
       type: message.type,
-      state_transition: { from: state, to: result.nextState, action: result.action },
+      state_transition: { from: state, to: nextState, action: result.action },
       ...(routing ? { routing: { via: routing.via, linked_patients: routing.linkedPatients } } : {}),
       ...(message.senderName ? { sender_name: message.senderName } : {}),
     },
