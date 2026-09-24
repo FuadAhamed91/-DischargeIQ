@@ -41,7 +41,7 @@ export default async function EpisodeDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  /** ?tab=care-plan opens that tab (links from the review page and Appointments). */
+  /** ?tab=conversation or ?tab=activity opens that tab; otherwise the page opens on the care plan. */
   searchParams: Promise<{ tab?: string }>
 }) {
   const { hospital, profile } = await requireSession()
@@ -160,7 +160,7 @@ export default async function EpisodeDetailPage({
       : summary.status === 'draft' || summary.status === 'pending_review' ? { label: 'Review care plan', icon: Pencil }
         : summary.status === 'approved' ? { label: 'Send care plan', icon: Send }
           : null
-  const defaultTab = tab && TABS.includes(tab) ? tab : summary?.status === 'sent' ? 'conversation' : 'care-plan'
+  const defaultTab = tab && TABS.includes(tab) ? tab : 'care-plan'
 
   const sentOn = carePlanDelivery?.createdAt ?? null
   const delivered = carePlanDelivery?.status === 'delivered' || carePlanDelivery?.status === 'read'
