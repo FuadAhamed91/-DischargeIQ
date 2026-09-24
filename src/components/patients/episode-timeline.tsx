@@ -95,6 +95,9 @@ function getPayloadSummary(event: TimelineEvent): string | null {
     case 'appointment_confirmed':
     case 'appointment_rescheduled':
       return p.specialty ? `${p.specialty}` : null
+    case 'escalation_created':
+      // Why a nurse was brought in — e.g. "Voice note unclear (clarity 45%) — listen to it on the Conversation tab".
+      return typeof p.reason === 'string' && p.reason ? p.reason : null
     case 'risk_changed': {
       // "red → green · Fuad Ahamed: “Called him — the pain has settled”"
       const who = typeof p.changed_by === 'string' ? ` · ${p.changed_by}` : ''
