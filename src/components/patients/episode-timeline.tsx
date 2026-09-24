@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
-  FileText, MessageCircle, Bell, Calendar, Mic, Bot, AlertTriangle,
-  CheckCircle, Upload, ClipboardCheck, Send, Activity,
+  FileText, MessageCircle, Bell, BellRing, Calendar, Mic, Bot, AlertTriangle,
+  CheckCircle, Upload, ClipboardCheck, Send, Activity, Stethoscope,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 
@@ -16,7 +16,14 @@ interface TimelineEvent {
   created_at: string
 }
 
-const EVENT_CONFIG: Record<string, { icon: typeof FileText; color: string; bg: string; label: string }> = {
+interface EventConfig {
+  icon: typeof FileText
+  color: string
+  bg: string
+  label: string
+}
+
+const EVENT_CONFIG: Record<string, EventConfig> = {
   discharge_uploaded:    { icon: Upload,        color: 'text-info',   bg: 'bg-info-soft',   label: 'Discharge PDF uploaded' },
   extraction_completed:  { icon: FileText,      color: 'text-info',   bg: 'bg-info-soft',   label: 'AI extraction completed' },
   summary_approved:      { icon: ClipboardCheck,color: 'text-brand',  bg: 'bg-brand-soft',  label: 'Summary approved' },
@@ -27,11 +34,30 @@ const EVENT_CONFIG: Record<string, { icon: typeof FileText; color: string; bg: s
   reminder_response:     { icon: CheckCircle,   color: 'text-success',  bg: 'bg-success-soft',   label: 'Patient responded to reminder' },
   appointment_confirmed: { icon: Calendar,      color: 'text-success',  bg: 'bg-success-soft',   label: 'Appointment confirmed' },
   appointment_rescheduled:{ icon: Calendar,     color: 'text-warning',  bg: 'bg-warning-soft',   label: 'Appointment rescheduled' },
-  triage_completed:      { icon: Mic,           color: 'text-brand', bg: 'bg-brand-soft',  label: 'Voice triage completed' },
+  triage_completed:      { icon: Stethoscope,   color: 'text-brand', bg: 'bg-brand-soft',  label: 'Triage completed' },
   ai_response:           { icon: Bot,           color: 'text-brand',  bg: 'bg-brand-soft',  label: 'AI answered patient question' },
   escalation_created:    { icon: AlertTriangle, color: 'text-danger',    bg: 'bg-danger-soft',     label: 'Escalation created' },
   alert_acknowledged:    { icon: CheckCircle,   color: 'text-success',  bg: 'bg-success-soft',   label: 'Alert acknowledged' },
   risk_changed:          { icon: Activity,      color: 'text-brand',    bg: 'bg-brand-soft',     label: 'Risk level changed by a nurse' },
+}
+
+// 'triage_completed' has two writers: recordTriage() in webhook-handler.ts for a real
+// triage ({ transcript, source, ... }), and the log_timeline_on_alert trigger
+// (migration 00003) for EVERY alert, triage or not ({ alert_id, alert_type, severity }).
+const TRIAGE_CONFIG: Record<'alert' | 'voice' | 'symptom_report', EventConfig> = {
+  alert:          { icon: BellRing,    color: 'text-danger', bg: 'bg-danger-soft', label: 'Alert raised' },
+  voice:          { icon: Mic,         color: 'text-brand',  bg: 'bg-brand-soft',  label: 'Voice note triaged' },
+  symptom_report: { icon: Stethoscope, color: 'text-brand',  bg: 'bg-brand-soft',  label: 'Symptom report triaged' },
+}
+
+const ALERT_TYPES: Record<string, string> = {
+  risk_red: 'Red risk',
+  risk_yellow: 'Yellow risk',
+  escalation: 'Escalation',
+  missed_medication: 'Missed medicines',
+  delivery_failed: 'Message not delivered',
+  unconfirmed_appointment: 'Appointment not confirmed',
+  missed_appointment: 'Missed appointment',
 }
 
 const RISK_COLORS: Record<string, string> = {
@@ -40,10 +66,27 @@ const RISK_COLORS: Record<string, string> = {
   green: 'bg-success',
 }
 
+function getEventConfig(event: TimelineEvent): EventConfig {
+  const p = event.payload
+  switch (event.event_type) {
+    case 'triage_completed':
+      if (p.alert_id) {
+        const type = typeof p.alert_type === 'string' ? (ALERT_TYPES[p.alert_type] ?? p.alert_type) : null
+        return type ? { ...TRIAGE_CONFIG.alert, label: `Alert raised: ${type}` } : TRIAGE_CONFIG.alert
+      }
+      if (p.source === 'voice') return TRIAGE_CONFIG.voice
+      if (p.source === 'text' || p.source === 'nightly_checkin') return TRIAGE_CONFIG.symptom_report
+      return EVENT_CONFIG.triage_completed
+    default:
+      return EVENT_CONFIG[event.event_type] ?? { icon: FileText, color: 'text-muted-foreground', bg: 'bg-muted', label: event.event_type }
+  }
+}
+
 function getPayloadSummary(event: TimelineEvent): string | null {
   const p = event.payload
   switch (event.event_type) {
     case 'triage_completed':
+      if (p.alert_id) return p.severity ? `Severity: ${p.severity}` : null
       return p.transcript ? `"${String(p.transcript).slice(0, 100)}…"` : null
     case 'reminder_response':
       return p.response ? `Response: ${p.response}` : null
@@ -113,7 +156,7 @@ export function EpisodeTimeline({ initialEvents, episodeId }: EpisodeTimelinePro
       <div className="absolute left-5 top-3 bottom-3 w-px bg-border" />
 
       {events.map((event, idx) => {
-        const config = EVENT_CONFIG[event.event_type] ?? { icon: FileText, color: 'text-muted-foreground', bg: 'bg-muted', label: event.event_type }
+        const config = getEventConfig(event)
         const Icon = config.icon
         const summary = getPayloadSummary(event)
 
