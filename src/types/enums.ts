@@ -64,6 +64,7 @@ export type TimelineEventType =
   | 'ai_response'
   | 'escalation_created'
   | 'alert_acknowledged'
+  | 'risk_changed'           // a nurse set the patient's colour (migration 00015)
 
 export const SUPPORTED_LANGUAGES: Record<LanguageCode, string> = {
   ar: 'Arabic',

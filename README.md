@@ -159,6 +159,22 @@ localised reply telling the patient what to do and a `triage_completed` timeline
 model is unavailable the report is still acknowledged and escalated at medium — a symptom report
 is never dropped.
 
+**The patient's colour** (`care_episodes.current_risk_level`, the Stable / Monitor / Critical badge)
+is raised by every kind of report, never lowered by the system (`lib/episodes/risk.ts`):
+
+| Report | Alert | Colour |
+|---|---|---|
+| Triage (voice note, check-in symptom answer): red / yellow / green | critical / medium / none | red / yellow / unchanged |
+| Emergency word ("chest pain", "सीने में दर्द" …) — no model | critical | red |
+| Symptom in chat matching one of the patient's warning signs / other symptom | high / medium | red / yellow |
+| Symptom report the model could not assess | medium | yellow |
+
+Red always wins; yellow only replaces green. Lowering it is a nurse's call: **Change** on the
+episode's Risk level card (`POST /api/v1/episodes/[id]/risk`) needs a note when lowering, refuses
+if a report raised the colour after the nurse looked (so a new red is never overwritten
+unknowingly), and records the change on the timeline (`risk_changed`, migration 00015) and in
+`audit_logs` with the nurse's name. The generic episode PATCH no longer accepts the colour.
+
 Every outbound message — from any path — goes through `lib/whatsapp/outbound.ts` `sendAndLog()`,
 which sends via Twilio and records the exact delivered text on the conversation. The episode page's
 **Conversation** tab renders this transcript live.
@@ -290,7 +306,7 @@ src/
   components/  alerts/  analytics/  appointments/  episodes/  patients/ (timeline, transcript, adherence)  ui/ (shadcn)
   types/       database.ts  enums.ts  api.ts
 supabase/
-  migrations/  00001 … 00014 (see Database)
+  migrations/  00001 … 00015 (see Database)
   seed.sql     demo hospital, department, approved guidance
   demo_seed.sql evergreen demo dataset (7 patients incl. a shared family number; all dates relative to today)
 scripts/
@@ -369,6 +385,7 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/appo
 | 00012 | `realtime_number_sessions` | Realtime for the shared-number notice on the Conversation tab |
 | 00013 | `delivery_failed_alert` | `alert_type += delivery_failed` for undelivered WhatsApp messages (the code falls back to `escalation` until applied) |
 | 00014 | `revoke_rls_auto_enable` | Supabase's `rls_auto_enable()` event-trigger function is no longer callable by `anon` / `authenticated` over the API (security advisor 0028/0029); the `ensure_rls` event trigger is unaffected |
+| 00015 | `risk_changed_event` | `timeline_event_type += risk_changed`: a nurse's change of the patient's colour on the timeline (until applied, the change is made and audit-logged, without the timeline entry) |
 
 Applying to a project:
 
@@ -444,7 +461,7 @@ build cache.
 
 **Supabase** — one project per environment. New project checklist:
 
-1. `supabase db push` (migrations 00001–00014), then `seed.sql` and, if wanted, `demo_seed.sql`.
+1. `supabase db push` (migrations 00001–00015), then `seed.sql` and, if wanted, `demo_seed.sql`.
 2. Create staff auth users + `profiles` rows.
 3. Set the hospital's `whatsapp_phone_number_id`.
 4. Configure pg_cron dispatch (service role, via SQL editor or REST `rpc/configure_cron_dispatch`):

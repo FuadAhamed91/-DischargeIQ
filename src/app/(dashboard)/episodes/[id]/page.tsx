@@ -22,6 +22,7 @@ import { fmt } from '@/lib/format'
 import { readConversationState } from '@/lib/whatsapp/fsm'
 import { LiveRefresh } from '@/components/shared/live-refresh'
 import { CarePlanDeliveryBanner, CarePlanResendButton } from '@/components/episodes/care-plan-delivery'
+import { RiskLevelControl } from '@/components/episodes/risk-level-control'
 import { CARE_PLAN_KIND, summariseCarePlanMessage } from '@/lib/whatsapp/care-plan'
 import type { RiskLevel, EpisodeStatus, SummaryStatus, LanguageCode } from '@/types/enums'
 import type { Medication, FollowUpRequirement } from '@/types/database'
@@ -156,7 +157,7 @@ export default async function EpisodeDetailPage({
   return (
     <div className="space-y-5 max-w-5xl">
       {/* Patient-side events (confirmations, check-in answers, triage) re-render the KPIs and tabs live */}
-      <LiveRefresh episodeId={id} events={['appointment_confirmed', 'appointment_rescheduled', 'reminder_response', 'triage_completed', 'escalation_created', 'summary_sent']} />
+      <LiveRefresh episodeId={id} events={['appointment_confirmed', 'appointment_rescheduled', 'reminder_response', 'triage_completed', 'escalation_created', 'summary_sent', 'risk_changed']} />
       <Link href="/patients" className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="w-3.5 h-3.5 mr-1.5" /> All patients
       </Link>
@@ -213,7 +214,11 @@ export default async function EpisodeDetailPage({
         <Card className="py-0">
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Risk level</p>
-            <div className="mt-1.5"><RiskBadge level={episode.current_risk_level as RiskLevel} /></div>
+            <RiskLevelControl
+              episodeId={id}
+              level={episode.current_risk_level as RiskLevel}
+              canChange={canMessage && ['pending_review', 'active'].includes(episode.status)}
+            />
             <p className="text-xs text-muted-foreground mt-1">{totalTriages} triage assessments</p>
           </CardContent>
         </Card>

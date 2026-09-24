@@ -26,6 +26,7 @@ import { withSenderLock, senderKey, pendingSenders } from '@/lib/whatsapp/sender
 import { parseStatusCallback, applyStatusCallback, nextRowStatus } from '@/lib/whatsapp/status-callback'
 import { rememberPatientIfShared, pruneStaleNumberSessions, summariseNumberSession, STALE_SESSION_MS } from '@/lib/whatsapp/number-session'
 import { parseWebhookPayload } from '@/lib/whatsapp/twilio-payload'
+import { raiseEpisodeRisk, isLowering } from '@/lib/episodes/risk'
 import type { ServiceClient } from '@/lib/whatsapp/recipient'
 import type { ParsedInbound } from '@/lib/whatsapp/fsm'
 
@@ -73,9 +74,9 @@ function seed(): FakeDb {
       { id: 'p-solo', hospital_id: 'h1', mrn: 'MRN-3', full_name: 'Priya Nair', phone_e164: SOLO_PHONE, preferred_language: 'hi' },
     ],
     care_episodes: [
-      { id: 'ep-farzana', hospital_id: 'h1', patient_id: 'p-farzana', status: 'active', created_at: '2026-09-10T08:00:00Z' },
-      { id: 'ep-umar', hospital_id: 'h1', patient_id: 'p-umar', status: 'active', created_at: '2026-09-15T08:00:00Z' },
-      { id: 'ep-solo', hospital_id: 'h1', patient_id: 'p-solo', status: 'active', created_at: '2026-09-16T08:00:00Z' },
+      { id: 'ep-farzana', hospital_id: 'h1', patient_id: 'p-farzana', status: 'active', current_risk_level: 'green', created_at: '2026-09-10T08:00:00Z' },
+      { id: 'ep-umar', hospital_id: 'h1', patient_id: 'p-umar', status: 'active', current_risk_level: 'green', created_at: '2026-09-15T08:00:00Z' },
+      { id: 'ep-solo', hospital_id: 'h1', patient_id: 'p-solo', status: 'active', current_risk_level: 'green', created_at: '2026-09-16T08:00:00Z' },
     ],
     whatsapp_conversations: [
       { id: 'c-farzana', episode_id: 'ep-farzana', hospital_id: 'h1', patient_id: 'p-farzana', wa_phone: FAMILY_PHONE, conversation_state: { state: 'idle' } },
@@ -117,6 +118,7 @@ const stateOf = (conversationId: string) => {
   return typeof raw === 'string' ? raw : (raw as { state?: string } | null)?.state
 }
 const session = () => db.rows('whatsapp_number_sessions').find((s) => s.wa_phone === FAMILY_PHONE) ?? null
+const riskOf = (episodeId: string) => db.rows('care_episodes').find((e) => e.id === episodeId)?.current_risk_level
 
 async function main() {
   console.log('— a number with one open episode: nothing changes —')
@@ -231,6 +233,8 @@ async function main() {
   sent = drain()
   includes('emergency reply went out immediately', sent[0]?.body ?? '', 'medical emergency')
   eq('critical alert raised', db.rows('alerts').filter((a) => a.severity === 'critical').length, 1)
+  const emergencyEpisode = db.rows('alerts').find((a) => a.severity === 'critical')?.episode_id
+  eq('…and that patient turns red — no triage needed', riskOf(String(emergencyEpisode)), 'red')
 
   console.log('— the question itself cannot be sent: nothing is held for nobody —')
   session()!.active_until = '2000-01-01T00:00:00Z'
@@ -404,6 +408,7 @@ async function main() {
   includes('emergency reply in Hindi', sent[0]?.body ?? '', 'मेडिकल इमरजेंसी')
   includes('…addressed to her', sent[0]?.body ?? '', 'Priya Nair')
   eq('critical alert on her episode', db.rows('alerts').filter((a) => a.severity === 'critical' && a.episode_id === 'ep-solo').length, 1)
+  eq('…and she is red', riskOf('ep-solo'), 'red')
 
   console.log('— …and a voice note, acknowledged in Hindi before triage —')
   // No model here: triage fails, and the note is escalated for a nurse instead.
@@ -411,6 +416,17 @@ async function main() {
   sent = drain()
   includes('acknowledged in Hindi', sent[0]?.body ?? '', 'आपका संदेश मिल गया है')
   eq('escalated at medium for a nurse', db.rows('alerts').filter((a) => a.severity === 'medium' && a.episode_id === 'ep-solo').length, 1)
+  eq('a yellow-level report does not lower red', riskOf('ep-solo'), 'red')
+
+  console.log('— the colour only goes up on its own; lowering is a nurse\'s call —')
+  db.rows('care_episodes').find((e) => e.id === 'ep-farzana')!.current_risk_level = 'green'
+  await raiseEpisodeRisk(client, 'ep-farzana', 'yellow')
+  eq('green → yellow', riskOf('ep-farzana'), 'yellow')
+  await raiseEpisodeRisk(client, 'ep-farzana', 'red')
+  eq('yellow → red', riskOf('ep-farzana'), 'red')
+  await raiseEpisodeRisk(client, 'ep-farzana', 'yellow')
+  eq('red stays red', riskOf('ep-farzana'), 'red')
+  eq('lowering needs a note, raising or keeping does not', [isLowering('red', 'green'), isLowering('red', 'yellow'), isLowering('yellow', 'red'), isLowering('green', 'green')], [true, true, false, false])
 
   console.log(fails === 0 ? '\nALL PASSED' : `\n${fails} FAILED`)
   process.exit(fails ? 1 : 0)

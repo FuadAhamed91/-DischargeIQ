@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
   FileText, MessageCircle, Bell, Calendar, Mic, Bot, AlertTriangle,
-  CheckCircle, Upload, ClipboardCheck, Send,
+  CheckCircle, Upload, ClipboardCheck, Send, Activity,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 
@@ -31,6 +31,7 @@ const EVENT_CONFIG: Record<string, { icon: typeof FileText; color: string; bg: s
   ai_response:           { icon: Bot,           color: 'text-brand',  bg: 'bg-brand-soft',  label: 'AI answered patient question' },
   escalation_created:    { icon: AlertTriangle, color: 'text-danger',    bg: 'bg-danger-soft',     label: 'Escalation created' },
   alert_acknowledged:    { icon: CheckCircle,   color: 'text-success',  bg: 'bg-success-soft',   label: 'Alert acknowledged' },
+  risk_changed:          { icon: Activity,      color: 'text-brand',    bg: 'bg-brand-soft',     label: 'Risk level changed by a nurse' },
 }
 
 const RISK_COLORS: Record<string, string> = {
@@ -51,6 +52,12 @@ function getPayloadSummary(event: TimelineEvent): string | null {
     case 'appointment_confirmed':
     case 'appointment_rescheduled':
       return p.specialty ? `${p.specialty}` : null
+    case 'risk_changed': {
+      // "red → green · Fuad Ahamed: “Called him — the pain has settled”"
+      const who = typeof p.changed_by === 'string' ? ` · ${p.changed_by}` : ''
+      const note = typeof p.note === 'string' && p.note ? `: “${p.note}”` : ''
+      return `${p.from} → ${p.to}${who}${note}`
+    }
     case 'whatsapp_inbound': {
       // On a shared number: how the message was matched to this patient, and who typed it.
       const routing = p.routing as { via?: string } | undefined

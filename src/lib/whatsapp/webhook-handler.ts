@@ -51,6 +51,7 @@ import { classifyRisk, triageVoiceNote } from '@/lib/ai/triage'
 import type { TriageResult } from '@/lib/ai/triage'
 import { answerPatientQuestion } from '@/lib/ai/chat'
 import { classifyPreIntent } from '@/lib/ai/intent'
+import { raiseEpisodeRisk } from '@/lib/episodes/risk'
 import type { DischargeSummary, Medication } from '@/types/database'
 
 // ------------------------------------
@@ -137,7 +138,7 @@ async function findAwaitingAppointment(supabase: ServiceClient, episodeId: strin
   return (data as AwaitingAppointment | null) ?? null
 }
 
-/** Model unavailable: hand the message to a nurse at medium rather than lose it. */
+/** Model unavailable: hand the message to a nurse at medium rather than lose it, and mark the patient yellow. */
 async function escalateUntriaged(
   supabase: ServiceClient,
   episodeId: string,
@@ -152,6 +153,7 @@ async function escalateUntriaged(
     type: 'escalation',
     severity: 'medium',
   })
+  await raiseEpisodeRisk(supabase, episodeId, 'yellow')
   await supabase.from('patient_timeline_events').insert({
     episode_id: episodeId,
     hospital_id: hospitalId,
@@ -730,6 +732,7 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
           type: 'escalation',
           severity: 'critical',
         })
+        await raiseEpisodeRisk(supabase, episode.id, 'red')
         await supabase.from('patient_timeline_events').insert({
           episode_id: episode.id,
           hospital_id: hospital.id,
@@ -785,7 +788,8 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
 
         // Escalation is derived from the classified intent (lib/ai/chat.ts):
         // never for acknowledgements/greetings, low for out-of-scope questions,
-        // medium/high for reported concerns.
+        // medium/high for reported concerns — which also colour the patient
+        // (medium yellow, high red: it matched one of their warning signs).
         if (chatResult.shouldEscalate) {
           const severity = chatResult.severity ?? 'low'
           await supabase.from('alerts').insert({
@@ -794,6 +798,8 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
             type: 'escalation',
             severity,
           })
+          if (severity === 'high') await raiseEpisodeRisk(supabase, episode.id, 'red')
+          else if (severity === 'medium') await raiseEpisodeRisk(supabase, episode.id, 'yellow')
           await supabase.from('patient_timeline_events').insert({
             episode_id: episode.id,
             hospital_id: hospital.id,

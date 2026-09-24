@@ -809,6 +809,7 @@ All dashboard endpoints are under `/api/v1/`. Responses use `{ data, error, meta
 | POST | `/api/v1/episodes/:id/messages/translate` | `{ ids }` → English for those messages ("Show English"), kept in `metadata.translation_en` | any role that can see the episode |
 | PATCH | `/api/v1/episodes/:id/messages` | `{ attending: false }` hands the conversation back to the assistant | clinical+ |
 | DELETE | `/api/v1/episodes/:id/number-session` | Forget who the patient's (shared) number is currently writing about | clinical+ |
+| POST | `/api/v1/episodes/:id/risk` | `{ level, from, note }` — a nurse sets the patient's colour; a note is required to lower it; timeline `risk_changed` + `audit_logs` | clinical+ |
 | GET | `/api/v1/intake/number-in-use?phone=` | Other patients with an open episode on a WhatsApp number (intake hint) | intake roles |
 | GET | `/api/v1/episodes/:id/voice-artifacts` | Voice notes + transcripts | clinical+ |
 

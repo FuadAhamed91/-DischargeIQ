@@ -4,10 +4,11 @@ import { resolveAuthContext } from '@/lib/utils/api'
 import { apiSuccess, apiError } from '@/types/api'
 import { z } from 'zod'
 
+// The risk colour is not changed here: POST /api/v1/episodes/[id]/risk asks
+// why it is lowered and records who changed it.
 const UpdateEpisodeSchema = z.object({
   status: z.enum(['draft', 'pending_review', 'active', 'completed', 'cancelled']).optional(),
   assigned_nurse_id: z.string().uuid().optional().nullable(),
-  current_risk_level: z.enum(['green', 'yellow', 'red']).optional(),
 })
 
 export async function GET(
