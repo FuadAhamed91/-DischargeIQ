@@ -95,6 +95,35 @@ async function main() {
   eq('budget exhausted → stops without waiting', [thrown instanceof GeminiUnavailableError, Date.now() - t0 < 900, calls],
     [true, true, [primary, lite, pro]])
 
+  // 11. noThinking: the 2.5 Flash models are asked to skip thinking; 2.5 Pro cannot, and is asked as usual.
+  const sent: Array<{ model: string; request: unknown }> = []
+  let busy = 0
+  GenerativeModel.prototype.generateContent = async function (this: GenerativeModel, request: unknown) {
+    sent.push({ model: this.model.replace(/^models\//, ''), request })
+    if (busy-- > 0) throw new GoogleGenerativeAIFetchError('[503] scripted', 503, 'scripted')
+    return { response: { text: () => 'ok' } } as unknown as ReturnType<GenerativeModel['generateContent']>
+  } as GenerativeModel['generateContent']
+  type Sent = { contents?: Array<{ parts: Array<{ text?: string }> }>; generationConfig?: { responseMimeType?: string; thinkingConfig?: { thinkingBudget?: number } } }
+  const budgetOf = (request: unknown) => (typeof request === 'string' ? null : (request as Sent).generationConfig?.thinkingConfig?.thinkingBudget ?? null)
+
+  busy = 4
+  await generate('translate this', { budgetMs: 60_000, noThinking: true })
+  eq('noThinking → budget 0 on flash and flash-lite, pro untouched', sent.map((s) => [s.model, budgetOf(s.request)]),
+    [[primary, 0], [primary, 0], [lite, 0], [lite, 0], [pro, null]])
+
+  sent.length = 0
+  await generate('plain prompt', { noThinking: true })
+  eq('a string prompt is sent as contents', (sent[0].request as Sent).contents?.[0].parts[0].text, 'plain prompt')
+
+  sent.length = 0
+  await generate({ contents: [{ role: 'user', parts: [{ text: 'x' }] }], generationConfig: { responseMimeType: 'application/json' } }, { noThinking: true })
+  const config = (sent[0].request as Sent).generationConfig
+  eq('the rest of generationConfig is kept', [config?.responseMimeType, config?.thinkingConfig?.thinkingBudget], ['application/json', 0])
+
+  sent.length = 0
+  await generate('plain prompt')
+  eq('without noThinking the request goes as given', sent[0].request, 'plain prompt')
+
   console.log(fails ? `\n${fails} check(s) failed` : '\nall checks passed')
   process.exit(fails ? 1 : 0)
 }

@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { z } from 'zod'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { resolveAuthContext } from '@/lib/utils/api'
@@ -68,7 +68,8 @@ export async function POST(request: Request, { params }: Params) {
       return NextResponse.json(apiError('Could not translate the conversation', hint), { status: 503 })
     }
     Object.assign(translations, fresh)
-    await keepTranslations(fresh)
+    // The nurse is waiting for the English, not for it to be stored.
+    after(() => keepTranslations(fresh))
   }
 
   return NextResponse.json(apiSuccess({ translations }))

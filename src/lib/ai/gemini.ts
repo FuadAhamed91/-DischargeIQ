@@ -15,6 +15,7 @@ import {
   GoogleGenerativeAI,
   GoogleGenerativeAIFetchError,
   type GenerateContentRequest,
+  type GenerationConfig,
   type GenerativeModel,
   type Part,
 } from '@google/generative-ai'
@@ -40,6 +41,12 @@ export interface GenerateOptions {
   fallback?: boolean
   /** Names the caller in logs, e.g. "extraction". */
   label?: string
+  /**
+   * Skip the model's thinking step where the model allows it (the 2.5 Flash
+   * family; 2.5 Pro always thinks). For work that needs no reasoning, such as
+   * translation, thinking is most of the wait.
+   */
+  noThinking?: boolean
 }
 
 export interface GenerateResult {
@@ -73,6 +80,27 @@ function modelFor(name: string): GenerativeModel {
     models.set(name, m)
   }
   return m
+}
+
+/** The REST API's thinkingConfig: not in this SDK's types, but passed through to the API as sent. */
+type GenerationConfigWithThinking = GenerationConfig & { thinkingConfig?: { thinkingBudget?: number } }
+
+function asRequest(content: GeminiContent): GenerateContentRequest {
+  if (typeof content === 'string') return { contents: [{ role: 'user', parts: [{ text: content }] }] }
+  if (Array.isArray(content)) return { contents: [{ role: 'user', parts: content.map((p) => (typeof p === 'string' ? { text: p } : p)) }] }
+  return content
+}
+
+/**
+ * What to send to this model. With noThinking, the 2.5 Flash models get a
+ * thinking budget of 0; any other model gets the request unchanged (2.5 Pro
+ * answers a budget of 0 with a 400, which would end the fallback chain).
+ */
+function requestFor(model: string, content: GeminiContent, opts: GenerateOptions): GeminiContent {
+  if (!opts.noThinking || !/^gemini-2\.5-flash/.test(model)) return content
+  const request = asRequest(content)
+  const generationConfig: GenerationConfigWithThinking = { ...request.generationConfig, thinkingConfig: { thinkingBudget: 0 } }
+  return { ...request, generationConfig }
 }
 
 type Failure = 'retry' | 'next_model' | 'fatal'
@@ -111,7 +139,7 @@ export async function generate(content: GeminiContent, opts: GenerateOptions = {
     for (let attempt = 1; attempt <= attemptsPerModel; attempt++) {
       attempts++
       try {
-        const result = await modelFor(model).generateContent(content)
+        const result = await modelFor(model).generateContent(requestFor(model, content, opts))
         const text = result.response.text().trim()
         if (attempts > 1 || model !== PRIMARY_MODEL) {
           console.info(`[${label}] answered by ${model} on attempt ${attempts}`)

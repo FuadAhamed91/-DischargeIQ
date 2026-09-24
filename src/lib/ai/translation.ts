@@ -183,7 +183,8 @@ Message:
 ${text}
 """`
 
-  const { text: output } = await generate(prompt, { label: 'translate-nurse-message', budgetMs: 15_000 })
+  // No thinking: a straight translation needs none, and the nurse is waiting to send.
+  const { text: output } = await generate(prompt, { label: 'translate-nurse-message', budgetMs: 15_000, noThinking: true })
   const translated = unwrap(output, text)
   if (!translated) throw new Error('The translation came back empty')
   return translated
@@ -243,7 +244,7 @@ ${JSON.stringify(messages)}`
 
   const { text } = await generate(
     { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json' } },
-    { label: 'translate-transcript', budgetMs: 40_000 },
+    { label: 'translate-transcript', budgetMs: 40_000, noThinking: true },
   )
 
   const wanted = new Set(messages.map((m) => m.id))

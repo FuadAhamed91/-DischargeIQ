@@ -17,14 +17,14 @@ const eq = (label: string, got: unknown, want: unknown) => {
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${label} → ${JSON.stringify(got)}${ok ? '' : `  (want ${JSON.stringify(want)})`}`)
 }
 
-/** Every request the stub received, as prompt text plus the JSON flag. */
-const requests: Array<{ prompt: string; json: boolean }> = []
+/** Every request the stub received: prompt text, the JSON flag, and the thinking budget asked for. */
+const requests: Array<{ prompt: string; json: boolean; thinking: number | null }> = []
 
-function promptOf(request: unknown): { prompt: string; json: boolean } {
-  if (typeof request === 'string') return { prompt: request, json: false }
-  const r = request as GenerateContentRequest
+function promptOf(request: unknown): { prompt: string; json: boolean; thinking: number | null } {
+  if (typeof request === 'string') return { prompt: request, json: false, thinking: null }
+  const r = request as GenerateContentRequest & { generationConfig?: { thinkingConfig?: { thinkingBudget?: number } } }
   const prompt = r.contents.flatMap((c) => c.parts.map((p) => ('text' in p ? p.text ?? '' : ''))).join('\n')
-  return { prompt, json: r.generationConfig?.responseMimeType === 'application/json' }
+  return { prompt, json: r.generationConfig?.responseMimeType === 'application/json', thinking: r.generationConfig?.thinkingConfig?.thinkingBudget ?? null }
 }
 
 /** The model's answer for one request; throw to make the call fail. */
@@ -58,6 +58,7 @@ async function main() {
     requests[0].prompt.includes('Take one tablet after dinner.'),
     requests[0].prompt.includes('exactly as written'),
   ], [true, true, true, true])
+  eq('…without the model\'s thinking step (speed)', requests[0].thinking, 0)
 
   answer = () => '```\nكل يوم مرة واحدة\n```'
   eq('a code fence around the answer is removed', await translateNurseMessage('Once a day', 'ar'), 'كل يوم مرة واحدة')
@@ -78,7 +79,7 @@ async function main() {
     { id: 'm2', text: 'mujhe chakkar aa raha hai' },
   ])
   eq('each message comes back under its own id', got, { m1: 'EN:मेरे सीने में दर्द हो रहा है।', m2: 'EN:mujhe chakkar aa raha hai' })
-  eq('one call, JSON requested', [requests.length, requests[0].json], [1, true])
+  eq('one call, JSON requested, no thinking step', [requests.length, requests[0].json, requests[0].thinking], [1, true, 0])
   eq('faithful, not interpreted', requests[0].prompt.includes('stays vague'), true)
 
   answer = () => 'Here you go:\n[{"id":"m1","en":"I have chest pain."},{"id":"zz","en":"invented"},{"id":"m2","en":"  "},{"id":"m3"}]\nHope it helps.'
