@@ -1,7 +1,8 @@
 /**
  * The sample discharge letters: fictional patients a demo can add in two
  * clicks. The same three letters are in docs/ as PDFs; the Add patient page
- * offers them printed with today's dates (GET /api/v1/intake/sample-letters/[id]),
+ * offers them beside the letter box, printed with today's dates
+ * (GET /api/v1/intake/sample-letters/[id]),
  * so a demo always shows a patient discharged today with follow-ups ahead.
  *
  * Each letter is kept here as structured data, which gives two things:
@@ -292,6 +293,11 @@ function ageOn(dob: string, day: string): number {
   const [by, bm, bd] = dob.split('-').map(Number)
   const [y, m, d] = day.split('-').map(Number)
   return y - by - (m < bm || (m === bm && d < bd) ? 1 : 0)
+}
+
+/** The patient's age in years on `day` (YYYY-MM-DD), as the letter prints it. */
+export function sampleLetterAge(letter: SampleLetter, day: string): number {
+  return ageOn(letter.patient.date_of_birth, day)
 }
 
 // ---------------------------------------------------------------------------
