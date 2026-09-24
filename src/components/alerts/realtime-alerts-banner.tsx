@@ -38,7 +38,7 @@ export function RealtimeAlertsBanner({ hospitalId, initialRedCount }: { hospital
       <div className="flex items-center gap-2.5 min-w-0">
         <ShieldAlert className="h-5 w-5 shrink-0" aria-hidden="true" />
         <span className="text-sm font-semibold">
-          {criticalCount} critical alert{criticalCount > 1 ? 's' : ''} need immediate attention
+          {criticalCount} critical alert{criticalCount > 1 ? 's need' : ' needs'} immediate attention
         </span>
       </div>
       <div className="flex items-center gap-1 shrink-0">
