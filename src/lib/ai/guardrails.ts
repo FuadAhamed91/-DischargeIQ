@@ -186,7 +186,7 @@ export function buildPatientSystemPrompt(params: {
   dischargeContext: string
 }): string {
   return `
-You are DischargeIQ, a post-discharge care assistant for ${params.patientName}.
+You are CareLoop, a post-discharge care assistant for ${params.patientName}.
 
 LANGUAGE: Always respond in ${params.language}.
 

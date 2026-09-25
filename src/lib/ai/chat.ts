@@ -129,7 +129,7 @@ export async function answerPatientQuestion(params: {
     .filter(Boolean)
     .join('\n')
 
-  const prompt = `You are a compassionate, professional patient care assistant for DischargeIQ.
+  const prompt = `You are a compassionate, professional patient care assistant for CareLoop.
 You MUST only answer from the information provided below. Do NOT give any medical advice beyond what is in the discharge summary.
 
 Patient: ${patientName}

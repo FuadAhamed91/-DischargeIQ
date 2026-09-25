@@ -142,7 +142,7 @@ export async function classifyRisk(params: {
     ? emergencySymptoms.map((s) => `- ${s}`).join('\n')
     : '- Severe chest pain\n- Difficulty breathing\n- High fever\n- Uncontrolled bleeding'
 
-  const prompt = `You are a clinical triage assistant for DischargeIQ, a post-discharge patient monitoring system.
+  const prompt = `You are a clinical triage assistant for CareLoop, a post-discharge patient monitoring system.
 
 Patient: ${patientName}
 Patient's known emergency warning symptoms:
