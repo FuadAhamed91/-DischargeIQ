@@ -124,7 +124,15 @@ export async function sendMessage(
   _phoneNumberId: string,
   message: OutboundMessage,
 ): Promise<SendResult> {
-  const { sid, token, from } = getCredentials()
+  // Missing settings fail this one send like any refused message: the caller records it and
+  // carries on (an urgent symptom is still escalated) instead of the whole handler throwing.
+  let credentials: ReturnType<typeof getCredentials>
+  try {
+    credentials = getCredentials()
+  } catch (err) {
+    return { messageId: '', status: 'failed', error: err instanceof Error ? err.message : String(err) }
+  }
+  const { sid, token, from } = credentials
   const to = message.to.startsWith('whatsapp:') ? message.to : `whatsapp:${message.to}`
   const body = renderMessageBody(message)
 
