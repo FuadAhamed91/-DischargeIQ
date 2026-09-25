@@ -69,6 +69,45 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Guided tour (components/tour) */
+  --animate-tour-pulse: tour-pulse 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-tour-tap: tour-tap 1.6s ease-in-out infinite;
+  --animate-tour-card-in: tour-card-in 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-tour-nudge: tour-nudge 0.36s ease-in-out;
+  --animate-tour-rise: tour-rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* The ring breathing around what to click next */
+@keyframes tour-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--brand) 50%, transparent); }
+  70%, 100% { box-shadow: 0 0 0 16px color-mix(in oklab, var(--brand) 0%, transparent); }
+}
+/* The pointer that taps it */
+@keyframes tour-tap {
+  0%, 100% { transform: translate(0, 0); }
+  40% { transform: translate(-8px, -8px); }
+  50% { transform: translate(-8px, -8px) scale(0.82); }
+  62% { transform: translate(-8px, -8px); }
+}
+@keyframes tour-card-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+/* A click on the dimmed page: the card shakes its head */
+@keyframes tour-nudge {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  75% { transform: translateX(6px); }
+}
+@keyframes tour-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+/* The finish: dots flying out of the Tour button */
+@keyframes tour-burst {
+  from { transform: translate(0, 0) scale(1); opacity: 1; }
+  to { transform: translate(var(--tour-x), var(--tour-y)) scale(0.3); opacity: 0; }
 }
 
 :root {
@@ -87,6 +126,7 @@
   --brand-foreground: oklch(1 0 0);
   --brand-soft: oklch(0.951 0.025 236.8);        /* sky-100 */
   --brand-tint: oklch(0.977 0.012 236.6);        /* sky-50 */
+  --tour-dim: rgb(2 6 23 / 0.56);                /* the page behind the guided tour's spotlight */
   --teal: oklch(0.609 0.111 221.7);              /* cyan-600 — accent lines/badges */
   --teal-foreground: oklch(1 0 0);
   --teal-soft: oklch(0.984 0.019 200.9);         /* cyan-50 */
@@ -151,6 +191,7 @@
   --brand-foreground: oklch(0.15 0.02 262);
   --brand-soft: oklch(0.3 0.05 240);
   --brand-tint: oklch(0.22 0.03 245);
+  --tour-dim: rgb(0 0 0 / 0.66);
   --teal: oklch(0.75 0.1 215);
   --teal-foreground: oklch(0.15 0.02 262);
   --teal-soft: oklch(0.28 0.05 215);

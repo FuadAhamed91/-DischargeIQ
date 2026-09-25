@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge'
 import { MobileNav } from '@/components/layout/mobile-nav'
 import { AlertBell } from '@/components/alerts/alert-bell'
 import { ThemeToggle } from '@/components/theme/theme-toggle'
+import { TourButton } from '@/components/tour/tour-button'
 import type { Profile } from '@/types/database'
 import type { UserRole } from '@/types/enums'
 
@@ -56,6 +57,7 @@ export function Header({ profile, hospitalName, openAlerts, criticalAlerts }: He
       </div>
 
       <div className="flex items-center gap-1.5 md:gap-3">
+        <TourButton />
         <ThemeToggle />
         <AlertBell hospitalId={profile.hospital_id} initialOpenCount={openAlerts} initialCriticalCount={criticalAlerts} />
 
