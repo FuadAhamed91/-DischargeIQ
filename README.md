@@ -1,4 +1,4 @@
-# DischargeIQ
+# CareLoop
 
 Post-discharge patient follow-up over WhatsApp, for hospitals in the UAE.
 
@@ -343,7 +343,7 @@ Screens use the words a nurse uses: care plan (not episode), symptom check (not 
 check-in (not reminder), *Needs review*, *Needs a nurse*.
 
 **Guided tour (for judges and first-time visitors).** The first visit opens a welcome (what
-DischargeIQ is for, the three things the tour shows) and a two-minute tour that walks one patient
+CareLoop is for, the three things the tour shows) and a two-minute tour that walks one patient
 through the real app: the Overview → **Add patient** (a copy of Fatima's PDF flies from the demo
 letter into the box until the visitor drags it in; on a phone it says tap) → the details read from
 the letter → **Review care plan** → **Approve and send** → the patient's **Conversation** → **Reply
@@ -415,8 +415,8 @@ scripts/
 ## Local development
 
 ```bash
-git clone https://github.com/FuadAhamed91/-DischargeIQ.git DischargeIQ
-cd DischargeIQ
+git clone https://github.com/FuadAhamed91/CareLoop.git CareLoop
+cd CareLoop
 npm install
 cp .env.example .env.local     # then fill it in — see below
 npm run dev                    # http://localhost:3000

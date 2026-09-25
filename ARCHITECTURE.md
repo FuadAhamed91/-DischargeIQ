@@ -1,4 +1,4 @@
-# DischargeIQ — System Architecture
+# CareLoop — System Architecture
 
 > **Status:** Architecture proposal — pending approval before implementation.  
 > **Source of truth:** [PROJECT_CONTEXT.md](./PROJECT_CONTEXT.md)
@@ -30,7 +30,7 @@
 
 ## 1. Executive Summary
 
-DischargeIQ is a **multi-tenant B2B healthcare platform** where clinical staff use a **Next.js dashboard** and patients interact exclusively via **WhatsApp**. The backend is **Supabase (PostgreSQL + Auth + Storage + Realtime)** with **Next.js API routes and Edge Functions** orchestrating AI services, WhatsApp webhooks, cron-driven reminders, and hospital scheduling integrations.
+CareLoop is a **multi-tenant B2B healthcare platform** where clinical staff use a **Next.js dashboard** and patients interact exclusively via **WhatsApp**. The backend is **Supabase (PostgreSQL + Auth + Storage + Realtime)** with **Next.js API routes and Edge Functions** orchestrating AI services, WhatsApp webhooks, cron-driven reminders, and hospital scheduling integrations.
 
 **Architectural split:**
 
@@ -67,7 +67,7 @@ flowchart TB
         Admin[Hospital Admin]
     end
 
-    subgraph DischargeIQ["DischargeIQ Platform"]
+    subgraph CareLoop["CareLoop Platform"]
         Web[Next.js Dashboard<br/>Vercel]
         API[API Routes + Edge Functions]
         DB[(Supabase PostgreSQL)]
@@ -108,10 +108,10 @@ flowchart TB
 
 ### 4.1 Tenancy Model
 
-DischargeIQ uses a **shared database, shared schema** model with **row-level tenant isolation** via `hospital_id` on every tenant-scoped table.
+CareLoop uses a **shared database, shared schema** model with **row-level tenant isolation** via `hospital_id` on every tenant-scoped table.
 
 ```
-Organization (DischargeIQ SaaS)
+Organization (CareLoop SaaS)
 └── Hospital (tenant)
     ├── Departments / Wards (optional)
     ├── Staff Users (nurses, coordinators, admins)
@@ -539,7 +539,7 @@ Curated Q&A snippets the AI may cite beyond discharge summary.
 
 ```sql
 CREATE TYPE user_role AS ENUM (
-  'super_admin',      -- DischargeIQ platform
+  'super_admin',      -- CareLoop platform
   'hospital_admin',
   'discharge_coordinator',
   'nurse',
@@ -699,7 +699,7 @@ patient data    → no direct patient auth; WhatsApp handlers use service role
 
 ### 8.2 Patients (WhatsApp)
 
-Patients **do not authenticate** to DischargeIQ.
+Patients **do not authenticate** to CareLoop.
 
 **Identity resolution on inbound WhatsApp message** (`lib/whatsapp/recipient.ts`, `routing.ts`):
 
@@ -892,7 +892,7 @@ All dashboard endpoints are under `/api/v1/`. Responses use `{ data, error, meta
 ```mermaid
 sequenceDiagram
     participant Nurse
-    participant API as DischargeIQ API
+    participant API as CareLoop API
     participant DB as Database
     participant WA as WhatsApp API
     participant Patient
@@ -992,7 +992,7 @@ stateDiagram-v2
 sequenceDiagram
     participant Patient
     participant WA as WhatsApp
-    participant API as DischargeIQ
+    participant API as CareLoop
     participant HIS as Scheduling System
     participant DB as Database
     participant RT as Realtime
@@ -1094,7 +1094,7 @@ flowchart LR
 sequenceDiagram
     participant Patient
     participant WA as WhatsApp
-    participant API as DischargeIQ
+    participant API as CareLoop
     participant Whisper as OpenAI Whisper
     participant Triage as Triage Engine
     participant AI as LLM
@@ -1202,7 +1202,7 @@ If Realtime disconnects: dashboard polls `/api/v1/alerts?since=` every 30s (expo
 ## 14. Folder Structure
 
 ```text
-dischargeiq/
+careloop/
 ├── PROJECT_CONTEXT.md
 ├── ARCHITECTURE.md
 ├── README.md
@@ -1334,8 +1334,8 @@ dischargeiq/
 | Environment | Frontend | Backend | Purpose |
 |-------------|----------|---------|---------|
 | Development | localhost:3000 | Supabase local / dev project | Local dev |
-| Staging | staging.dischargeiq.com | Supabase staging | QA, demo hospitals |
-| Production | app.dischargeiq.com | Supabase production | Live tenants |
+| Staging | staging.careloop.com | Supabase staging | QA, demo hospitals |
+| Production | app.careloop.com | Supabase production | Live tenants |
 
 ### 15.2 Infrastructure Diagram
 

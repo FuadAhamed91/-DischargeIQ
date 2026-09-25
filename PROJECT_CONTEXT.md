@@ -1,12 +1,12 @@
 # PRODUCT NAME
-DischargeIQ
+CareLoop
 
 # PRODUCT VISION
-DischargeIQ is an enterprise B2B healthcare platform designed to reduce hospital readmissions by automating post-discharge patient care and follow-up through WhatsApp.
+CareLoop is an enterprise B2B healthcare platform designed to reduce hospital readmissions by automating post-discharge patient care and follow-up through WhatsApp.
 
 The hospital's responsibility should not end when a patient leaves the hospital.
 
-DischargeIQ bridges the gap between discharge and recovery by providing multilingual discharge support, automated follow-ups, appointment management, and AI-powered risk monitoring.
+CareLoop bridges the gap between discharge and recovery by providing multilingual discharge support, automated follow-ups, appointment management, and AI-powered risk monitoring.
 
 The nurse interacts with a web dashboard.
 The patient interacts only through WhatsApp.
@@ -64,7 +64,7 @@ Middle East and GCC region
 SYSTEM OVERVIEW
 ---------------------------------------------------
 
-DischargeIQ consists of five major systems:
+CareLoop consists of five major systems:
 
 1. Clinical Ingestion Engine
 2. Patient WhatsApp Interface
@@ -169,7 +169,7 @@ If patient selects YES:
 
 If patient selects NO:
 
-- DischargeIQ retrieves the next available appointment slots from the hospital scheduling system.
+- CareLoop retrieves the next available appointment slots from the hospital scheduling system.
 - Alternative appointment times are shown.
 - Patient selects preferred slot.
 - Appointment is automatically rebooked.
@@ -216,7 +216,7 @@ Every response is stored in the patient timeline.
 PATIENT COMMUNICATION MODES
 ---------------------------------------------------
 
-Patients can interact with DischargeIQ in two ways:
+Patients can interact with CareLoop in two ways:
 
 1. Text Chat
 2. Voice Chat
@@ -363,13 +363,13 @@ Dashboard metrics:
 BUSINESS VALUE
 ---------------------------------------------------
 
-DischargeIQ aims to reduce:
+CareLoop aims to reduce:
 
 - Hospital readmissions
 - Missed appointments
 - Manual follow-up workload
 
-DischargeIQ aims to increase:
+CareLoop aims to increase:
 
 - Patient adherence
 - Follow-up attendance
