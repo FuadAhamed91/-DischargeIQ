@@ -5,12 +5,16 @@ import { requireSession } from '@/lib/auth/session'
 import { Bell } from 'lucide-react'
 import { EmptyState } from '@/components/shared/empty-state'
 import { AlertsList } from '@/components/alerts/alerts-list'
+import type { AlertsFilter } from '@/components/alerts/alerts-list'
 
 export async function generateMetadata() {
   return { title: 'Alerts' }
 }
 
-export default async function AlertsPage() {
+export default async function AlertsPage({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
+  const { status } = await searchParams
+  // ?status=acknowledged (from the Overview's reminders) opens that tab
+  const initialFilter: AlertsFilter = status === 'acknowledged' || status === 'all' ? status : 'open'
   const { profile, hospital } = await requireSession()
   const supabase = await createClient()
 
@@ -45,8 +49,13 @@ export default async function AlertsPage() {
           description="Alerts appear here the moment a patient needs a nurse."
         />
       ) : (
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        <AlertsList initialAlerts={alerts as any} hospitalId={profile.hospital_id} tz={hospital.timezone} />
+        <AlertsList
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          initialAlerts={alerts as any}
+          hospitalId={profile.hospital_id}
+          tz={hospital.timezone}
+          initialFilter={initialFilter}
+        />
       )}
     </div>
   )

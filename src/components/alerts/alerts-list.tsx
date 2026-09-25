@@ -23,22 +23,24 @@ interface Alert {
   } | null
 }
 
-interface AlertsListProps {
-  initialAlerts: Alert[]
-  hospitalId: string
-  tz: string
-}
-
-type Filter = 'open' | 'acknowledged' | 'all'
-const FILTERS: { value: Filter; label: string }[] = [
+export type AlertsFilter = 'open' | 'acknowledged' | 'all'
+const FILTERS: { value: AlertsFilter; label: string }[] = [
   { value: 'open', label: 'Open' },
   { value: 'acknowledged', label: 'Acknowledged' },
   { value: 'all', label: 'All' },
 ]
 
-export function AlertsList({ initialAlerts, hospitalId, tz }: AlertsListProps) {
+interface AlertsListProps {
+  initialAlerts: Alert[]
+  hospitalId: string
+  tz: string
+  /** The tab to open on, e.g. from the Overview's "acknowledged alerts still to resolve". */
+  initialFilter?: AlertsFilter
+}
+
+export function AlertsList({ initialAlerts, hospitalId, tz, initialFilter = 'open' }: AlertsListProps) {
   const [alerts, setAlerts] = useState<Alert[]>(initialAlerts)
-  const [filter, setFilter] = useState<Filter>('open')
+  const [filter, setFilter] = useState<AlertsFilter>(initialFilter)
   const [busy, setBusy] = useState<Record<string, 'acknowledge' | 'resolve'>>({})
   const supabase = useMemo(() => createClient(), [])
 
