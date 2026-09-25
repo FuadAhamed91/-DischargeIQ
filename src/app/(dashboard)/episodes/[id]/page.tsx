@@ -22,6 +22,8 @@ import { CarePlanDeliveryBanner, CarePlanResendButton } from '@/components/episo
 import { RiskLevelControl } from '@/components/episodes/risk-level-control'
 import { PatientAlerts, type PatientAlert } from '@/components/episodes/patient-alerts'
 import { SendCheckinButton } from '@/components/episodes/send-checkin-button'
+import { PatientSimulator } from '@/components/episodes/patient-simulator'
+import { isSampleMrn } from '@/lib/intake/sample-letters'
 import { BookFollowUp } from '@/components/appointments/book-follow-up'
 import { CARE_PLAN_KIND, summariseCarePlanMessage } from '@/lib/whatsapp/care-plan'
 import { SUPPORTED_LANGUAGES } from '@/types/enums'
@@ -231,7 +233,8 @@ export default async function EpisodeDetailPage({
       {carePlanDelivery?.status === 'failed' && (
         <CarePlanDeliveryBanner episodeId={id} delivery={carePlanDelivery} patientName={patient.full_name} timezone={tz} />
       )}
-      {openAlerts.length > 0 && <PatientAlerts alerts={openAlerts} timezone={tz} />}
+      {/* Keyed on the alerts, so a live refresh that brings a new one shows it */}
+      {openAlerts.length > 0 && <PatientAlerts key={openAlerts.map((a) => a.id).join()} alerts={openAlerts} timezone={tz} />}
 
       {/* At a glance */}
       <dl className="grid grid-cols-1 gap-x-6 gap-y-3 rounded-lg border bg-card px-4 py-3 text-sm sm:grid-cols-3">
@@ -260,7 +263,7 @@ export default async function EpisodeDetailPage({
       <Tabs defaultValue={defaultTab}>
         {/* Below `sm` the icons drop so all three tabs fit a phone screen */}
         <TabsList variant="line" className="w-full justify-start border-b pb-0">
-          <TabsTrigger value="conversation" className="flex-none px-2.5 sm:px-3 max-sm:[&>svg]:hidden">
+          <TabsTrigger value="conversation" data-tour="tab-conversation" className="flex-none px-2.5 sm:px-3 max-sm:[&>svg]:hidden">
             <MessageCircle aria-hidden="true" /> Conversation
             {transcript.length > 0 && <span className="text-xs text-muted-foreground tnum">{transcript.length}</span>}
           </TabsTrigger>
@@ -288,6 +291,17 @@ export default async function EpisodeDetailPage({
               />
             </CardContent>
           </Card>
+          {/* Demo patients only: write as the patient, since nobody here holds their phone */}
+          {canMessage && isSampleMrn(patient.mrn) && (
+            <div className="mt-4">
+              <PatientSimulator
+                episodeId={id}
+                conversationId={conversation?.id ?? null}
+                patientName={patient.full_name}
+                language={patient.preferred_language as LanguageCode}
+              />
+            </div>
+          )}
         </TabsContent>
 
         {/* ── CARE PLAN ────────────────────────────────────────────── */}

@@ -47,7 +47,7 @@ export function PatientAlerts({ alerts: initial, timezone }: { alerts: PatientAl
   if (alerts.length === 0) return null
 
   return (
-    <section aria-labelledby="patient-alerts" className="rounded-lg border border-danger/30 bg-danger-soft/40">
+    <section aria-labelledby="patient-alerts" data-tour="patient-alerts" className="rounded-lg border border-danger/30 bg-danger-soft/40">
       <h2 id="patient-alerts" className="border-b border-danger/20 px-4 py-2.5 text-sm font-semibold text-danger">
         {alerts.length} open alert{alerts.length === 1 ? '' : 's'} for this patient
       </h2>

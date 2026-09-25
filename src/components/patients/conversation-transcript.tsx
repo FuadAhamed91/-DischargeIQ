@@ -490,7 +490,7 @@ export function ConversationTranscript({
   }
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col" data-tour="conversation">
       {/* Toolbar: who is answering, and the reading aids. (Name and number are in the page header.) */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
         <Badge variant="outline" className={cn('text-xs', attending ? 'border-brand/30 bg-brand-soft text-brand' : state.state === 'idle' ? 'text-muted-foreground' : 'border-warning/30 bg-warning-soft text-warning')}>
@@ -648,6 +648,11 @@ export function ConversationTranscript({
                     )}>
                       <span>{sender.kind === 'patient' ? patientName.split(' ')[0] : sender.name}</span>
                       {typist && <span title="WhatsApp profile name of the phone that sent this">(typed by {typist})</span>}
+                      {m.metadata?.simulated === true && (
+                        <span className="rounded-sm bg-brand-soft px-1 font-medium text-brand" title="Written in the demo’s “Reply as the patient” box, not sent from the patient’s phone">
+                          Demo reply
+                        </span>
+                      )}
                       {unclear && (
                         <span
                           className="inline-flex items-center gap-1 rounded-sm bg-warning-soft px-1 font-medium text-warning"
@@ -707,6 +712,7 @@ export function ConversationTranscript({
       {canSend && (
         <form
           className="mt-2 border-t pt-3"
+          data-tour="nurse-composer"
           onSubmit={(e) => { e.preventDefault(); void send() }}
         >
           <label htmlFor="nurse-message" className="sr-only">Message to {patientName}</label>
