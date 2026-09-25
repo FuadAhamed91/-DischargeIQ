@@ -1,5 +1,5 @@
 -- ============================================================
--- DischargeIQ — Migration 00008: realtime for the conversation transcript
+-- CareLoop — Migration 00008: realtime for the conversation transcript
 -- ============================================================
 -- The episode page's Conversation tab subscribes to whatsapp_messages via
 -- postgres_changes so nurse and patient messages appear as they happen.

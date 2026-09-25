@@ -1,5 +1,5 @@
 -- ============================================================
--- DischargeIQ — Development Seed Data
+-- CareLoop — Development Seed Data
 -- Run only against local / staging environments.
 -- ============================================================
 

@@ -1,5 +1,5 @@
 -- ============================================================
--- DischargeIQ — Migration 00007: dispatch reminders every 5 min via pg_cron
+-- CareLoop — Migration 00007: dispatch reminders every 5 min via pg_cron
 -- ============================================================
 -- Vercel's Hobby plan only allows once-a-day cron jobs, so reminders
 -- scheduled for the evening were being delivered the next morning.
@@ -8,7 +8,7 @@
 -- designed to run. Vercel keeps the daily generate + escalate jobs.
 --
 -- Configuration lives in Supabase Vault (encrypted), never in the job:
---   cron_base_url  e.g. https://discharge-iq.vercel.app
+--   cron_base_url  e.g. https://your-app.vercel.app
 --   cron_secret    must equal the CRON_SECRET env var on Vercel
 -- Set both with (service_role only):
 --   select configure_cron_dispatch('https://<app-host>', '<CRON_SECRET>');
@@ -48,7 +48,7 @@ BEGIN
   SELECT id INTO v_secret_id FROM vault.secrets WHERE name = 'cron_secret';
 
   IF v_url_id IS NULL THEN
-    PERFORM vault.create_secret(rtrim(p_base_url, '/'), 'cron_base_url', 'Base URL of the DischargeIQ app for pg_cron HTTP calls');
+    PERFORM vault.create_secret(rtrim(p_base_url, '/'), 'cron_base_url', 'Base URL of the CareLoop app for pg_cron HTTP calls');
   ELSE
     PERFORM vault.update_secret(v_url_id, rtrim(p_base_url, '/'));
   END IF;

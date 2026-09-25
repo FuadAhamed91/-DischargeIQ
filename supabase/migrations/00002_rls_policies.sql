@@ -1,5 +1,5 @@
 -- ============================================================
--- DischargeIQ — Migration 00002: Row Level Security Policies
+-- CareLoop — Migration 00002: Row Level Security Policies
 -- ============================================================
 
 -- Helper function: get current user's hospital_id

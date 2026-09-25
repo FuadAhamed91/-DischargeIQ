@@ -1,5 +1,5 @@
 -- ============================================================
--- DischargeIQ — Demo Seed Data
+-- CareLoop — Demo Seed Data
 -- Run this in Supabase SQL Editor to populate the demo.
 -- Assumes hospital ID 00000000-0000-0000-0000-000000000001 exists.
 --

@@ -1,5 +1,5 @@
 -- ============================================================
--- DischargeIQ — Migration 00004: Storage bucket & Realtime publication
+-- CareLoop — Migration 00004: Storage bucket & Realtime publication
 -- ============================================================
 -- Captures project-level setup the app depends on that previously lived
 -- only in the dashboard of the original Supabase project:

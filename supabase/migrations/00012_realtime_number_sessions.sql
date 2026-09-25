@@ -1,5 +1,5 @@
 -- ============================================================
--- DischargeIQ — Migration 00012: realtime for the shared-number notice
+-- CareLoop — Migration 00012: realtime for the shared-number notice
 -- ============================================================
 -- The episode page's Conversation tab shows which patient a shared number
 -- is currently writing about and whether the sender is being asked. It

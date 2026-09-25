@@ -1,5 +1,5 @@
 -- ============================================================
--- DischargeIQ — Migration 00006: reminder_jobs idempotency constraint
+-- CareLoop — Migration 00006: reminder_jobs idempotency constraint
 -- ============================================================
 -- lib/reminders/generator.ts upserts next-day jobs with
 --   onConflict: 'schedule_id,fire_at', ignoreDuplicates: true

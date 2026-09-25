@@ -1,5 +1,5 @@
 -- ============================================================
--- DischargeIQ — Migration 00005: Harden SECURITY DEFINER functions
+-- CareLoop — Migration 00005: Harden SECURITY DEFINER functions
 -- ============================================================
 -- Addresses Supabase security-advisor findings on the functions from
 -- migrations 00002/00003. By default every function in `public` is
