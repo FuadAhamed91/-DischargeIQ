@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "gen:types": "supabase gen types typescript --project-id $SUPABASE_PROJECT_ID --schema public > src/types/database.generated.ts",
-    "check": "npm run check:intent && npm run check:routing && npm run check:webhook && npm run check:gemini && npm run check:delivery && npm run check:translation && npm run check:reschedule && npm run check:analytics && npm run check:sample-letters && npm run check:model-json",
+    "check": "npm run check:intent && npm run check:routing && npm run check:webhook && npm run check:gemini && npm run check:delivery && npm run check:translation && npm run check:reschedule && npm run check:analytics && npm run check:sample-letters && npm run check:model-json && npm run check:tour",
     "check:intent": "tsx scripts/check-intent.ts",
     "check:routing": "tsx scripts/check-routing.ts",
     "check:webhook": "tsx scripts/check-webhook.ts",
@@ -18,6 +18,7 @@
     "check:reschedule": "tsx scripts/check-reschedule.ts",
     "check:analytics": "tsx scripts/check-analytics.ts",
     "check:sample-letters": "tsx scripts/check-sample-letters.ts",
+    "check:tour": "tsx scripts/check-tour.ts",
     "check:model-json": "tsx scripts/check-model-json.ts"
   },
   "dependencies": {
