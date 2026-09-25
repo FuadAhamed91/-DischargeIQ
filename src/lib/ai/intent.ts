@@ -11,7 +11,9 @@
  * its own finer-grained intent classification (see chat.ts).
  */
 
-import { ARABIC_EMERGENCY_PATTERNS, ARABIC_NOT_A_REPORT_BEFORE, EMERGENCY_KEYWORDS } from './guardrails'
+import {
+  ARABIC_EMERGENCY_PATTERNS, ARABIC_NOT_A_REPORT_BEFORE, EMERGENCY_KEYWORDS, ENGLISH_EMERGENCY_KEYWORDS, ENGLISH_NOT_A_REPORT_BEFORE,
+} from './guardrails'
 
 export type PreIntent = 'emergency' | 'acknowledgement' | 'greeting' | 'unknown'
 
@@ -82,6 +84,16 @@ function foldForEmergency(text: string): string {
 }
 
 const KEYWORDS = EMERGENCY_KEYWORDS.map(foldForEmergency)
+const ENGLISH_KEYWORDS = new Set<string>(ENGLISH_EMERGENCY_KEYWORDS.map(foldForEmergency))
+
+/** Does the patient report the keyword? Every place it appears counts, except an English one right after "no" or "don't have". */
+function reportsKeyword(folded: string, keyword: string): boolean {
+  if (!ENGLISH_KEYWORDS.has(keyword)) return folded.includes(keyword)
+  for (let at = folded.indexOf(keyword); at >= 0; at = folded.indexOf(keyword, at + 1)) {
+    if (!ENGLISH_NOT_A_REPORT_BEFORE.test(folded.slice(0, at))) return true
+  }
+  return false
+}
 
 // What may come before a match inside its word: و/ف, then ب/ل/ك, then ال ("والم", "بالصدر", "للصدر").
 const ARABIC_PROCLITICS = /^(?:[وف]?[بلك]?(?:ال)?|[وف]?لل)$/
@@ -104,7 +116,7 @@ function containsArabicEmergency(text: string): boolean {
 
 export function containsEmergencyKeyword(text: string): boolean {
   const folded = foldForEmergency(text)
-  if (KEYWORDS.some((k) => folded.includes(k))) return true
+  if (KEYWORDS.some((k) => reportsKeyword(folded, k))) return true
   return /[\u0600-\u06FF]/.test(folded) && containsArabicEmergency(folded)
 }
 

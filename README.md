@@ -663,7 +663,12 @@ functions callable by `authenticated` (required — policies evaluate them as th
   model entirely. Arabic is matched by patterns (`ARABIC_EMERGENCY_PATTERNS` in `lib/ai/guardrails.ts`)
   rather than a phrase list: spelling variants folded, "my/his/her chest", Gulf, Egyptian and Levantine
   wording, and a negation ("صدري ما يعورني", my chest does not hurt) or a treatment's name ("بخاخ ضيق
-  التنفس", the inhaler) is not an emergency.
+  التنفس", the inhaler) is not an emergency. In English, a negation right before the words is not a
+  report either ("no chest pain", "I don't have any chest pain", "I'm not short of breath";
+  `ENGLISH_NOT_A_REPORT_BEFORE`). It is kept narrow, so "No I have chest pain", "no, chest pain",
+  "I've never had chest pain like this", "without chest pain" and "not much chest pain" still alert.
+  Hindi, Tamil and Tagalog keywords alert even when negated: in Hindi and Tamil the negation comes after
+  the phrase and can belong to another verb ("सीने में दर्द नहीं रुक रहा", the chest pain won't stop).
 
 ---
 

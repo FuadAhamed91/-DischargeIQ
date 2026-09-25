@@ -17,8 +17,9 @@ export const FORBIDDEN_INTENTS = [
 
 // Matched case-insensitively as substrings of the normalised message
 // (see intent.ts — apostrophe variants are folded before matching).
+// An English one right after a negation is not a report (ENGLISH_NOT_A_REPORT_BEFORE).
 // Arabic is matched by ARABIC_EMERGENCY_PATTERNS below instead.
-export const EMERGENCY_KEYWORDS = [
+export const ENGLISH_EMERGENCY_KEYWORDS = [
   'chest pain',
   'chest tightness',
   'can\'t breathe',
@@ -40,6 +41,26 @@ export const EMERGENCY_KEYWORDS = [
   'fainted',
   'passed out',
   'suicid',
+] as const
+
+/**
+ * Just before an English keyword, in the same clause, these mean the patient
+ * is not reporting it: "no chest pain", "no more chest pain", "I don't have
+ * any chest pain", "I'm not short of breath", "he hasn't collapsed". Narrow on
+ * purpose, since a missed emergency costs more than an extra alert: only
+ * "not", a n't word, "no", "nor" or "neither", with nothing between it and the
+ * keyword but have / feel / get forms and any / a / the / more. So "No I have
+ * chest pain", "no, chest pain", "I've never had chest pain like this", "I
+ * can't walk without chest pain", "not much chest pain" and "I don't think
+ * it's a heart attack" still alert. Tested against the text before the match.
+ * Hindi and Tamil put the negation after the phrase, where it can belong to
+ * another verb ("सीने में दर्द नहीं रुक रहा", the chest pain won't stop), so
+ * those keywords alert whatever surrounds them.
+ */
+export const ENGLISH_NOT_A_REPORT_BEFORE = /(?:^|\s)(?:(?:not|(?:do|does|did|have|has|had|is|are|was|were|wo|ai)n'?t)(?:[^\S\n]+(?:have|has|had|having|feel|feels|felt|feeling|get|gets|got|getting|been|experience|experienced|experiencing|notice|noticed|any|a|an|the|more)){0,3}|(?:no|nor|neither)(?:[^\S\n]+(?:more|further|any))?|no[^\S\n]+longer(?:[^\S\n]+(?:have|has|having|feel|feeling|get|getting|experience|experiencing))?(?:[^\S\n]+(?:any|a|the))?)[^\S\n]+$/
+
+export const EMERGENCY_KEYWORDS = [
+  ...ENGLISH_EMERGENCY_KEYWORDS,
   // Hindi (and as typed in Latin letters)
   'सांस लेने में तकलीफ',
   'साँस लेने में तकलीफ',

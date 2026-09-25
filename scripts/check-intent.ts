@@ -84,6 +84,24 @@ eq('not an emergency: negated, a treatment\'s name, an idiom, a cramp, "can\'t t
 ].filter((t) => classifyPreIntent(t) === 'emergency'), [])
 eq('Hindi typed with the precomposed फ़ (U+095E) still matches', classifyPreIntent(`सांस लेने में तकली${String.fromCharCode(0x095e)} हो रही है`), 'emergency')
 
+console.log('— English: "no chest pain" is not a report —')
+eq('not an emergency: a negation just before it (each line lists any that fire)', [
+  'no chest pain', 'No chest pain today', 'no chest pain, just tired', 'I don’t have chest pain', 'I dont have any chest pain',
+  'I do not have chest pain', 'I’m not having any chest pain', 'no more chest pain', 'no longer have chest pain',
+  'not short of breath', 'I am not short of breath at all', 'no shortness of breath', 'not a heart attack', 'he hasn’t collapsed',
+  'no fever and no chest pain', 'neither chest pain nor fever', 'I didn’t have a seizure', 'no severe bleeding', 'feeling ok\nno chest pain',
+].filter((t) => classifyPreIntent(t) === 'emergency'), [])
+eq('still an emergency: a report beside a negation, or a negation that is not about it (each line lists any that miss)', missed([
+  'No I have chest pain', 'no, chest pain', 'No. Chest pain', 'no\nchest pain', 'no fever but chest pain', 'no fever and chest pain',
+  'no chest pain but I can’t breathe', 'no chest pain, just chest tightness', 'I’ve never had chest pain like this',
+  'I can’t walk without chest pain', 'not much chest pain', 'I don’t think it’s a heart attack', 'not sure if it’s chest pain',
+  'chest pain doesn’t stop', 'the medicine didn’t help my chest pain', 'no have chest pain', 'I dont know why I have chest pain',
+  'I can’t breathe', 'he is not responding', 'I cannot breathe', 'no chest pain yesterday. today chest pain',
+]), [])
+eq('Hindi, Tamil and Tagalog still alert when negated (the negation can belong to another verb)', [
+  'सीने में दर्द नहीं है', 'सीने में दर्द नहीं रुक रहा', 'நெஞ்சு வலி இல்லை', 'walang sakit sa dibdib',
+].map((t) => classifyPreIntent(t)), ['emergency', 'emergency', 'emergency', 'emergency'])
+
 console.log('— escalation derived from model intent —')
 eq('acknowledgement never escalates', deriveEscalation({ intent: 'acknowledgement', confidence: 'low' }).shouldEscalate, false)
 eq('greeting never escalates', deriveEscalation({ intent: 'greeting', confidence: 'low' }).shouldEscalate, false)
@@ -153,6 +171,7 @@ eq('"pain 8/10 in my stomach"', q2('pain 8/10 in my stomach'), 'triage_text→id
 eq('"cant breathe" (emergency wins)', q2('cant breathe'), 'route_to_ai→idle')
 eq('"ما اقدر اتنفس" (emergency wins, in Gulf Arabic)', q2('ما اقدر اتنفس'), 'route_to_ai→idle')
 eq('"الحمد لله صدري ما يعورني" → a symptom answer for triage, not an emergency', q2('الحمد لله صدري ما يعورني'), 'triage_text→idle')
+eq('"no chest pain, just tired" → a symptom answer for triage, not an emergency', q2('no chest pain, just tired'), 'triage_text→idle')
 eq('voice note', transition('awaiting_checkin_symptoms', inbound(undefined, 'audio', { audioUrl: 'https://x' })).action, 'route_to_triage')
 
 console.log('— FSM: appointment confirmation and the times offered —')
