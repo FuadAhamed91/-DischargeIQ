@@ -49,6 +49,20 @@ export function RecentAlerts({ alerts: initialAlerts, hospitalId, tz, openOnly =
     return () => { supabase.removeChannel(channel) }
   }, [hospitalId, openOnly, supabase])
 
+  if (alerts.length === 0 && openOnly) {
+    return (
+      <div className="flex flex-col items-center px-5 pb-1 pt-6 text-center">
+        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-success-soft text-success" aria-hidden="true">
+          <Check className="h-5 w-5" />
+        </span>
+        <p className="mt-2.5 text-sm font-medium">All clear</p>
+        <p className="mt-0.5 max-w-sm text-xs text-muted-foreground">
+          No patient needs a nurse right now. New alerts appear here the moment they happen.
+        </p>
+      </div>
+    )
+  }
+
   if (alerts.length === 0) {
     return (
       <div className="flex items-center gap-3 px-5 py-4">
@@ -56,19 +70,15 @@ export function RecentAlerts({ alerts: initialAlerts, hospitalId, tz, openOnly =
           <Check className="h-4 w-4" />
         </span>
         <div className="min-w-0">
-          <p className="text-sm font-medium">{openOnly ? 'All clear' : 'No alerts yet'}</p>
-          <p className="text-xs text-muted-foreground">
-            {openOnly
-              ? 'No patient needs a nurse right now. New alerts appear here the moment they happen.'
-              : 'Reported symptoms, missed medicines and unconfirmed appointments show here.'}
-          </p>
+          <p className="text-sm font-medium">No alerts yet</p>
+          <p className="text-xs text-muted-foreground">Reported symptoms, missed medicines and unconfirmed appointments show here.</p>
         </div>
       </div>
     )
   }
 
   return (
-    <ul className="divide-y">
+    <ul className="divide-y border-b">
       {alerts.slice(0, limit).map((alert) => {
         const sev = severityOf(alert.severity)
         const Icon = SEVERITY[sev].icon

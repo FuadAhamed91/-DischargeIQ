@@ -6,23 +6,37 @@ import { createClient } from '@/lib/supabase/server'
 import { fmt } from '@/lib/format'
 import { fromZonedTime } from 'date-fns-tz'
 import { countCheckinAnswers } from '@/lib/analytics/checkins'
+import { alertHoursStart, alertsByHour } from '@/lib/analytics/alerts'
+import { resolveCheckinTime } from '@/lib/reminders/checkin'
 import { Users, Bell, CalendarCheck, MessageSquareReply, Moon, CalendarDays, ArrowRight, Plus } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { RealtimeAlertsBanner } from '@/components/alerts/realtime-alerts-banner'
 import { RecentAlerts } from '@/components/alerts/recent-alerts'
-import { WhatsAppFeed } from '@/components/dashboard/whatsapp-feed'
-import type { FeedMessage } from '@/components/dashboard/whatsapp-feed'
+import { KeyReminders } from '@/components/dashboard/key-reminders'
+import type { Reminder } from '@/components/dashboard/key-reminders'
+import { AlertsByHour } from '@/components/dashboard/alerts-by-hour'
+import { OverviewLiveRefresh } from '@/components/dashboard/overview-live-refresh'
 import { StatusBadge } from '@/components/shared/status-badge'
 import type { AppointmentStatus } from '@/types/enums'
 
 export const metadata = { title: 'Overview' }
 
 const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
+const DAY_MS = 24 * 60 * 60 * 1000
+
+type PlanRow = { id: string; status: string; patients: { full_name: string } | null }
+type AppointmentRow = {
+  id: string
+  specialty: string
+  scheduled_at: string
+  episode_id: string
+  care_episodes: { patients: { full_name: string } | null } | null
+}
 
 /**
- * The first screen of the day: who needs a nurse now and what patients are
- * saying on WhatsApp (left, live), then what is scheduled today (right).
+ * The first screen of the day: who needs a nurse now, what is still to follow
+ * up and how the last day went (left), then what is scheduled (right).
  */
 export default async function OverviewPage() {
   const { profile, hospital } = await requireSession()
@@ -34,9 +48,10 @@ export default async function OverviewPage() {
   const now = new Date()
   const todayLocal = fmt(now, 'yyyy-MM-dd', tz)
   const dayStart = fromZonedTime(`${todayLocal}T00:00:00`, tz)
-  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000)
-  const weekAhead = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const dayEnd = new Date(dayStart.getTime() + DAY_MS)
+  const soonEnd = new Date(dayStart.getTime() + 4 * DAY_MS) // the end of the day three days from now
+  const weekAhead = new Date(now.getTime() + 7 * DAY_MS)
+  const weekAgo = new Date(now.getTime() - 7 * DAY_MS).toISOString()
 
   // Everything the page needs, in one round-trip batch
   const [
@@ -49,7 +64,10 @@ export default async function OverviewPage() {
     checkinsAnswered,
     { data: todaysJobs },
     { data: upcoming },
-    { data: feedRows },
+    { data: planRows, count: plansToSend },
+    { count: acknowledgedAlerts },
+    { data: soonRows, count: unconfirmedSoon },
+    { data: dayAlertRows },
   ] = await Promise.all([
     supabase.from('care_episodes').select('*', { count: 'exact', head: true }).eq('hospital_id', hid).eq('status', 'active'),
     supabase.from('alerts').select('*', { count: 'exact', head: true }).eq('hospital_id', hid).eq('status', 'open'),
@@ -67,9 +85,20 @@ export default async function OverviewPage() {
       .select('id, specialty, scheduled_at, status, episode_id, care_episodes(patients(full_name))')
       .eq('hospital_id', hid).gte('scheduled_at', now.toISOString()).lte('scheduled_at', weekAhead.toISOString())
       .not('status', 'in', '(cancelled,missed)').order('scheduled_at', { ascending: true }).limit(5),
-    supabase.from('whatsapp_messages')
-      .select('id, conversation_id, direction, message_type, content, metadata, created_at, whatsapp_conversations(episode_id, care_episodes(patients(full_name)))')
-      .eq('hospital_id', hid).order('created_at', { ascending: false }).limit(8),
+    // Key reminders: care plans not sent yet, alerts acknowledged but not resolved, appointments soon and unconfirmed
+    supabase.from('care_episodes')
+      .select('id, status, patients(full_name)', { count: 'exact' })
+      .eq('hospital_id', hid).in('status', ['draft', 'pending_review']).order('created_at', { ascending: false }).limit(3),
+    supabase.from('alerts').select('*', { count: 'exact', head: true }).eq('hospital_id', hid).eq('status', 'acknowledged'),
+    supabase.from('appointments')
+      .select('id, specialty, scheduled_at, episode_id, care_episodes(patients(full_name))', { count: 'exact' })
+      .eq('hospital_id', hid).eq('status', 'confirmation_pending')
+      .gte('scheduled_at', now.toISOString()).lt('scheduled_at', soonEnd.toISOString())
+      .order('scheduled_at', { ascending: true }).limit(3),
+    // Alerts raised in the last 24 hours, whatever happened to them since
+    supabase.from('alerts')
+      .select('created_at, severity')
+      .eq('hospital_id', hid).gte('created_at', alertHoursStart(now, tz).toISOString()).limit(1000),
   ])
 
   // Most urgent first, newest first within a severity.
@@ -90,16 +119,49 @@ export default async function OverviewPage() {
   }
   const critical = (criticalAlerts ?? 0) > 0
 
-  const feed: FeedMessage[] = (feedRows ?? []).map((row) => {
-    const { whatsapp_conversations: conversation, ...m } = row as typeof row & {
-      whatsapp_conversations: { episode_id: string; care_episodes: { patients: { full_name: string } | null } | null } | null
-    }
-    return {
-      ...(m as Omit<FeedMessage, 'episode_id' | 'patient_name'>),
-      episode_id: conversation?.episode_id ?? null,
-      patient_name: conversation?.care_episodes?.patients?.full_name ?? null,
-    }
-  })
+  // Most pressing first: a patient not covered yet, then alerts left half-done, then appointments close by.
+  const reminders: Reminder[] = []
+  const plans = (planRows ?? []) as unknown as PlanRow[]
+  const planCount = plansToSend ?? plans.length
+  if (planCount === 1 && plans[0]) {
+    const plan = plans[0]
+    const name = <span className="font-medium">{plan.patients?.full_name ?? 'A patient'}</span>
+    reminders.push(plan.status === 'draft'
+      ? { key: 'plans', href: `/episodes/${plan.id}/review`, text: <>{name}’s care plan is waiting for your review</> }
+      : { key: 'plans', href: `/episodes/${plan.id}`, text: <>{name}’s care plan is approved but not sent yet</> })
+  } else if (planCount > 1) {
+    reminders.push({
+      key: 'plans',
+      href: `/patients?status=${plans.some((p) => p.status === 'draft') ? 'draft' : 'pending_review'}`,
+      text: <><span className="font-medium">{planCount} care plans</span> are waiting to be reviewed and sent</>,
+    })
+  }
+  const acknowledged = acknowledgedAlerts ?? 0
+  if (acknowledged > 0) {
+    reminders.push({
+      key: 'acknowledged',
+      href: '/alerts?status=acknowledged',
+      text: <><span className="font-medium">{acknowledged} acknowledged alert{acknowledged === 1 ? '' : 's'}</span> still to resolve</>,
+    })
+  }
+  const soon = (soonRows ?? []) as unknown as AppointmentRow[]
+  const soonCount = unconfirmedSoon ?? soon.length
+  if (soonCount === 1 && soon[0]) {
+    const a = soon[0]
+    reminders.push({
+      key: 'unconfirmed',
+      href: `/episodes/${a.episode_id}/appointments/${a.id}`,
+      text: <><span className="font-medium">{a.care_episodes?.patients?.full_name ?? 'A patient'}</span> hasn’t confirmed {a.specialty}, {fmt(a.scheduled_at, 'EEE d MMM, HH:mm', tz)}</>,
+    })
+  } else if (soonCount > 1) {
+    reminders.push({
+      key: 'unconfirmed',
+      href: '/appointments',
+      text: <><span className="font-medium">{soonCount} appointments</span> in the next 3 days aren’t confirmed by the patient yet</>,
+    })
+  }
+
+  const alertHours = alertsByHour(dayAlertRows ?? [], now, tz)
 
   const stats = [
     { label: 'Active patients', value: activePatients ?? 0, icon: Users, tone: 'brand', href: '/patients' },
@@ -119,6 +181,7 @@ export default async function OverviewPage() {
   return (
     <div className="space-y-6">
       <RealtimeAlertsBanner hospitalId={hid} initialRedCount={criticalAlerts ?? 0} />
+      <OverviewLiveRefresh hospitalId={hid} />
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
@@ -160,27 +223,27 @@ export default async function OverviewPage() {
       </div>
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-5">
-        <div className="space-y-4 lg:col-span-3">
-          {/* Needs attention */}
-          <Card className="gap-0 py-0">
-            <div className="flex items-center justify-between gap-3 border-b px-5 py-3.5">
-              <h2 className="text-base font-medium">
-                Needs attention
-                {needsAttention.length > 0 && <span className="ml-2 text-sm font-normal text-muted-foreground tnum">{openAlerts ?? needsAttention.length}</span>}
-              </h2>
-              <Link href="/alerts" className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline">
-                All alerts <ArrowRight className="h-3 w-3" aria-hidden="true" />
-              </Link>
-            </div>
-            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-            <RecentAlerts alerts={needsAttention as any} hospitalId={hid} tz={tz} openOnly limit={6} />
-          </Card>
-
-          {/* What patients are saying, as it happens */}
-          <Card className="gap-0 py-0">
-            <WhatsAppFeed hospitalId={hid} tz={tz} today={todayLocal} initial={feed} whatsappNumber={hospital.whatsapp_phone_number_id} />
-          </Card>
-        </div>
+        {/* Needs attention: open alerts (live), what is still to follow up, and the last 24 hours */}
+        <Card className="gap-0 py-0 lg:col-span-3">
+          <div className="flex items-center justify-between gap-3 border-b px-5 py-3.5">
+            <h2 className="text-base font-medium">
+              Needs attention
+              {needsAttention.length > 0 && <span className="ml-2 text-sm font-normal text-muted-foreground tnum">{openAlerts ?? needsAttention.length}</span>}
+            </h2>
+            <Link href="/alerts" className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline">
+              All alerts <ArrowRight className="h-3 w-3" aria-hidden="true" />
+            </Link>
+          </div>
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          <RecentAlerts alerts={needsAttention as any} hospitalId={hid} tz={tz} openOnly limit={5} />
+          <div className="space-y-3 px-5 pb-5 pt-4">
+            <KeyReminders
+              reminders={reminders}
+              empty={<>Nothing to follow up right now. Tonight’s check-ins go out at {resolveCheckinTime(hospital.settings)}.</>}
+            />
+            <AlertsByHour hours={alertHours} tz={tz} />
+          </div>
+        </Card>
 
         <div className="space-y-4 lg:col-span-2">
           {/* Tonight's check-ins */}
