@@ -329,7 +329,7 @@ come from clinic days, not a live clinic calendar, and there is no hospital PAS 
 
 | Route | Purpose |
 |---|---|
-| `/` | Overview: four headline numbers, **Needs attention** (open alerts, most urgent first, live), **WhatsApp messages** (every patient's newest messages as they arrive, live), tonight's check-ins and the next 7 days of appointments |
+| `/` | Overview: four headline numbers, **Needs attention** (open alerts, most urgent first, live; key reminders: care plans to review or send, acknowledged alerts to resolve, appointments in the next 3 days not confirmed; alerts per hour over the last 24 hours), tonight's check-ins and the next 7 days of appointments |
 | `/patients` | One row per care plan (episode), red first; filters Active · Needs review · Draft · Completed · All; search; open-alert count per row. `/episodes` redirects here |
 | `/episodes/[id]` | The patient page: header with risk (and **Change**), this patient's open alerts with Acknowledge / Resolve, an at-a-glance line, and three tabs — **Conversation** (with Show English / Translate), **Care plan**, **Activity** |
 | `/episodes/new`, `/episodes/[id]/review` | **Add patient** (drop the discharge letter, or drag in a demo letter → the few details to check, the rest folded away) and **Review care plan** — medicines, warning signs, follow-ups, instructions — sent with one **Approve and send** after a confirmation |
@@ -372,7 +372,7 @@ src/
     pdf/       text-pdf.ts (small text-only PDF writer for the sample letters)
     supabase/  server.ts (user + service clients)  client.ts (browser)  middleware.ts (session refresh + public paths)
     auth/      session.ts  permissions.ts
-  components/  alerts/  analytics/  appointments/  dashboard/ (live WhatsApp feed)  episodes/  intake/ (sample letter tiles)
+  components/  alerts/  analytics/  appointments/  dashboard/ (key reminders, alerts by hour)  episodes/  intake/ (demo letter panel)
                patients/ (timeline, transcript, adherence)  ui/ (shadcn)
   config/      site.ts (name, demoWhatsAppNumber)
   types/       database.ts  enums.ts  api.ts
