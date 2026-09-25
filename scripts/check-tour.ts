@@ -10,6 +10,11 @@
  *   - a step that ends on a new page is followed by a step on another page
  *   - each language's urgent demo reply is caught by the emergency check (it
  *     must raise a critical alert without the AI), and the questions are not
+ *   - the WhatsApp number on Add patient: what each way of typing it reads as
+ *     (a UAE mobile without +971 is offered with it), and "right" is always
+ *     a number the server accepts
+ *   - the sandbox QR, the join message and "Open WhatsApp" agree, and the QR
+ *     is a whole code
  *
  * No network or API keys needed. Run with:  npm run check:tour
  */
@@ -19,6 +24,8 @@ import { CHAPTERS, TOUR_STEPS, resolve, type TourContext } from '@/components/to
 import { DEMO_REPLIES } from '@/lib/whatsapp/demo-replies'
 import { SAMPLE_LETTERS } from '@/lib/intake/sample-letters'
 import { classifyPreIntent } from '@/lib/ai/intent'
+import { E164, phoneLine, tidyPhone, type PhoneLine } from '@/lib/intake/phone'
+import { SANDBOX_JOIN_LINK, SANDBOX_JOIN_MESSAGE, SANDBOX_NUMBER, SANDBOX_QR, SANDBOX_QR_TEXT } from '@/lib/whatsapp/sandbox'
 
 let fails = 0
 const check = (label: string, ok: boolean, detail = '') => {
@@ -107,6 +114,41 @@ for (const [language, replies] of Object.entries(DEMO_REPLIES)) {
       reply.urgent ? intent === 'emergency' : intent !== 'emergency', intent)
   }
 }
+
+console.log('— the WhatsApp number on Add patient —')
+const line = (typed: string) => phoneLine(tidyPhone(typed))
+const cases: Array<[string, PhoneLine['tone'], string?]> = [
+  ['', 'hint'],
+  ['050 123 4567', 'error', '+971501234567'],     // a UAE mobile typed the local way: offered with +971
+  ['501234567', 'error'],                          // no + at all
+  ['+971 50', 'hint'],                             // still typing
+  ['+971 50 123 4567', 'ok'],
+  ['00971 50-123 (4567)', 'ok'],                   // 00 and punctuation tidied away
+  ['+971 050 123 4567', 'error', '+971501234567'], // the 0 kept after +971
+  ['+0971501234567', 'error'],
+  ['+971 50 123 45678', 'error'],                  // a UAE mobile one digit too long
+  ['+971 50 12a 4567', 'error'],
+  ['+44 7911 123456', 'ok'],                       // other countries as they come
+  ['+1234567890123456', 'error'],                  // 16 digits
+  ['+971505263427', 'ok'],                         // the demo phone
+]
+for (const [typed, tone, fix] of cases) {
+  const got = line(typed)
+  check(`"${typed}" → ${tone}${fix ? ` (offers ${fix})` : ''}`, got.tone === tone && got.fix === fix, `${got.tone}${got.fix ? ` ${got.fix}` : ''}: ${got.text}`)
+}
+check('a number shown as right is one the server accepts', cases.every(([typed]) => line(typed).tone !== 'ok' || E164.test(tidyPhone(typed))))
+check('a right number is shown spaced out', line('+971501234567').text === '+971 50 123 4567')
+
+console.log('— the WhatsApp sandbox code —')
+const digits = SANDBOX_NUMBER.slice(1)
+check('the QR opens WhatsApp on the sandbox number', SANDBOX_QR_TEXT.includes(`wa.me/+${digits}`) || SANDBOX_QR_TEXT.includes(`wa.me/${digits}`))
+check('the QR carries the join message', decodeURIComponent(SANDBOX_QR_TEXT.split('text=')[1] ?? '') === SANDBOX_JOIN_MESSAGE)
+check('"Open WhatsApp" sends the same message to the same number', SANDBOX_JOIN_LINK === `https://wa.me/${digits}?text=${encodeURIComponent(SANDBOX_JOIN_MESSAGE)}`)
+const n = SANDBOX_QR.length
+check('the QR is a square of modules', n === 33 && SANDBOX_QR.every((row) => row.length === n && /^[01]+$/.test(row)))
+const finder = ['1111111', '1000001', '1011101', '1011101', '1011101', '1000001', '1111111']
+const corner = (r: number, c: number) => finder.every((row, i) => SANDBOX_QR[r + i].slice(c, c + 7) === row)
+check('the QR has its three corner squares', corner(0, 0) && corner(0, n - 7) && corner(n - 7, 0))
 
 console.log(fails === 0 ? '\nALL PASSED' : `\n${fails} FAILED`)
 process.exit(fails ? 1 : 0)
