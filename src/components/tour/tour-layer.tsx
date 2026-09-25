@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { ArrowLeft, ArrowRight, Loader2, MousePointer2, MousePointerClick, Sparkles, WandSparkles, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Keyboard, Loader2, MousePointer2, MousePointerClick, Sparkles, WandSparkles, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { CHAPTERS, TOUR_STEPS, resolve, type Placement, type TourContext, type TourStep } from './tour-steps'
@@ -14,6 +14,8 @@ const PAD = 8      // between the element and the edge of its spotlight
 const GAP = 14     // between the spotlight and the card
 const MARGIN = 12  // the card stays this far inside the window
 const CARD_W = 344
+/** A step with a QR code beside its steps. */
+const WIDE_W = 460
 /** A step's element may take a moment to render; after this the card stops waiting and centres. */
 const SETTLE_MS = 700
 
@@ -109,6 +111,8 @@ interface TourLayerProps {
   onEnd: () => void
   onResume: () => void
   onAssist: () => void
+  /** The step's second way on ("Use the demo phone"). */
+  onAlt: () => void
   onRecover: () => void
   /** The step's element never showed: skip it, or fall back. */
   onMissing: () => void
@@ -129,6 +133,8 @@ export function TourLayer(props: TourLayerProps) {
   /** The step that has waited long enough to offer a way past it. */
   const [stuckTurn, setStuckTurn] = useState<number | null>(null)
   const [popupOpen, setPopupOpen] = useState(false)
+  /** The step's condition for Next (a number typed), as of the last frame. */
+  const [ready, setReady] = useState(true)
   const nextRef = useRef<HTMLButtonElement>(null)
   const onMissing = useRef(props.onMissing)
   useEffect(() => { onMissing.current = props.onMissing })
@@ -169,10 +175,19 @@ export function TourLayer(props: TourLayerProps) {
       // A menu or dialog of the page's own is open: let every click through to it.
       const open = !!document.querySelector('[role="listbox"], [role="menu"], [data-slot="select-content"]')
       setPopupOpen((p) => (p === open ? p : open))
-      raf = requestAnimationFrame(tick)
+      const ok = step.ready ? step.ready() : true
+      setReady((r) => (r === ok ? r : ok))
+      schedule()
     }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
+    // Frames stop in a background tab; a slow timer keeps the step up to date there, so the
+    // card is right the moment the tab is back.
+    let timer = 0
+    const schedule = () => {
+      if (document.hidden) timer = window.setTimeout(tick, 250)
+      else raf = requestAnimationFrame(tick)
+    }
+    schedule()
+    return () => { cancelAnimationFrame(raf); clearTimeout(timer) }
     // card.h only matters for the first scroll; a resize of the card must not restart the step.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selector, turn, paused, step])
@@ -208,13 +223,15 @@ export function TourLayer(props: TourLayerProps) {
   const current = target.sel === selector ? target : { sel: selector, box: null, settled: false }
   const box = current.box
   const hole = box ? holeFor(box, view.w, view.h) : null
-  const placed = placeCard(hole, card, view.w, view.h, step.placement ?? [])
+  const width = Math.min(step.wide ? WIDE_W : CARD_W, view.w - MARGIN * 2)
+  const placed = placeCard(hole, { w: width, h: card.h }, view.w, view.h, step.placement ?? [])
   const waiting = !current.settled
   const acting = step.advance === 'click' || step.advance === 'route' || (step.advance === 'wait' && !!step.action)
   const title = resolve(step.title, ctx)
   const body = resolve(step.body, ctx)
   const busy = step.busy?.(ctx) ?? null
   const recover = step.recover?.when(ctx) ? step.recover : null
+  const action = step.action ? resolve(step.action, ctx) : null
   const index = TOUR_STEPS.indexOf(step)
   const last = index === TOUR_STEPS.length - 1
   const interactive = view.w >= 768 && !popupOpen
@@ -295,14 +312,16 @@ export function TourLayer(props: TourLayerProps) {
             <h2 id="tour-title" className="text-[15px] font-semibold leading-snug tracking-tight">{title}</h2>
             <div id="tour-body" className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{body}</div>
 
-            {acting && step.action && !recover && (
+            {action && !recover && !(step.ready && ready) && (
               <p className="mt-3 flex items-center gap-2 rounded-lg bg-brand-tint px-3 py-2 text-sm text-foreground ring-1 ring-brand/20">
                 <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden="true">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand opacity-60" />
                   <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-brand" />
                 </span>
-                <MousePointerClick className="h-4 w-4 shrink-0 text-brand" aria-hidden="true" />
-                <span className="min-w-0">{step.drag && coarsePointer() ? <>Tap <span className="font-semibold">{step.drag.label}</span>’s letter</> : step.action}</span>
+                {acting
+                  ? <MousePointerClick className="h-4 w-4 shrink-0 text-brand" aria-hidden="true" />
+                  : <Keyboard className="h-4 w-4 shrink-0 text-brand" aria-hidden="true" />}
+                <span className="min-w-0">{step.drag && coarsePointer() ? <>Tap <span className="font-semibold">{step.drag.label}</span>’s letter</> : action}</span>
               </p>
             )}
             {busy && (
@@ -311,7 +330,7 @@ export function TourLayer(props: TourLayerProps) {
               </p>
             )}
 
-            <div className="mt-4 flex items-center gap-2">
+            <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={props.onEnd}
@@ -323,24 +342,29 @@ export function TourLayer(props: TourLayerProps) {
                 <Button type="button" size="sm" onClick={props.onRecover}>
                   {recover.label} <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
                 </Button>
-              ) : step.advance === 'next' ? (
+              ) : (
                 <>
-                  {props.canBack && (
+                  {step.advance === 'next' && props.canBack && (
                     <Button type="button" variant="ghost" size="sm" onClick={props.onBack} aria-label="Previous step">
                       <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
                     </Button>
                   )}
-                  {busy && !stuck ? null : (
-                    <Button ref={nextRef} type="button" size="sm" variant={busy ? 'outline' : 'default'} onClick={props.onNext}>
-                      {busy ? 'Skip' : last ? 'Finish' : 'Next'} {!busy && (last ? <Sparkles className="h-3.5 w-3.5" aria-hidden="true" /> : <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />)}
+                  {/* Done for them: the action, until the step no longer needs it */}
+                  {step.assist && (step.advance !== 'next' || (step.ready && !ready)) && (
+                    <Button type="button" variant="outline" size="sm" onClick={props.onAssist} className="text-brand hover:text-brand">
+                      <WandSparkles className="h-3.5 w-3.5" aria-hidden="true" /> Do it for me
+                    </Button>
+                  )}
+                  {step.alt && step.advance === 'next' && (
+                    <Button type="button" variant="outline" size="sm" onClick={props.onAlt}>{step.alt.label}</Button>
+                  )}
+                  {step.advance === 'next' && !(busy && !stuck) && (
+                    <Button ref={nextRef} type="button" size="sm" variant={busy ? 'outline' : 'default'} onClick={props.onNext} disabled={!ready}>
+                      {busy ? 'Skip' : last ? 'Finish' : step.nextLabel ?? 'Next'} {!busy && (last ? <Sparkles className="h-3.5 w-3.5" aria-hidden="true" /> : <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />)}
                     </Button>
                   )}
                 </>
-              ) : step.assist ? (
-                <Button type="button" variant="outline" size="sm" onClick={props.onAssist} className="text-brand hover:text-brand">
-                  <WandSparkles className="h-3.5 w-3.5" aria-hidden="true" /> Do it for me
-                </Button>
-              ) : null}
+              )}
             </div>
           </div>
         </div>

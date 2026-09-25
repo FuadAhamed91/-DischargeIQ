@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
 import type { TourSignal } from '@/lib/tour/signals'
+import { phoneLine } from '@/lib/intake/phone'
+import { OpenWhatsAppLink, SandboxJoinSteps, SandboxQr } from '@/components/whatsapp/sandbox-join'
 
 /**
  * The guided tour, step by step: what lights up, what the card says, and what
@@ -27,6 +29,10 @@ export interface TourContext {
   sendError?: string
   /** The letter could not be read. */
   readFailed?: boolean
+  /** Said they joined the WhatsApp sandbox from the QR step (false: chose the demo phone). */
+  joined?: boolean
+  /** The patient was saved with their own WhatsApp number (false: the demo number). */
+  ownPhone?: boolean
 }
 
 export type Placement = 'top' | 'bottom' | 'left' | 'right'
@@ -50,8 +56,8 @@ export interface TourStep {
    * step's page. wait: the app signals when it is done.
    */
   advance: 'next' | 'click' | 'route' | 'wait'
-  /** The "click here" line for click and route steps. */
-  action?: ReactNode
+  /** The "click here" line: what to do on the page. */
+  action?: ReactNode | ((ctx: TourContext) => ReactNode)
   /** What "Do it for me" clicks. */
   assist?: string
   /** Signals from the app and the step each one opens ("next" for the following one). */
@@ -68,6 +74,15 @@ export interface TourStep {
   done?: () => boolean
   /** A way past a step the app could not finish (WhatsApp refused the care plan): a button to that step's page. */
   recover?: { when: (ctx: TourContext) => boolean; label: string; step: string }
+  /** Next stays off until this is true (a WhatsApp number has been typed). */
+  ready?: () => boolean
+  /** The Next button's words, and what pressing it tells the tour. */
+  nextLabel?: string
+  nextCtx?: Partial<TourContext>
+  /** A second way on, beside Next ("Use the demo phone"). */
+  alt?: { label: string; ctx: Partial<TourContext> }
+  /** A wider card, for a QR code beside its steps. */
+  wide?: boolean
 }
 
 const REVIEW = /^\/episodes\/[0-9a-f-]{36}\/review$/
@@ -77,6 +92,9 @@ const patientHref = (ctx: TourContext) => (ctx.episodeId ? `/episodes/${ctx.epis
 
 const conversationShowing = () =>
   document.querySelector('[data-tour="tab-conversation"]')?.getAttribute('aria-selected') === 'true'
+
+/** A whole WhatsApp number is in the Add patient field. */
+const phoneTyped = () => phoneLine((document.getElementById('phone_e164') as HTMLInputElement | null)?.value ?? '').tone === 'ok'
 
 const B = ({ children }: { children: ReactNode }) => <span className="font-semibold text-foreground">{children}</span>
 
@@ -113,8 +131,30 @@ export const TOUR_STEPS: TourStep[] = [
     placement: ['right', 'top'],
     optional: true,
     title: 'One WhatsApp number, every patient',
-    body: 'Patients just message this number, in English, Arabic, Hindi, Tamil or Tagalog. No app to install, no password to forget. In this demo, every patient’s messages go to our test phone.',
+    body: 'Patients just message this number, in English, Arabic, Hindi, Tamil or Tagalog. No app to install, no password to forget.',
     advance: 'next',
+  },
+  {
+    id: 'overview-phone',
+    chapter: 'overview',
+    route: /^\/$/,
+    href: () => '/',
+    wide: true,
+    title: 'Try it on your own phone',
+    body: (
+      <div className="space-y-3">
+        <p>See the patient’s side for real: join our WhatsApp test line now, and the care plan comes to your phone later in the tour.</p>
+        <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
+          <SandboxQr className="h-36 w-36 ring-1 ring-border" />
+          <SandboxJoinSteps last={<>Come back here and press <B>I’ve joined</B>. You type your number when you add the patient.</>} />
+        </div>
+        <OpenWhatsAppLink />
+      </div>
+    ),
+    advance: 'next',
+    nextLabel: 'I’ve joined',
+    nextCtx: { joined: true },
+    alt: { label: 'Use the demo phone', ctx: { joined: false } },
   },
   {
     id: 'overview-add',
@@ -181,8 +221,13 @@ export const TOUR_STEPS: TourStep[] = [
     href: () => '/episodes/new',
     target: '[data-tour="intake-whatsapp"]',
     placement: ['bottom', 'top', 'right'],
-    title: 'Where the care plan goes',
-    body: <>The patient’s WhatsApp and language. The number is fixed to our test phone for the demo. Try switching the language to <B>Arabic</B>: the care plan and every message after it go out in Arabic.</>,
+    title: (ctx) => (ctx.joined ? 'Now type your WhatsApp number' : 'Where the messages go'),
+    body: (ctx) => ctx.joined
+      ? <>The number you just joined with, starting with + and the country code, e.g. +971 50 123 4567. The care plan and everything after it come to your phone. You can also pick the language: <B>Arabic</B>, Hindi, Tamil or Tagalog.</>
+      : <>Type the patient’s WhatsApp number with the country code, or click <B>Use demo number</B> to send everything to our test phone. To get the messages yourself, scan the code on this card first.</>,
+    action: <>Type a number, or click <B>Use demo number</B></>,
+    assist: '[data-tour="use-demo-number"]',
+    ready: phoneTyped,
     advance: 'next',
     fallback: 'intake-drag',
   },
@@ -254,8 +299,10 @@ export const TOUR_STEPS: TourStep[] = [
     href: (ctx) => (ctx.episodeId ? `/episodes/${ctx.episodeId}` : '/patients'),
     target: '[data-tour="tab-conversation"]',
     placement: ['bottom', 'right'],
-    title: (ctx) => (ctx.sendError ? 'Fatima’s page' : 'Sent. Now look at WhatsApp'),
-    body: 'Everything about Fatima is here. The conversation shows everything said on WhatsApp, both ways.',
+    title: (ctx) => (ctx.sendError ? 'Fatima’s page' : ctx.ownPhone ? 'Sent. Look at your phone!' : 'Sent. Now look at WhatsApp'),
+    body: (ctx) => ctx.ownPhone && !ctx.sendError
+      ? 'The care plan just arrived on your WhatsApp, as Fatima would get it. Here, the conversation shows everything said on WhatsApp, both ways.'
+      : 'Everything about Fatima is here. The conversation shows everything said on WhatsApp, both ways.',
     action: <>Open <B>Conversation</B></>,
     assist: '[data-tour="tab-conversation"]',
     advance: 'click',
@@ -271,7 +318,9 @@ export const TOUR_STEPS: TourStep[] = [
     title: 'Every message, live',
     body: (ctx) => ctx.sendError
       ? 'Everything said on WhatsApp appears here the moment it arrives: the care plan, check-in answers, questions and voice notes, translated for the nurse when the patient writes in another language.'
-      : 'The care plan as Fatima received it. Replies, voice notes and check-in answers appear here the moment they arrive, translated for the nurse when the patient writes in another language.',
+      : ctx.ownPhone
+        ? 'The same messages you have on your phone, live. Replies, voice notes and check-in answers appear here the moment they arrive, translated for the nurse when the patient writes in another language.'
+        : 'The care plan as Fatima received it. Replies, voice notes and check-in answers appear here the moment they arrive, translated for the nurse when the patient writes in another language.',
     advance: 'next',
     fallback: 'whatsapp-tab',
     on: { 'patient:replied': 'whatsapp-outcome', 'patient:alerted': 'whatsapp-outcome' },
@@ -283,9 +332,11 @@ export const TOUR_STEPS: TourStep[] = [
     href: patientHref,
     target: '[data-tour="patient-simulator"]',
     placement: ['top', 'bottom', 'left'],
-    title: 'Now you are the patient',
-    body: 'We can’t hand you Fatima’s phone, so write as Fatima here. It runs through exactly the same pipeline as a real WhatsApp message. Try the chest pain one.',
-    action: <>Send a message as <B>Fatima</B></>,
+    title: (ctx) => (ctx.ownPhone ? 'Now reply from your phone' : 'Now you are the patient'),
+    body: (ctx) => ctx.ownPhone
+      ? 'Answer the care plan on WhatsApp like a patient would: try “I have chest pain”, or ask about a medicine. Or write as Fatima in this box. Keep this page open and watch.'
+      : 'We can’t hand you Fatima’s phone, so write as Fatima here. It runs through exactly the same pipeline as a real WhatsApp message. Try the chest pain one.',
+    action: (ctx) => (ctx.ownPhone ? <>Reply on WhatsApp, or send a message here</> : <>Send a message as <B>Fatima</B></>),
     assist: '[data-tour="simulator-urgent"]',
     advance: 'wait',
     fallback: 'whatsapp-tab',
@@ -302,10 +353,10 @@ export const TOUR_STEPS: TourStep[] = [
       : ctx.reply === 'answered' ? 'Answered from Fatima’s own care plan'
         : 'Fatima’s message is on its way',
     body: (ctx) => ctx.reply === 'alerted'
-      ? 'The message named a warning sign, so a critical alert went to every nurse’s dashboard and Fatima was told what to do straight away. No one had to read it first.'
+      ? `The message named a warning sign, so a critical alert went to every nurse’s dashboard and ${ctx.ownPhone ? 'your phone got' : 'Fatima got'} the emergency advice straight away. No one had to read it first.`
       : ctx.reply === 'answered'
         ? 'The assistant answered on WhatsApp using Fatima’s medicines and instructions. Anything it cannot answer safely goes to a nurse instead.'
-        : 'It is being handled exactly like a WhatsApp message from Fatima’s phone.',
+        : 'The assistant is reading it, exactly as it reads every WhatsApp message a patient sends.',
     busy: (ctx) => (ctx.reply === 'waiting' || !ctx.reply ? 'Waiting for the reply…' : null),
     advance: 'next',
     fallback: 'whatsapp-tab',

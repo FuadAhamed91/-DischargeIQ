@@ -88,6 +88,7 @@ export function TourProvider({ enabled, children }: { enabled: boolean; children
       const now = TOUR_STEPS[stepIndex(getTourState().step)]
       switch (signal) {
         case 'intake:reading': tour.patchCtx({ readFailed: false }); break
+        case 'intake:saved': tour.patchCtx({ ownPhone: detail === 'own' }); break
         case 'intake:failed': tour.patchCtx({ readFailed: true }); break
         case 'careplan:confirm': tour.patchCtx({ sendError: undefined }); break
         case 'careplan:sent': tour.patchCtx({ sendError: undefined }); break
@@ -111,6 +112,8 @@ export function TourProvider({ enabled, children }: { enabled: boolean; children
   const api = useMemo(() => {
     const next = () => {
       const i = stepIndex(getTourState().step)
+      const said = TOUR_STEPS[i]?.nextCtx
+      if (said) tour.patchCtx(said)
       if (i >= TOUR_STEPS.length - 1) {
         tour.end(true)
         celebrate()
@@ -170,7 +173,7 @@ export function TourProvider({ enabled, children }: { enabled: boolean; children
       // The page's own dialog or menu takes Esc first.
       const pageLayer = document.querySelector('[role="listbox"], [role="menu"], [data-slot="dialog-content"][data-open]')
       if (e.key === 'Escape' && !pageLayer) api.end()
-      else if (!typing && step.advance === 'next' && e.key === 'ArrowRight') api.next()
+      else if (!typing && step.advance === 'next' && e.key === 'ArrowRight' && (!step.ready || step.ready())) api.next()
       else if (!typing && step.advance === 'next' && e.key === 'ArrowLeft' && canGoBack(index, pathname)) api.back()
     }
     document.addEventListener('keydown', onKey)
@@ -213,6 +216,11 @@ export function TourProvider({ enabled, children }: { enabled: boolean; children
           onBack={api.back}
           onEnd={api.end}
           onResume={api.resume}
+          onAlt={() => {
+            if (step.alt) tour.patchCtx(step.alt.ctx)
+            const i = stepIndex(step.id)
+            if (TOUR_STEPS[i + 1]) tour.goTo(TOUR_STEPS[i + 1].id)
+          }}
           onAssist={() => {
             const selector = step.assist
             const el = selector ? document.querySelector<HTMLElement>(selector) : null

@@ -1,6 +1,6 @@
 'use client'
 
-import { ArrowRight, BellRing, ClipboardCheck, FileText, HeartPulse, MessageCircle, RotateCcw } from 'lucide-react'
+import { ArrowRight, ClipboardCheck, FileText, HeartPulse, MessageCircle, RotateCcw, Smartphone } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { siteConfig } from '@/config/site'
@@ -8,7 +8,7 @@ import { siteConfig } from '@/config/site'
 const JOURNEY = [
   { icon: FileText, title: 'Drop in a discharge letter', text: 'AI reads the PDF: medicines, follow-ups, warning signs.' },
   { icon: ClipboardCheck, title: 'Approve the care plan', text: 'It goes to the patient on WhatsApp, in their language.' },
-  { icon: MessageCircle, title: 'Be the patient', text: 'Reply on their behalf and watch the AI answer or alert a nurse.' },
+  { icon: MessageCircle, title: 'Be the patient', text: 'Reply on your own WhatsApp, or right on the page, and watch the AI answer or alert a nurse.' },
 ]
 
 /**
@@ -69,8 +69,8 @@ export function WelcomeDialog({ open, inProgress, onStart, onResume, onDismiss, 
             ))}
           </ol>
           <p className="mt-4 flex items-start gap-2 rounded-lg bg-muted/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-            <BellRing className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand" aria-hidden="true" />
-            The patients are fictional and their WhatsApp messages go to our test phone, so click anything you like.
+            <Smartphone className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand" aria-hidden="true" />
+            Keep your phone handy: scan one code and the care plan comes to your own WhatsApp. Or use our test phone. The patients are fictional, so click anything you like.
           </p>
         </div>
 
