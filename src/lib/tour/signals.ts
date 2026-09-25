@@ -17,7 +17,7 @@ export type TourSignal =
   | 'patient:answered' // the assistant answered it
   | 'patient:alerted'  // it raised an alert for the nurses
 
-export const TOUR_SIGNAL_EVENT = 'dischargeiq:tour-signal'
+export const TOUR_SIGNAL_EVENT = 'careloop:tour-signal'
 
 export interface TourSignalDetail {
   signal: TourSignal

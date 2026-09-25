@@ -198,7 +198,7 @@ export default async function SettingsPage() {
       </Card>
 
       <p className="pb-2 text-center text-xs text-muted-foreground">
-        DischargeIQ v0.1 · Built for Healthcare Innovation Hackathon 2026
+        CareLoop v0.1 · Built for Healthcare Innovation Hackathon 2026
       </p>
     </div>
   )

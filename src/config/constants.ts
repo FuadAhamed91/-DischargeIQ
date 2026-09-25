@@ -1,4 +1,4 @@
-export const APP_NAME = 'DischargeIQ'
+export const APP_NAME = 'CareLoop'
 export const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
 
 export const SUPPORTED_LANGUAGES = ['ar', 'en', 'hi', 'ta', 'tl'] as const

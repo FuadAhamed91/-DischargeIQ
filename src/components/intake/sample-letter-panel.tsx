@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import { SAMPLE_LETTERS, sampleLetterAge, sampleLetterFileName } from '@/lib/intake/sample-letters'
 
 /** What a demo letter carries when dragged: dropped on the letter box, that letter is read. */
-export const SAMPLE_LETTER_DRAG_TYPE = 'application/x-dischargeiq-sample-letter'
+export const SAMPLE_LETTER_DRAG_TYPE = 'application/x-careloop-sample-letter'
 
 const letterUrl = (id: string, download = false) => `/api/v1/intake/sample-letters/${id}${download ? '?download=1' : ''}`
 

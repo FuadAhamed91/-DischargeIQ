@@ -112,7 +112,7 @@
 
 :root {
   color-scheme: light;
-  /* DischargeIQ — clinical light theme.
+  /* CareLoop — clinical light theme.
      Neutral slate surfaces, a clinical blue primary, health green for success.
      No tinted backgrounds: white cards on a barely-grey canvas, hairline borders. */
   --background: oklch(0.984 0.003 247.9);        /* slate-50 */

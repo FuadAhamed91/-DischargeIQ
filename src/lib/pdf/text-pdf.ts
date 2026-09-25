@@ -155,7 +155,7 @@ export function renderTextPdf(blocks: PdfBlock[], meta: { title: string; author?
   objects[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>'
   objects[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>'
   objects[5] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >>'
-  objects[6] = `<< /Title ${pdfString(meta.title)}${meta.author ? ` /Author ${pdfString(meta.author)}` : ''} /Producer (DischargeIQ) >>`
+  objects[6] = `<< /Title ${pdfString(meta.title)}${meta.author ? ` /Author ${pdfString(meta.author)}` : ''} /Producer (CareLoop) >>`
   pages.forEach((ops, i) => {
     const content = ops.join('\n')
     objects[pageIds[i]] = `<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents ${pageIds[i] + 1} 0 R >>`

@@ -2,7 +2,7 @@
  * The times a patient is offered when they ask to change an appointment on
  * WhatsApp, and how their answer is read.
  *
- * There is no hospital booking system behind DischargeIQ yet (scheduling
+ * There is no hospital booking system behind CareLoop yet (scheduling
  * adapter "manual"), so the options are the next clinic days after the
  * current appointment, at the same time of day: a patient who cannot make
  * Monday 09:00 is offered Tuesday, Wednesday and Thursday at 09:00. Clinic

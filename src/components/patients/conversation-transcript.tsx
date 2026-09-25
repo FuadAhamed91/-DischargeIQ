@@ -108,8 +108,8 @@ function senderOf(m: TranscriptMessage): { kind: SenderKind; name: string | null
   if (m.direction === 'inbound') return { kind: 'patient', name: null }
   const meta = m.metadata ?? {}
   if (meta.sender === 'nurse') return { kind: 'nurse', name: typeof meta.sender_name === 'string' ? meta.sender_name : 'Nurse' }
-  if (meta.kind === 'routing_prompt') return { kind: 'assistant', name: 'DischargeIQ · asked who the message is about' }
-  return { kind: 'assistant', name: 'DischargeIQ' }
+  if (meta.kind === 'routing_prompt') return { kind: 'assistant', name: 'CareLoop · asked who the message is about' }
+  return { kind: 'assistant', name: 'CareLoop' }
 }
 
 /** A second line inside a bubble (the English, or what the nurse typed), tinted for that bubble. */
@@ -199,8 +199,8 @@ function englishGroups(list: TranscriptMessage[]): string[][] {
 const ENGLISH_REQUESTS_AT_ONCE = 4
 
 // "Show English" is a per-browser preference: a nurse who needs it needs it on every patient.
-const SHOW_ENGLISH_KEY = 'dischargeiq:transcript-show-english'
-const SHOW_ENGLISH_EVENT = 'dischargeiq:show-english'
+const SHOW_ENGLISH_KEY = 'careloop:transcript-show-english'
+const SHOW_ENGLISH_EVENT = 'careloop:show-english'
 let showEnglishInMemory = false  // when storage is blocked (private window): this page load only
 
 function readShowEnglish(): boolean {

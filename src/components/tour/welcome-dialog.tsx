@@ -12,7 +12,7 @@ const JOURNEY = [
 ]
 
 /**
- * The first thing a visitor sees: what DischargeIQ is for, and a guided
+ * The first thing a visitor sees: what CareLoop is for, and a guided
  * two-minute tour through it. Opens by itself once per browser, and from the
  * Tour button at the top at any time (where it also resumes a tour left half-way).
  */

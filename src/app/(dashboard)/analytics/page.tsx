@@ -135,7 +135,7 @@ export default async function AnalyticsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Analytics</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          How your patients are doing, since they joined DischargeIQ
+          How your patients are doing, since they joined CareLoop
         </p>
       </div>
 

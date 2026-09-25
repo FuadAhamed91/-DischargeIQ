@@ -23,7 +23,7 @@ export interface TourState {
   turn: number
 }
 
-const STORAGE_KEY = 'dischargeiq:tour'
+const STORAGE_KEY = 'careloop:tour'
 const FIRST = TOUR_STEPS[0].id
 
 /** Before the browser is read (server render, first paint): nothing shows. */

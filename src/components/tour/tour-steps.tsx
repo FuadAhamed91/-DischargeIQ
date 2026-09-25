@@ -356,7 +356,7 @@ export const TOUR_STEPS: TourStep[] = [
     href: () => '/',
     target: '[data-tour="tour-button"]',
     placement: ['bottom', 'left'],
-    title: 'That’s DischargeIQ',
+    title: 'That’s CareLoop',
     body: 'From a discharge letter to a patient looked after at home, in minutes. Explore anything: try another demo letter, send a check-in, or reply in Arabic. The tour is always here.',
     advance: 'next',
   },
