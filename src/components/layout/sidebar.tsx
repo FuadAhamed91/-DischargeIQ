@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { siteConfig } from '@/config/site'
 import { formatPhone } from '@/lib/format'
 import { NavLink } from './nav-link'
+import { SandboxJoinButton } from '@/components/whatsapp/sandbox-join'
 import type { UserRole } from '@/types/enums'
 
 export interface NavItem {
@@ -72,8 +73,9 @@ function SidebarLink({ item, pathname }: { item: NavItem; pathname: string }) {
 
 /**
  * Where patients reach the hospital: the number they write to on WhatsApp
- * and, in the demo, the phone every patient's messages go to. Labels only
- * fit from `lg`; the icon rail shows the icon with the number as a tooltip.
+ * and, in the demo, a way to try it on your own phone (the sandbox QR) and
+ * the team's test phone. Labels only fit from `lg`; on the icon rail the
+ * icon opens the QR.
  */
 function WhatsAppLine({ number }: { number: string }) {
   const demoPhone = siteConfig.demoWhatsAppNumber
@@ -86,15 +88,25 @@ function WhatsAppLine({ number }: { number: string }) {
         <p className="mt-1 text-sm font-semibold tracking-tight text-foreground tnum">{formatPhone(number)}</p>
         <p className="mt-0.5 text-xs leading-snug text-muted-foreground">on WhatsApp, in any of 5 languages.</p>
         {demoPhone && (
-          <p className="mt-2 border-t border-sidebar-border pt-2 text-xs leading-snug text-muted-foreground">
-            Demo phone: <span className="font-medium text-foreground tnum">{formatPhone(demoPhone)}</span>
-          </p>
+          <div className="mt-2 space-y-1.5 border-t border-sidebar-border pt-2">
+            <SandboxJoinButton />
+            <p className="text-xs leading-snug text-muted-foreground">
+              Demo phone: <span className="font-medium text-foreground tnum">{formatPhone(demoPhone)}</span>
+            </p>
+          </div>
         )}
       </div>
-      <p className="flex justify-center lg:hidden" title={`Patients write to ${formatPhone(number)} on WhatsApp`}>
-        <MessageCircle className="h-4 w-4 text-success" aria-hidden="true" />
-        <span className="sr-only">Patients write to {formatPhone(number)} on WhatsApp</span>
-      </p>
+      {demoPhone ? (
+        <SandboxJoinButton className="flex w-full justify-center lg:hidden">
+          <MessageCircle className="h-4 w-4 text-success" aria-hidden="true" />
+          <span className="sr-only">Patients write to {formatPhone(number)} on WhatsApp. Try it on your phone</span>
+        </SandboxJoinButton>
+      ) : (
+        <p className="flex justify-center lg:hidden" title={`Patients write to ${formatPhone(number)} on WhatsApp`}>
+          <MessageCircle className="h-4 w-4 text-success" aria-hidden="true" />
+          <span className="sr-only">Patients write to {formatPhone(number)} on WhatsApp</span>
+        </p>
+      )}
     </div>
   )
 }
