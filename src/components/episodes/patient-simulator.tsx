@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BellRing, Check, Loader2, Send, Siren, Smartphone } from 'lucide-react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
@@ -17,7 +17,9 @@ type Outcome = 'waiting' | 'answered' | 'alerted'
  * For demo patients only: judges cannot hold the patient's phone, so they
  * write as the patient here. The message is handled exactly like one from
  * that phone (POST /simulate-reply): the answer, any alert and the triage
- * land on the conversation and the dashboards as they would for real.
+ * land on the conversation and the dashboards as they would for real. A
+ * reply from a real phone (a visitor who added their own number) is
+ * followed the same way.
  */
 export function PatientSimulator({ episodeId, conversationId, patientName, language }: {
   episodeId: string
@@ -31,10 +33,17 @@ export function PatientSimulator({ episodeId, conversationId, patientName, langu
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [outcome, setOutcome] = useState<Outcome | null>(null)
-  /** A demo reply went out in the last 90 seconds: what arrives now is its outcome. */
+  /** Where the reply being followed came from: this box, or the patient's own WhatsApp. */
+  const [source, setSource] = useState<'box' | 'phone'>('box')
+  /** A reply came in the last 90 seconds: what arrives now is its outcome. */
   const listening = useRef(false)
   const stopListening = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => () => clearTimeout(stopListening.current), [])
+  const listen = useCallback(() => {
+    listening.current = true
+    clearTimeout(stopListening.current)
+    stopListening.current = setTimeout(() => { listening.current = false }, 90_000)
+  }, [])
 
   // What came of the reply: the assistant's answer on the conversation, and any alert.
   useEffect(() => {
@@ -47,23 +56,32 @@ export function PatientSimulator({ episodeId, conversationId, patientName, langu
       })
     if (conversationId) {
       channel = channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'whatsapp_messages', filter: `conversation_id=eq.${conversationId}` }, (payload) => {
-        if ((payload.new as { direction?: string }).direction !== 'outbound' || !listening.current) return
+        const row = payload.new as { direction?: string; metadata?: { simulated?: boolean } | null }
+        if (row.direction === 'inbound') {
+          // Written in this box: already being followed. From the phone itself: follow it from here.
+          if (row.metadata?.simulated) return
+          listen()
+          setSource('phone')
+          setOutcome('waiting')
+          signalTour('patient:replied')
+          return
+        }
+        if (!listening.current) return
         setOutcome((o) => (o === 'alerted' ? o : 'answered'))
         signalTour('patient:answered')
       })
     }
     channel.subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [episodeId, conversationId, supabase])
+  }, [episodeId, conversationId, supabase, listen])
 
   async function send(text: string) {
     const message = text.trim()
     if (!message || sending) return
     setSending(true)
     // Listening starts before the request: the answer can arrive as soon as the server has it.
-    listening.current = true
-    clearTimeout(stopListening.current)
-    stopListening.current = setTimeout(() => { listening.current = false }, 90_000)
+    listen()
+    setSource('box')
     setOutcome('waiting')
     signalTour('patient:replied')
     try {
@@ -152,7 +170,7 @@ export function PatientSimulator({ episodeId, conversationId, patientName, langu
 
       {outcome && (
         <p role="status" className="mt-2.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-          {outcome === 'waiting' && <><Loader2 className="h-3.5 w-3.5 animate-spin text-brand" aria-hidden="true" /> Sent as {firstName}. The answer appears in the conversation above in a few seconds.</>}
+          {outcome === 'waiting' && <><Loader2 className="h-3.5 w-3.5 animate-spin text-brand" aria-hidden="true" /> {source === 'phone' ? `A reply came in on WhatsApp from ${firstName}’s phone.` : `Sent as ${firstName}.`} The answer appears in the conversation above in a few seconds.</>}
           {outcome === 'answered' && <><Check className="h-3.5 w-3.5 text-success" aria-hidden="true" /> Answered. {firstName} got the reply on WhatsApp.</>}
           {outcome === 'alerted' && <><BellRing className="h-3.5 w-3.5 text-danger" aria-hidden="true" /> <span className="font-medium text-danger">A nurse was alerted.</span> See the alert at the top of this page.</>}
         </p>
