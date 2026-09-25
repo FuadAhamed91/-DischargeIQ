@@ -9,6 +9,7 @@ export type TourSignal =
   | 'intake:reading'   // a discharge letter went in and is being read
   | 'intake:read'      // …and its details are on screen
   | 'intake:failed'    // …or it could not be read
+  | 'intake:saved'     // the patient was added (detail: 'own' or 'demo', the WhatsApp number used)
   | 'careplan:confirm' // "Approve and send" asked who gets what
   | 'careplan:sent'    // the care plan went out
   | 'careplan:failed'  // …or it did not (detail: why)

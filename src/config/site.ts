@@ -8,17 +8,11 @@ export const siteConfig = {
     support: 'mailto:support@careloop.com',
   },
   /**
-   * Demo: the one WhatsApp number every patient is added with. The Add
-   * patient form shows it filled in and locked, and the server saves it
-   * whatever the form sends, so every care plan, check-in and answer reaches
-   * the demo phone. Patients on one number are told apart by the
-   * shared-number routing (lib/whatsapp/routing.ts). Set it to null to let
-   * staff type each patient's own number again.
+   * Demo: the team's test phone, already joined to the WhatsApp sandbox. Add
+   * patient fills it in with "Use demo number" for anyone who doesn't want to
+   * use their own phone (their own works once it has joined the sandbox:
+   * lib/whatsapp/sandbox.ts). Several patients on it are told apart by the
+   * shared-number routing (lib/whatsapp/routing.ts). null hides the button.
    */
   demoWhatsAppNumber: '+971505263427' as string | null,
-}
-
-/** The number a new patient must get, when the demo fixes one; otherwise the one typed. */
-export function whatsAppNumberFor(typed: string): string {
-  return siteConfig.demoWhatsAppNumber ?? typed
 }

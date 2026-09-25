@@ -6,7 +6,6 @@ import { persistExtraction } from '@/lib/intake/persist-extraction'
 import { INTAKE_ROLES, IntakeCommitSchema, validatePdfUpload } from '@/lib/intake/validate'
 import { isSampleMrn } from '@/lib/intake/sample-letters'
 import { closeSampleEpisode } from '@/lib/intake/sample-restart'
-import { whatsAppNumberFor } from '@/config/site'
 import type { ExtractionResult } from '@/lib/ai/extraction'
 
 export const maxDuration = 60
@@ -17,9 +16,8 @@ export const maxDuration = 60
  * against it and writes the draft summary from the confirmed extraction, so
  * the nurse lands straight on the review/approve page.
  *
- * Demo: the patient gets siteConfig.demoWhatsAppNumber whatever number was
- * sent, and a sample patient's open care plan is closed so the letter can
- * be added again (lib/intake/sample-restart.ts).
+ * Demo: a sample patient's open care plan is closed so the letter can be
+ * added again (lib/intake/sample-restart.ts).
  *
  * All writes go through the service client after the caller's hospital has
  * been resolved from their profile — a nurse may legitimately open a new
@@ -53,7 +51,7 @@ export async function POST(request: Request) {
   }
   const { patient: patientInput, episode: episodeInput, extraction } = parsed.data
   const hospitalId = profile.hospital_id
-  const phone = whatsAppNumberFor(patientInput.phone_e164)
+  const phone = patientInput.phone_e164
   const supabase = await createServiceClient()
 
   // 1. Patient: reuse by MRN within the hospital, otherwise create.

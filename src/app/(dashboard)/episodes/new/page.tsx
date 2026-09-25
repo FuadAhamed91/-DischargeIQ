@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
-  ArrowLeft, Upload, Loader2, CheckCircle2, AlertCircle, X, Users, Check, ChevronRight, ChevronDown, Lock,
+  ArrowLeft, Upload, Loader2, CheckCircle2, AlertCircle, X, Users, Check, ChevronRight, ChevronDown, Smartphone,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,6 +18,9 @@ import { toast } from 'sonner'
 import { siteConfig } from '@/config/site'
 import { SampleLetterPanel, SAMPLE_LETTER_DRAG_TYPE, fetchSampleLetter } from '@/components/intake/sample-letter-panel'
 import { signalTour } from '@/lib/tour/signals'
+import { E164, phoneLine, tidyPhone } from '@/lib/intake/phone'
+import { formatPhone } from '@/lib/format'
+import { SandboxJoinPanel } from '@/components/whatsapp/sandbox-join'
 import { SUPPORTED_LANGUAGES } from '@/types/enums'
 import type { LanguageCode } from '@/types/enums'
 import type { ExtractionResult } from '@/lib/ai/extraction'
@@ -32,10 +35,8 @@ interface NumberInUse {
   episode_status: string
 }
 
-const E164 = /^\+[1-9]\d{6,14}$/
-
-/** Demo: every patient gets this number and the field cannot be changed (siteConfig.demoWhatsAppNumber). */
-const LOCKED_PHONE = siteConfig.demoWhatsAppNumber
+/** Demo:the team's test phone, one click away for anyone who doesn't want to use their own. */
+const DEMO_PHONE = siteConfig.demoWhatsAppNumber
 
 interface FormState {
   full_name: string
@@ -63,7 +64,7 @@ const LANGS = new Set<string>(Object.keys(SUPPORTED_LANGUAGES))
 const today = () => new Date().toISOString().slice(0, 10)
 
 const EMPTY_FORM: FormState = {
-  full_name: '', mrn: '', date_of_birth: '', gender: '', nationality: '', phone_e164: LOCKED_PHONE ?? '',
+  full_name: '', mrn: '', date_of_birth: '', gender: '', nationality: '', phone_e164: '',
   preferred_language: 'en', discharge_date: today(), diagnosis: '', admission_date: '', ward: '', attending_physician: '',
 }
 
@@ -76,7 +77,7 @@ function formFromExtraction(x: ExtractionResult): FormState {
     date_of_birth: p?.date_of_birth ?? '',
     gender: p?.gender ?? '',
     nationality: p?.nationality ?? '',
-    phone_e164: LOCKED_PHONE ?? p?.phone ?? '',
+    phone_e164: p?.phone ?? '',
     preferred_language: (LANGS.has(x.source_language) ? x.source_language : 'en') as LanguageCode,
     discharge_date: e?.discharge_date ?? today(),
     diagnosis: e?.diagnosis ?? '',
@@ -91,7 +92,7 @@ function problemWith(field: RequiredField, form: FormState): string | null {
     case 'full_name': return form.full_name.trim().length < 2 ? 'Enter the patient’s full name.' : null
     case 'mrn': return form.mrn.trim() ? null : 'Enter the MRN.'
     case 'discharge_date': return /^\d{4}-\d{2}-\d{2}$/.test(form.discharge_date) ? null : 'Enter the discharge date.'
-    case 'phone_e164': return E164.test(form.phone_e164.trim()) ? null : 'Enter the number with its country code, e.g. +971501234567.'
+    case 'phone_e164': return E164.test(form.phone_e164.trim()) ? null : 'Type the WhatsApp number with its country code, e.g. +971 50 123 4567.'
   }
 }
 
@@ -135,12 +136,6 @@ export default function NewEpisodePage() {
   const numberInUse = inUse?.phone === phone
     ? inUse.patients.filter((p) => p.full_name.trim().toLowerCase() !== form.full_name.trim().toLowerCase())
     : []
-
-  // The cursor goes to the one field a letter never has, the WhatsApp number, unless the demo
-  // fixes it, when a letter leaves nothing to type.
-  useEffect(() => {
-    if (phase === 'confirm' && !LOCKED_PHONE) phoneRef.current?.focus()
-  }, [phase])
 
   const fromLetter = Boolean(extraction)
 
@@ -285,6 +280,8 @@ export default function NewEpisodePage() {
           ? `Fresh start for ${form.full_name.trim()}: the sample patient’s previous care plan was closed. Check the new one before it is sent.`
           : json.data.patient_existed ? 'Returning patient: a new care plan is started. Check it before it is sent.' : 'Patient added. Check the care plan before it is sent.',
       )
+      // The tour tells a visitor who used their own phone to go and look at it.
+      signalTour('intake:saved', form.phone_e164.trim() === DEMO_PHONE ? 'demo' : 'own')
       router.push(`/episodes/${json.data.episode_id}/review`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Something went wrong')
@@ -296,9 +293,20 @@ export default function NewEpisodePage() {
   const nameNote = noteFor('full_name')
   const mrnNote = noteFor('mrn')
   const dischargeNote = noteFor('discharge_date')
-  const phoneNote = LOCKED_PHONE
-    ? { text: 'Demo number: every patient’s care plan, check-ins and answers go to this WhatsApp.', tone: 'hint' as const }
-    : noteFor('phone_e164', 'Not in the letter. Type it with the country code, e.g. +971501234567.')
+  // The number is checked as it is typed; after a failed save, an empty one says what to do.
+  const phoneCheck = phoneLine(form.phone_e164)
+  const usingDemoPhone = Boolean(DEMO_PHONE) && form.phone_e164.trim() === DEMO_PHONE
+  const phoneNote: { text: string; tone: 'error' | 'warning' | 'hint' | 'ok' } =
+    errors.phone_e164 && !form.phone_e164.trim()
+      ? { tone: 'error', text: DEMO_PHONE ? 'Type a WhatsApp number, or click Use demo number.' : errors.phone_e164 }
+      : errors.phone_e164 && phoneCheck.tone !== 'ok'
+        ? { tone: 'error', text: phoneCheck.text }
+        : usingDemoPhone
+          ? { tone: 'ok', text: 'Demo number: the messages go to our test phone.' }
+          : phoneCheck.tone === 'ok'
+            ? { tone: 'ok', text: `${phoneCheck.text}: the messages go to this WhatsApp.` }
+            : phoneCheck
+  const phoneReady = phoneCheck.tone === 'ok'
 
   return (
     <div className="max-w-5xl space-y-5">
@@ -310,9 +318,8 @@ export default function NewEpisodePage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Add patient</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {LOCKED_PHONE
-              ? 'Drop the discharge letter in the box, or drag in one of the demo letters. The details are read from it: you check them, then approve the care plan.'
-              : 'Drop the discharge letter in the box, or drag in one of the demo letters. The details are read from it: you add the WhatsApp number and check the rest.'}
+            Drop the discharge letter in the box, or drag in one of the demo letters. The details are read from it:
+            you check them, add the WhatsApp number, then approve the care plan.
           </p>
         </div>
         <Steps current={phase === 'confirm' ? 2 : 1} />
@@ -449,30 +456,60 @@ export default function NewEpisodePage() {
             </CardContent>
           </Card>
 
-          <Card data-tour="intake-whatsapp">
+          {/* Until a good number is in, the card stands out: it's the one thing a letter never has. */}
+          <Card data-tour="intake-whatsapp" className={cn(!phoneReady && 'ring-2 ring-brand/45')}>
             <CardHeader>
-              <CardTitle className="text-base">WhatsApp</CardTitle>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Smartphone className="h-4 w-4 text-brand" aria-hidden="true" /> WhatsApp
+              </CardTitle>
               <CardDescription>The care plan, the nightly check-ins and the assistant’s answers all go to this number.</CardDescription>
             </CardHeader>
             <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field id="phone_e164" label="WhatsApp number" required note={phoneNote}>
-                <div className="relative">
-                  <Input
-                    ref={phoneRef}
-                    id="phone_e164"
-                    type="tel"
-                    inputMode="tel"
-                    value={form.phone_e164}
-                    readOnly={!!LOCKED_PHONE}
-                    onChange={(e) => set('phone_e164')(e.target.value.replace(/[\s()-]/g, '').replace(/^00/, '+'))}
-                    placeholder="+971501234567"
-                    autoComplete="tel"
-                    className={cn('h-11', LOCKED_PHONE && 'cursor-default bg-muted/60 pr-9 font-medium tnum')}
-                    {...describe('phone_e164', true)}
-                  />
-                  {LOCKED_PHONE && <Lock className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />}
+              <Field id="phone_e164" label="WhatsApp number" required note={phoneCheck.fix ? null : phoneNote} className="sm:col-span-2">
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <div className="relative sm:max-w-xs sm:flex-1">
+                    <Input
+                      ref={phoneRef}
+                      id="phone_e164"
+                      type="tel"
+                      inputMode="tel"
+                      value={form.phone_e164}
+                      onChange={(e) => set('phone_e164')(tidyPhone(e.target.value))}
+                      placeholder="+971 50 123 4567"
+                      autoComplete="tel"
+                      className={cn('h-11 pr-9 tnum', phoneCheck.tone === 'error' && 'border-danger focus-visible:ring-danger/40')}
+                      {...describe('phone_e164', true)}
+                    />
+                    {phoneReady && <CheckCircle2 className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-success" aria-hidden="true" />}
+                  </div>
+                  {DEMO_PHONE && (
+                    <Button
+                      type="button"
+                      variant={usingDemoPhone ? 'secondary' : 'outline'}
+                      className="h-11 shrink-0"
+                      data-tour="use-demo-number"
+                      onClick={() => set('phone_e164')(DEMO_PHONE)}
+                      title={`Our test phone, ${formatPhone(DEMO_PHONE)}`}
+                    >
+                      {usingDemoPhone ? <Check className="h-4 w-4" aria-hidden="true" /> : <Smartphone className="h-4 w-4" aria-hidden="true" />}
+                      {usingDemoPhone ? 'Demo number in' : 'Use demo number'}
+                    </Button>
+                  )}
                 </div>
-                {numberInUse.length > 0 && LOCKED_PHONE && (
+                {/* What's wrong, then the number it was probably meant to be, one click away */}
+                {phoneCheck.fix && (
+                  <p id="phone_e164-note" className="text-xs text-danger">
+                    {phoneNote.text}{' '}
+                    <button
+                      type="button"
+                      onClick={() => set('phone_e164')(phoneCheck.fix as string)}
+                      className="rounded-sm font-medium text-brand underline underline-offset-2 hover:text-brand/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      Use {formatPhone(phoneCheck.fix)}
+                    </button>
+                  </p>
+                )}
+                {numberInUse.length > 0 && usingDemoPhone && (
                   <p className="flex items-start gap-1.5 text-xs text-muted-foreground" role="status">
                     <Users className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                     <span>
@@ -481,7 +518,7 @@ export default function NewEpisodePage() {
                     </span>
                   </p>
                 )}
-                {numberInUse.length > 0 && !LOCKED_PHONE && (
+                {numberInUse.length > 0 && !usingDemoPhone && (
                   <p className="flex items-start gap-1.5 text-xs text-warning" role="status">
                     <Users className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                     <span>
@@ -511,6 +548,8 @@ export default function NewEpisodePage() {
                   </SelectContent>
                 </Select>
               </Field>
+              {/* Demo: anyone can get the messages on their own phone once it has joined the WhatsApp sandbox */}
+              {DEMO_PHONE && <SandboxJoinPanel className="sm:col-span-2" />}
             </CardContent>
           </Card>
 
@@ -612,8 +651,8 @@ function Field({
   id: string
   label: string
   required?: boolean
-  /** The line under the field: an error after a failed save, a nudge, or a hint. */
-  note?: { text: string; tone: 'error' | 'warning' | 'hint' } | null
+  /** The line under the field: an error after a failed save, a nudge, a hint, or that it's right. */
+  note?: { text: string; tone: 'error' | 'warning' | 'hint' | 'ok' } | null
   className?: string
   children: React.ReactNode
 }) {
@@ -628,7 +667,7 @@ function Field({
       {note && (
         <p
           id={`${id}-note`}
-          className={cn('text-xs', note.tone === 'error' ? 'text-danger' : note.tone === 'warning' ? 'text-warning' : 'text-muted-foreground')}
+          className={cn('text-xs', note.tone === 'error' ? 'text-danger' : note.tone === 'warning' ? 'text-warning' : note.tone === 'ok' ? 'text-success' : 'text-muted-foreground')}
         >
           {note.text}
         </p>
