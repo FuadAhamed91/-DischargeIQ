@@ -21,6 +21,7 @@ import { routeInbound, sessionAfterDelivery, EMPTY_SESSION } from './routing'
 import type { RoutedVia, RoutingDecision } from './routing'
 import { buildNowAboutMessage } from './routing-templates'
 import { shouldReplyToUnknown } from './unknown-number'
+import { withSenderLock, senderKey } from './sender-queue'
 import { sendMessage, markAsRead } from './client'
 import type { OutboundMessage } from './client'
 import { sendAndLog } from './outbound'
@@ -434,6 +435,64 @@ export async function handleInboundMessage(
   if (shared) await redeliverOnSharedNumber(supabase, phoneNumberId, hospital, message.from, candidates, target.episode.id)
 }
 
+type OneOrMany<T> = T | T[] | null
+const one = <T>(value: OneOrMany<T>): T | null => (Array.isArray(value) ? value[0] ?? null : value)
+
+/**
+ * A message written on a demo patient's behalf from their page ("Reply as
+ * Fatima"), for judges who cannot hold the patient's phone. It is handled
+ * exactly as if it had come from that phone: logged on the conversation,
+ * answered, triaged and escalated by the same code, and the replies go out
+ * on WhatsApp. The patient is known, so the shared-number routing is
+ * skipped; the row is marked `simulated` so the transcript can say so.
+ * False when the episode, its patient's number or the hospital's is missing.
+ */
+export async function handleSimulatedPatientMessage(
+  params: { episodeId: string; text: string },
+  deps: HandlerDeps = {},
+): Promise<boolean> {
+  const supabase = deps.supabase ?? (await createServiceClient())
+  const { data, error } = await supabase
+    .from('care_episodes')
+    .select('id, status, hospitals(id, name, timezone, settings, whatsapp_phone_number_id), patients(id, full_name, preferred_language, hospital_id, phone_e164)')
+    .eq('id', params.episodeId)
+    .single()
+  if (error || !data) {
+    console.error('[WhatsApp] simulated reply: episode not found:', params.episodeId, error?.message)
+    return false
+  }
+  const row = data as unknown as {
+    id: string
+    status: string
+    hospitals: OneOrMany<InboundHospital & { whatsapp_phone_number_id: string | null }>
+    patients: OneOrMany<InboundPatient & { phone_e164: string | null }>
+  }
+  const hospital = one(row.hospitals)
+  const patient = one(row.patients)
+  if (!hospital?.whatsapp_phone_number_id || !patient?.phone_e164) return false
+  const phoneNumberId = hospital.whatsapp_phone_number_id
+  const phone = patient.phone_e164
+
+  const message: ParsedInbound = {
+    waMessageId: `SIM${crypto.randomUUID().replace(/-/g, '')}`,
+    from: phone,
+    senderName: patient.full_name,
+    type: 'text',
+    text: params.text,
+    timestamp: Math.floor(Date.now() / 1000),
+  }
+  await withSenderLock(senderKey(phoneNumberId, phone), () => processForPatient({
+    supabase,
+    phoneNumberId,
+    hospital,
+    patient,
+    episode: { id: row.id, status: row.status },
+    message,
+    extraMetadata: { simulated: true },
+  }))
+  return true
+}
+
 /**
  * WhatsApp's 24-hour window belongs to the phone, not to the patient a
  * message was about: a family phone writing about Farzana has just made it
@@ -536,6 +595,8 @@ interface PatientMessageParams {
   message: ParsedInbound
   /** Set when the number is linked to more than one patient: how this message was matched. */
   routing?: RoutingInfo
+  /** Stored on the inbound row with the rest of its metadata (a demo reply is marked `simulated`). */
+  extraMetadata?: Record<string, unknown>
 }
 
 function routingMetadata(routing?: RoutingInfo): Record<string, unknown> | undefined {
@@ -604,7 +665,13 @@ async function processForPatient(params: PatientMessageParams): Promise<void> {
   // 6. Persist inbound message. The UNIQUE wa_message_id makes this the
   // claim: if another delivery of the same SID got here first, it is already
   // replying and this one must not (Twilio retries, double-taps).
-  const logged = await logInbound({ supabase, conversationId: conversation.id, hospitalId: hospital.id, message, metadata: routingMetadata(routing) })
+  const logged = await logInbound({
+    supabase,
+    conversationId: conversation.id,
+    hospitalId: hospital.id,
+    message,
+    metadata: { ...routingMetadata(routing), ...params.extraMetadata },
+  })
   if (logged.status === 'duplicate') {
     console.warn('[WhatsApp] duplicate delivery ignored:', message.waMessageId)
     return
