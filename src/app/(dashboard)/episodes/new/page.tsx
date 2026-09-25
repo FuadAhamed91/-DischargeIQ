@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { siteConfig } from '@/config/site'
 import { SampleLetterPanel, SAMPLE_LETTER_DRAG_TYPE, fetchSampleLetter } from '@/components/intake/sample-letter-panel'
+import { signalTour } from '@/lib/tour/signals'
 import { SUPPORTED_LANGUAGES } from '@/types/enums'
 import type { LanguageCode } from '@/types/enums'
 import type { ExtractionResult } from '@/lib/ai/extraction'
@@ -173,6 +174,7 @@ export default function NewEpisodePage() {
     setFile(f)
     setReadError(null)
     setPhase('reading')
+    signalTour('intake:reading')
 
     try {
       const body = new FormData()
@@ -185,9 +187,11 @@ export default function NewEpisodePage() {
       setForm(formFromExtraction(json.data.extraction))
       setErrors({})
       setPhase('confirm')
+      signalTour('intake:read')
     } catch (err) {
       setReadError(err instanceof Error ? err.message : 'Could not read the letter')
       setPhase('upload') // `file` is kept so the nurse can retry without re-selecting it
+      signalTour('intake:failed')
     }
   }
 
@@ -195,11 +199,16 @@ export default function NewEpisodePage() {
   async function readSampleLetter(id: string) {
     setSampleDragging(false)
     setReadError(null)
+    // The box says it is reading from the moment the letter lands, not once the PDF has downloaded.
+    setFile(null)
+    setPhase('reading')
+    signalTour('intake:reading')
     try {
       await readDocument(await fetchSampleLetter(id))
     } catch (err) {
       setReadError(err instanceof Error ? err.message : 'Could not load the demo letter')
       setPhase('upload')
+      signalTour('intake:failed')
     }
   }
 
@@ -311,11 +320,12 @@ export default function NewEpisodePage() {
 
       {/* Step 1: the letter, with the demo letters beside the box to drag in */}
       {phase !== 'confirm' && (
-        <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]" data-tour="intake-letters">
           <Card>
             <CardContent className="space-y-4">
               <div
                 role="button"
+                data-tour="intake-dropzone"
                 tabIndex={phase === 'reading' ? -1 : 0}
                 aria-label="Choose the discharge letter (PDF)"
                 aria-busy={phase === 'reading'}
@@ -352,7 +362,7 @@ export default function NewEpisodePage() {
                 {phase === 'reading' ? (
                   <div className="flex flex-col items-center gap-2" role="status">
                     <Loader2 className="h-9 w-9 animate-spin text-brand" aria-hidden="true" />
-                    <p className="max-w-full truncate font-medium">Reading {file?.name}</p>
+                    <p className="max-w-full truncate font-medium">Reading {file?.name ?? 'the letter'}</p>
                     <p className="text-sm text-muted-foreground">Finding the patient’s details, medicines and warning signs. This usually takes 10 to 30 seconds.</p>
                   </div>
                 ) : sampleDragging || dragOver ? (
@@ -418,7 +428,7 @@ export default function NewEpisodePage() {
             </div>
           )}
 
-          <Card>
+          <Card data-tour="intake-patient">
             <CardHeader>
               <CardTitle className="text-base">Patient</CardTitle>
               {fromLetter && <CardDescription>Read from the letter. Check it matches the patient.</CardDescription>}
@@ -439,7 +449,7 @@ export default function NewEpisodePage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card data-tour="intake-whatsapp">
             <CardHeader>
               <CardTitle className="text-base">WhatsApp</CardTitle>
               <CardDescription>The care plan, the nightly check-ins and the assistant’s answers all go to this number.</CardDescription>
@@ -552,7 +562,7 @@ export default function NewEpisodePage() {
             <p className="text-xs text-muted-foreground">
               Nothing is sent to the patient until you approve the care plan.
             </p>
-            <Button type="submit" disabled={saving} aria-busy={saving} className="h-11 sm:min-w-56">
+            <Button type="submit" disabled={saving} aria-busy={saving} className="h-11 sm:min-w-56" data-tour="intake-save">
               {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
               {saving ? 'Saving…' : 'Save and check the care plan'}
             </Button>

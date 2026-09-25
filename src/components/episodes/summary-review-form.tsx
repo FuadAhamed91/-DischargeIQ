@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { CARE_PLAN_MESSAGE_INSTRUCTIONS, CARE_PLAN_MESSAGE_WARNINGS } from '@/lib/whatsapp/care-plan-limits'
 import { cn } from '@/lib/utils'
+import { signalTour } from '@/lib/tour/signals'
 import type { FollowUpRequirement, Medication } from '@/types/database'
 import type { SummaryStatus } from '@/types/enums'
 
@@ -211,6 +212,7 @@ export function SummaryReviewForm({ episodeId, summary, patient, checkinTime }: 
       return
     }
     setConfirming(true)
+    signalTour('careplan:confirm')
   }
 
   async function approveAndSend() {
@@ -234,12 +236,14 @@ export function SummaryReviewForm({ episodeId, summary, patient, checkinTime }: 
       if (!sent.ok) throw new Error(json.message ? `${json.error}: ${json.message}` : (json.error ?? 'Could not send the care plan'))
       setConfirming(false)
       toast.success(`Care plan sent to ${firstName} on WhatsApp`)
+      signalTour('careplan:sent')
       router.push(`/episodes/${episodeId}`)
       router.refresh()
     } catch (err) {
       setConfirming(false)
       setBusy(null)
       toast.error(errorText(err, 'Could not send the care plan'), { duration: 10_000 })
+      signalTour('careplan:failed', errorText(err, 'Could not send the care plan'))
       router.refresh()
     }
   }
@@ -263,7 +267,7 @@ export function SummaryReviewForm({ episodeId, summary, patient, checkinTime }: 
 
   return (
     <div className="space-y-4">
-      <Section icon={Pill} title="Medicines" count={count.medicines}>
+      <Section icon={Pill} title="Medicines" count={count.medicines} tourId="review-medicines">
         {medicines.length === 0 ? (
           <Empty>No medicines were found in the letter.</Empty>
         ) : (
@@ -438,14 +442,14 @@ export function SummaryReviewForm({ episodeId, summary, patient, checkinTime }: 
             {busy === 'save' && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
             Save draft
           </Button>
-          <Button type="button" className="h-10 flex-1 sm:flex-none" onClick={askToSend} disabled={busy !== null}>
+          <Button type="button" className="h-10 flex-1 sm:flex-none" onClick={askToSend} disabled={busy !== null} data-tour="review-send">
             <Send className="h-4 w-4" aria-hidden="true" /> {sendLabel}
           </Button>
         </div>
       </div>
 
       <Dialog open={confirming} onOpenChange={(open) => { if (busy !== 'send') setConfirming(open) }}>
-        <DialogContent>
+        <DialogContent data-tour="review-confirm">
           <DialogHeader>
             <DialogTitle>Send the care plan to {patient.name}?</DialogTitle>
             <DialogDescription>
@@ -472,16 +476,18 @@ export function SummaryReviewForm({ episodeId, summary, patient, checkinTime }: 
   )
 }
 
-function Section({ icon: Icon, iconClassName, title, count, description, children }: {
+function Section({ icon: Icon, iconClassName, title, count, description, tourId, children }: {
   icon: ElementType
   iconClassName?: string
   title: string
   count?: number
   description?: string
+  /** What the guided tour calls it (components/tour). */
+  tourId?: string
   children: ReactNode
 }) {
   return (
-    <Card>
+    <Card data-tour={tourId}>
       <CardHeader>
         <CardTitle>
           <h2 className="flex items-center gap-2 text-base font-medium">

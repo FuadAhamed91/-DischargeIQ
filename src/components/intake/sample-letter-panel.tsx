@@ -46,6 +46,7 @@ export function SampleLetterPanel({
             <li key={letter.id} className="relative">
               <button
                 type="button"
+                data-tour={`sample-letter-${letter.id}`}
                 draggable={!disabled}
                 disabled={disabled}
                 onClick={() => onUse(letter.id)}

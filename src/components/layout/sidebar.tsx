@@ -54,6 +54,7 @@ function SidebarLink({ item, pathname }: { item: NavItem; pathname: string }) {
       href={item.href}
       aria-current={active ? 'page' : undefined}
       title={item.label}
+      data-tour={`nav-${item.label.toLowerCase()}`}
       className={cn(
         'relative flex h-10 items-center justify-center gap-3 rounded-md text-sm font-medium transition-colors duration-150 lg:justify-start lg:px-3',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring',
@@ -78,7 +79,7 @@ function WhatsAppLine({ number }: { number: string }) {
   const demoPhone = siteConfig.demoWhatsAppNumber
   return (
     <div className="mt-auto">
-      <div className="hidden rounded-lg border border-sidebar-border bg-background/60 p-3 lg:block">
+      <div className="hidden rounded-lg border border-sidebar-border bg-background/60 p-3 lg:block" data-tour="whatsapp-line">
         <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <MessageCircle className="h-3.5 w-3.5 text-success" aria-hidden="true" /> Patients write to
         </p>

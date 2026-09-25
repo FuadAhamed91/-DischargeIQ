@@ -192,6 +192,7 @@ export default async function OverviewPage() {
         </div>
         <Link
           href="/episodes/new"
+          data-tour="add-patient"
           className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3.5 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
         >
           <Plus className="h-4 w-4" aria-hidden="true" /> Add patient
@@ -199,7 +200,7 @@ export default async function OverviewPage() {
       </div>
 
       {/* Headline numbers — each one opens the screen behind it */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4" data-tour="overview-stats">
         {stats.map((stat) => {
           const Icon = stat.icon
           const tone = TONE[stat.tone]
@@ -224,7 +225,7 @@ export default async function OverviewPage() {
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-5">
         {/* Needs attention: open alerts (live), what is still to follow up, and the last 24 hours */}
-        <Card className="gap-0 py-0 lg:col-span-3">
+        <Card className="gap-0 py-0 lg:col-span-3" data-tour="overview-attention">
           <div className="flex items-center justify-between gap-3 border-b px-5 py-3.5">
             <h2 className="text-base font-medium">
               Needs attention
