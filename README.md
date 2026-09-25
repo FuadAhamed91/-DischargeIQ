@@ -80,10 +80,15 @@ before that. Adding a sample patient again closes their open care plan first
 (`lib/intake/sample-restart.ts`: episode completed, alerts resolved, pending check-ins and
 unconfirmed appointments cancelled), so a letter can be demoed any number of times.
 
-**One WhatsApp number for every patient (demo).** `siteConfig.demoWhatsAppNumber` in
-`src/config/site.ts` (now `+971505263427`) is filled in and locked on the form and saved by the server
-whatever the form sends, so every care plan, check-in and answer reaches the demo phone; patients on
-it are told apart by the shared-number routing. Set it to `null` to type each patient's own number.
+**The WhatsApp number (demo).** The number is typed on Add patient, checked as it is typed (it
+must start with + and the country code; a UAE mobile typed the local way, `050…`, is offered back as
+`+97150…`) and saved as typed; the server accepts E.164 only. **Use demo number** fills in
+`siteConfig.demoWhatsAppNumber` (`+971505263427`, the team's test phone); patients sharing it are
+told apart by the shared-number routing. Anyone can use their own phone instead: the card shows the
+Twilio sandbox QR code (`lib/whatsapp/sandbox.ts`: it opens WhatsApp on +1 415 523 8886 with
+`join claws-general` typed), and once that is sent the phone gets the care plan, the check-ins and
+the answers. The same code is behind **Try it on your phone** in the sidebar. `null` hides the
+demo-number button and the code.
 
 `lib/intake/persist-extraction.ts` is the single place an extraction becomes a summary; the older
 `/api/v1/episodes/[id]/documents` + `/extract` pair still works for re-uploading on an existing
@@ -344,9 +349,11 @@ check-in (not reminder), *Needs review*, *Needs a nurse*.
 
 **Guided tour (for judges and first-time visitors).** The first visit opens a welcome (what
 CareLoop is for, the three things the tour shows) and a two-minute tour that walks one patient
-through the real app: the Overview → **Add patient** (a copy of Fatima's PDF flies from the demo
+through the real app: the Overview → **Try it on your own phone** (the sandbox QR code and what to
+do in WhatsApp, or the demo phone) → **Add patient** (a copy of Fatima's PDF flies from the demo
 letter into the box until the visitor drags it in; on a phone it says tap) → the details read from
-the letter → **Review care plan** → **Approve and send** → the patient's **Conversation** → **Reply
+the letter → the WhatsApp number (Next waits for a whole one; **Do it for me** uses the demo
+number) → **Review care plan** → **Approve and send** → the patient's **Conversation** → **Reply
 as Fatima** (see below) → the alert it raises → Alerts, Analytics. Each step dims the page and lights
 one element; what to click pulses, with a tapping pointer, and **Do it for me** does it. The tour
 moves on when the visitor does what it asks (a click, the next page, a signal from the page), follows
@@ -587,9 +594,8 @@ own patient record by its number, and each patient's Conversation tab updates li
    only message verified numbers, WhatsApp included); an upgraded account skips this.
 2. **Register them as a patient** within 24 hours of that join message: `/episodes/new` → drag a
    demo letter into the box (or drop any discharge PDF) → check the details → **Save and check the care plan**
-   → **Approve and send**. While `siteConfig.demoWhatsAppNumber` is set, every patient gets that one
-   number (the field is locked), so to give each person their own, set it to `null` and type
-   *their* number in international format (+971…, +91…), with a different MRN per patient.
+   → **Approve and send**. Type *their* number in international format (+971…, +91…), with a
+   different MRN per patient (or **Use demo number** for the team's test phone).
    WhatsApp only allows free text within 24 hours of the person's last message; a care plan sent
    later fails with 63016, the episode shows "Care plan not delivered", and it goes out again by
    itself the moment they write anything.
