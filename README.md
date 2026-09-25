@@ -331,7 +331,7 @@ come from clinic days, not a live clinic calendar, and there is no hospital PAS 
 |---|---|
 | `/` | Overview: four headline numbers, **Needs attention** (open alerts, most urgent first, live; key reminders: care plans to review or send, acknowledged alerts to resolve, appointments in the next 3 days not confirmed; alerts per hour over the last 24 hours), tonight's check-ins and the next 7 days of appointments |
 | `/patients` | One row per care plan (episode), red first; filters Active · Needs review · Draft · Completed · All; search; open-alert count per row. `/episodes` redirects here |
-| `/episodes/[id]` | The patient page: header with risk (and **Change**), this patient's open alerts with Acknowledge / Resolve, an at-a-glance line, and three tabs — **Conversation** (with Show English / Translate), **Care plan**, **Activity** |
+| `/episodes/[id]` | The patient page: header with risk (and **Change**), this patient's open alerts with Acknowledge / Resolve, an at-a-glance line, and three tabs — **Conversation** (with Show English / Translate, and **Reply as …** for demo patients), **Care plan**, **Activity** |
 | `/episodes/new`, `/episodes/[id]/review` | **Add patient** (drop the discharge letter, or drag in a demo letter → the few details to check, the rest folded away) and **Review care plan** — medicines, warning signs, follow-ups, instructions — sent with one **Approve and send** after a confirmation |
 | `/patients/[id]` | A patient's history — earlier care plans (linked from the patient page when there are any) |
 | `/appointments` | Appointment status across the hospital; an appointment's own page books the time, asks the patient to confirm, or cancels |
@@ -341,6 +341,31 @@ come from clinic days, not a live clinic calendar, and there is no hospital PAS 
 
 Screens use the words a nurse uses: care plan (not episode), symptom check (not triage), nightly
 check-in (not reminder), *Needs review*, *Needs a nurse*.
+
+**Guided tour (for judges and first-time visitors).** The first visit opens a welcome (what
+DischargeIQ is for, the three things the tour shows) and a two-minute tour that walks one patient
+through the real app: the Overview → **Add patient** (a copy of Fatima's PDF flies from the demo
+letter into the box until the visitor drags it in; on a phone it says tap) → the details read from
+the letter → **Review care plan** → **Approve and send** → the patient's **Conversation** → **Reply
+as Fatima** (see below) → the alert it raises → Alerts, Analytics. Each step dims the page and lights
+one element; what to click pulses, with a tapping pointer, and **Do it for me** does it. The tour
+moves on when the visitor does what it asks (a click, the next page, a signal from the page), follows
+them if they go ahead on their own, shows **Tour paused · Resume** if they wander off, survives a
+reload, and carries on if WhatsApp refuses the care plan. The **Tour** button in the header starts it
+again or resumes it. Esc ends it; the arrow keys page through the steps you only read.
+`src/components/tour/` (steps in `tour-steps.tsx`, state in `tour-store.ts`, the spotlight in
+`tour-layer.tsx`); pages report what the tour can't see through `lib/tour/signals.ts`
+(`intake:reading`, `careplan:failed`, `patient:alerted`…). `npm run check:tour` fails when a step
+points at an element no page marks with `data-tour`.
+
+**Reply as the patient (demo patients only).** Under a demo patient's conversation, **Reply as
+Fatima** lets someone without the patient's phone write as the patient: suggested messages in the
+patient's language (one urgent symptom, two questions) or anything typed.
+`POST /api/v1/episodes/[id]/simulate-reply` runs the text through `handleSimulatedPatientMessage`,
+the same handling as a WhatsApp message from that phone (the routing on a shared number is skipped:
+the patient is known), so the answer goes out on WhatsApp, triage and alerts happen for real, and
+the transcript marks the message *Demo reply*. Only the sample letters' MRNs are accepted; a real
+patient's words are never made up.
 
 Realtime (`postgres_changes`) is enabled for `alerts`, `patient_timeline_events`, `whatsapp_messages` and `whatsapp_number_sessions`.
 
@@ -372,7 +397,7 @@ src/
     pdf/       text-pdf.ts (small text-only PDF writer for the sample letters)
     supabase/  server.ts (user + service clients)  client.ts (browser)  middleware.ts (session refresh + public paths)
     auth/      session.ts  permissions.ts
-  components/  alerts/  analytics/  appointments/  dashboard/ (key reminders, alerts by hour)  episodes/  intake/ (demo letter panel)
+  components/  alerts/  analytics/  appointments/  dashboard/ (key reminders, alerts by hour)  episodes/ (incl. Reply as the patient)  intake/ (demo letter panel)  tour/ (guided tour)
                patients/ (timeline, transcript, adherence)  ui/ (shadcn)
   config/      site.ts (name, demoWhatsAppNumber)
   types/       database.ts  enums.ts  api.ts
@@ -678,7 +703,7 @@ functions callable by `authenticated` (required — policies evaluate them as th
 npm run lint           # eslint — clean; CI runs it with --max-warnings=0
 npx tsc --noEmit       # typecheck
 npm run build          # production build (needs NEXT_PUBLIC_SUPABASE_* set; placeholders are fine)
-npm run check          # all ten below
+npm run check          # all eleven below
 npm run check:intent   # table-driven checks: pre-intent classifier (incl. 139 Arabic phrasings: 102 that must fire, 37 that must not), escalation derivation, FSM (check-in, nurse chat, media), state parsing
 npm run check:routing  # shared-number routing: name prefixes, answers to "who is this about?", the decision order, expiries
 npm run check:webhook  # the inbound handler end to end against an in-memory Supabase and a captured Twilio (no keys, no network)
@@ -689,6 +714,7 @@ npm run check:reschedule  # "2 — change the date": clinic days, the times offe
 npm run check:analytics   # what the dashboard counts: check-in answers ("none taken" included), the 30-day trend, booked vs to-book appointments
 npm run check:sample-letters # the sample letters print to PDFs that read back, are recognised with their printed dates (docs/ copies too), pass the commit schema; adding one again closes the old care plan
 npm run check:model-json     # an AI reply that is nearly JSON still parses: a comma before } or ], a comment, a line break in a string; strings are never changed; anything else is still an error
+npm run check:tour           # the guided tour: steps and the steps they open exist, every element it lights up carries its data-tour marker, Resume opens each step's page; each language's urgent demo reply raises an emergency
 ```
 
 `scripts/lib/fake-supabase.ts` is the in-memory stand-in the webhook check runs on: enough of the
